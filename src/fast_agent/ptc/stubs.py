@@ -5,6 +5,9 @@ input schema. The same stubs are shown to the model and used by Monty's type che
 code that calls a tool incorrectly is rejected before any tool runs. The one difference is
 ``UNSTRUCTURED_RETURNS``: the checker sees ``Any``, because Monty rejects indexing a
 ``str | Any`` result as a dict even though parsed JSON text arrives as one.
+
+Closed object parameters differ too: the model sees their fields inline (``{gte?: str}``), the
+checker sees a private ``TypedDict``, so a dict literal with an unknown key is rejected.
 """
 
 from __future__ import annotations
@@ -14,8 +17,8 @@ import json
 import keyword
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any, Literal
 
 from fast_agent.ptc.catalog import ToolRoute
 from fast_agent.ptc.store import STORE_FUNCTION_NAMES, STORE_STUBS
@@ -72,6 +75,17 @@ UNSTRUCTURED_RETURNS = "str | Any"
 dict/list, or media handles."""
 _MAX_ANNOTATION_DEPTH = 4
 _MAX_RETURNS_CHARS = 1200
+type _Notes = Literal["all", "numeric", "top"]
+"""Which field descriptions a return shape keeps as comments: all; top-level ones and nested
+ones with a number (usually a limit, such as "first 100"); or top-level ones only."""
+# Ways to fit a return shape in _MAX_RETURNS_CHARS, tried in order: (comments kept, depth from
+# which objects collapse to ``{...}``).
+_RETURNS_SHAPE_LEVELS: tuple[tuple[_Notes, int | None], ...] = (
+    ("all", None),
+    ("numeric", None),
+    ("top", None),
+    *(("top", depth) for depth in range(_MAX_ANNOTATION_DEPTH, 0, -1)),
+)
 _FASTMCP_WRAP_RESULT = "x-fastmcp-wrap-result"
 
 
@@ -80,8 +94,23 @@ class PtcParameter:
     python_name: str
     schema_name: str
     annotation: str
+    """The type checker's annotation."""
     required: bool
     description: str | None
+    display: str | None = None
+    """The model-facing annotation, where it differs from ``annotation``."""
+
+
+@dataclass(frozen=True, slots=True)
+class PtcTypedDict:
+    """A closed object parameter (or part of one), typed for the checker as a ``TypedDict``."""
+
+    name: str
+    path: str
+    """Where the object sits in the arguments, e.g. ``createdAt`` or ``filters[].range``."""
+    source: str
+    shape: str
+    """Model-facing rendering of its fields, e.g. ``{gte?: str, lte?: str}``."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +128,8 @@ class PtcFunction:
     builtin: bool = False
     unwrap_result: bool = False
     """FastMCP wrapped a non-object return as structured ``{"result": value}``."""
+    typed_dicts: tuple[PtcTypedDict, ...] = ()
+    """Definitions the type checker's stub needs, inner objects first."""
 
     def bind_arguments(self, kwargs: Mapping[str, Any]) -> dict[str, Any]:
         """Map supplied keywords to schema names, preserving explicit null values."""
@@ -117,7 +148,9 @@ class PtcFunction:
 
         ``type_check`` renders the variant Monty's type checker sees (see the module docstring).
         """
-        parameters = ", ".join(_render_parameter(parameter) for parameter in self._ordered())
+        parameters = ", ".join(
+            _render_parameter(parameter, type_check=type_check) for parameter in self._ordered()
+        )
         if self.accepts_extra:
             extra_name = "kwargs"
             parameter_names = {parameter.python_name for parameter in self.parameters}
@@ -201,6 +234,7 @@ def build_functions(
     ``ledger`` keeps names assigned by earlier builds of the conversation.
     """
     functions: dict[str, PtcFunction] = {}
+    typed_dict_names: set[str] = set()
     # ptc-vocab-v0: preserve the parent rendering exactly in the comparison arm.
     ordered = tools if profile_names else sorted(tools, key=function_order)
     for tool in ordered:
@@ -212,7 +246,7 @@ def build_functions(
             if route is None:
                 route = ToolRoute.from_tool(tool)
             python_name = ledger.allocate(route, candidate, functions, reserved_names)
-        function = _build_function(tool, python_name)
+        function = _build_function(tool, python_name, typed_dict_names)
         if profile_names:
             returns = "Any" if function.returns == UNSTRUCTURED_RETURNS else function.returns
             function = replace(function, builtin=False, returns=returns)
@@ -254,13 +288,19 @@ class PermissionError(OSError): ...
 
 def render_stubs(functions: Mapping[str, PtcFunction]) -> str:
     """Render the type checker's stubs for ``functions`` and the runtime's helpers."""
-    body = "\n\n\n".join(function.stub(type_check=True) for function in functions.values())
+    body = "\n\n\n".join(
+        "\n".join(
+            [*(typed.source for typed in function.typed_dicts), function.stub(type_check=True)]
+        )
+        for function in functions.values()
+    )
     return (
-        f"from typing import Any, Literal\n\n{_MISSING_BUILTIN_STUBS}\n\n{STORE_STUBS}\n\n{body}\n"
+        "from typing import Any, Literal, Required, TypedDict\n\n"
+        f"{_MISSING_BUILTIN_STUBS}\n\n{STORE_STUBS}\n\n{body}\n"
     )
 
 
-def _build_function(tool: Tool, python_name: str) -> PtcFunction:
+def _build_function(tool: Tool, python_name: str, typed_dict_names: set[str]) -> PtcFunction:
     options = tool_ptc_options(tool)
     ptc_schema = options.get("input_schema")
     schema = ptc_schema if isinstance(ptc_schema, Mapping) else tool.input_schema
@@ -269,6 +309,9 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
     required = schema.get("required")
     required_names = set(required) if isinstance(required, list) else set()
     definitions = _definitions(schema)
+    typed_dicts = _TypedDicts(f"_{python_name}__", typed_dict_names)
+    checked = _Renderer(definitions, "check", typed_dicts=typed_dicts)
+    shown = _Renderer(definitions, "display")
 
     parameters: list[PtcParameter] = []
     used_names: set[str] = set()
@@ -279,7 +322,8 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
         used_names.add(parameter_name)
         is_required = schema_name in required_names
         # Optional parameters keep their exact schema type; only nullable ones accept None.
-        annotation = _annotation(property_schema, definitions)
+        annotation = checked.annotation(property_schema, path=parameter_name)
+        display = shown.annotation(property_schema)
         description = (
             property_schema.get("description") if isinstance(property_schema, Mapping) else None
         )
@@ -290,6 +334,7 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
                 annotation=annotation,
                 required=is_required,
                 description=description if isinstance(description, str) else None,
+                display=display if display != annotation else None,
             )
         )
 
@@ -309,7 +354,7 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
     if output_schema is None:
         returns = UNSTRUCTURED_RETURNS
     else:
-        members = _union_members(output_schema, output_definitions, 0)
+        members = _Renderer(output_definitions, "check").members(output_schema, 0)
         if structured:
             # Structured content with media arrives as {"structured_content", "content"}, and a
             # peer's wrapped result may lack "result": both are dicts whatever the schema says.
@@ -327,6 +372,7 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
         returns=returns,
         returns_shape=returns_shape if returns_shape != returns else None,
         unwrap_result=wrapped is not None,
+        typed_dicts=tuple(typed_dicts.collected),
     )
 
 
@@ -349,45 +395,204 @@ def _definitions(schema: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _returns_shape(schema: Mapping[str, Any] | None, definitions: Mapping[str, Any]) -> str | None:
-    """Render an output schema as a compact TypedDict-like shape.
+    """Render an output schema as a compact TypedDict-like shape within ``_MAX_RETURNS_CHARS``.
 
-    Top-level field descriptions become trailing comments, one field per line; nested
-    descriptions are dropped.
+    Field descriptions become trailing comments. Over budget, nested comments go first (those
+    with a number last), then the deepest objects collapse to ``{...}``, then trailing fields
+    are elided.
     """
     if not schema:
         return None
-    properties = schema.get("properties")
-    described = isinstance(properties, Mapping) and any(
-        isinstance(field, Mapping) and isinstance(field.get("description"), str)
-        for field in properties.values()
-    )
-    if described:
-        rendered = _object_shape(schema, definitions, 0, comments=True)
-    else:
-        rendered = _annotation(schema, definitions, shape=True)
-    if len(rendered) > _MAX_RETURNS_CHARS:
-        return f"{rendered[:_MAX_RETURNS_CHARS]}…"
-    return rendered
+    rendered = ""
+    for notes, collapse_depth in _RETURNS_SHAPE_LEVELS:
+        renderer = _Renderer(definitions, "shape", notes=notes, collapse_depth=collapse_depth)
+        rendered = renderer.annotation(schema)
+        if len(rendered) <= _MAX_RETURNS_CHARS:
+            return rendered
+    return _elide(rendered)
 
 
-def _object_shape(
-    schema: Mapping[str, Any], definitions: Mapping[str, Any], depth: int, *, comments: bool = False
-) -> str:
-    properties = schema.get("properties")
-    properties = properties if isinstance(properties, Mapping) else {}
-    required = schema.get("required")
-    required_names = set(required) if isinstance(required, list) else set()
-    fields: list[tuple[str, str]] = []
-    for name, field in properties.items():
-        key = name if str(name).isidentifier() else json.dumps(str(name))
-        optional = "" if name in required_names else "?"
-        rendered = f"{key}{optional}: {_annotation(field, definitions, depth + 1, shape=True)}"
-        description = field.get("description") if isinstance(field, Mapping) else None
-        fields.append((rendered, _one_line(description) if isinstance(description, str) else ""))
-    if not comments:
-        return "{" + ", ".join(field for field, _ in fields) + "}"
-    lines = [f"    {field},{f'  # {note}' if note else ''}" for field, note in fields]
-    return "{\n" + "\n".join(lines) + "\n}"
+def _elide(text: str) -> str:
+    """Cut ``text`` at the last field boundary within ``_MAX_RETURNS_CHARS``."""
+    kept = text[: _MAX_RETURNS_CHARS - 2]
+    boundary = max(kept.rfind(", "), kept.rfind(",\n"))
+    return f"{kept[: boundary + 1] if boundary > 0 else kept} …"
+
+
+@dataclass(slots=True)
+class _TypedDicts:
+    """Names and collects the TypedDicts of one function's closed object parameters."""
+
+    prefix: str
+    taken: set[str]
+    """Names already used by any function of the same stubs."""
+    collected: list[PtcTypedDict] = field(default_factory=list)
+
+    def add(self, path: str, fields: Sequence[tuple[str, str, bool]], shape: str) -> str:
+        """Define a TypedDict with ``(key, annotation, required)`` fields; return its name."""
+        base = f"{self.prefix}{re.sub(r'\W+', '_', path, flags=re.ASCII).strip('_')}"
+        name = base
+        suffix = 2
+        while name in self.taken:
+            name = f"{base}_{suffix}"
+            suffix += 1
+        self.taken.add(name)
+        total = all(required for _, _, required in fields)
+        items = ", ".join(
+            f"{json.dumps(key)}: {annotation if total or not required else f'Required[{annotation}]'}"
+            for key, annotation, required in fields
+        )
+        source = f'{name} = TypedDict("{name}", {{{items}}}{"" if total else ", total=False"})'
+        self.collected.append(PtcTypedDict(name=name, path=path, source=source, shape=shape))
+        return name
+
+
+type _RenderMode = Literal["check", "display", "shape"]
+
+
+@dataclass(frozen=True, slots=True)
+class _Renderer:
+    """Render JSON schemas as Python annotations or as documentation.
+
+    ``check``: annotations for the type checker; closed objects become TypedDicts when
+    ``typed_dicts`` collects them, otherwise ``dict[str, Any]``. ``display``: the model-facing
+    variant, with closed objects written inline as ``{key?: type}``. ``shape``: documentation
+    of return values; every object shows its fields and enums are written ``"a" | "b"``.
+    """
+
+    definitions: Mapping[str, Any]
+    mode: _RenderMode
+    typed_dicts: _TypedDicts | None = None
+    notes: _Notes = "all"
+    """Field descriptions kept as comments (``shape``)."""
+    collapse_depth: int | None = None
+    """Objects at or below this depth render as ``{...}`` (``shape``)."""
+
+    def annotation(self, schema: Any, depth: int = 0, path: str = "") -> str:
+        return _union(self.members(schema, depth, path))
+
+    def members(self, schema: Any, depth: int, path: str = "") -> list[str]:
+        """Return flattened union members so nested unions never repeat a member."""
+        if not isinstance(schema, Mapping) or depth > _MAX_ANNOTATION_DEPTH:
+            return ["Any"]
+        ref = schema.get("$ref")
+        if isinstance(ref, str):
+            target = _resolve_local_ref(ref, self.definitions)
+            if target is None:
+                return ["Any"]
+            siblings = {key: value for key, value in schema.items() if key != "$ref"}
+            return self.members({**target, **siblings}, depth + 1, path)
+        values = [schema["const"]] if "const" in schema else schema.get("enum")
+        if isinstance(values, list) and values:
+            return _literal_members(values) if self.mode == "shape" else [_literal(values)]
+        # Depth counts object nesting and references, which bound recursion and size; unions,
+        # type lists and arrays only wrap this schema's own (finite) branches.
+        for key in ("anyOf", "oneOf"):
+            options = schema.get(key)
+            if isinstance(options, list) and options:
+                return [
+                    member for option in options for member in self.members(option, depth, path)
+                ]
+
+        schema_type = schema.get("type")
+        if isinstance(schema_type, list):
+            return [
+                member
+                for item in schema_type
+                for member in self.members({**schema, "type": item}, depth, path)
+            ]
+        if isinstance(schema_type, str) and schema_type in _JSON_SCALAR_TYPES:
+            return [_JSON_SCALAR_TYPES[schema_type]]
+        if schema_type == "array":
+            return [f"list[{self.annotation(schema.get('items'), depth, f'{path}[]')}]"]
+        properties = schema.get("properties")
+        if schema_type in ("object", None) and isinstance(properties, Mapping):
+            if self.mode == "shape":
+                return [self._object(schema, properties, depth)]
+            # Like tool arguments, an object without additionalProperties is treated as closed
+            # so that misspelled keys are caught.
+            additional = schema.get("additionalProperties")
+            if properties and additional in (None, False):
+                if self.mode == "display":
+                    return [self._object(schema, properties, depth)]
+                if self.typed_dicts is not None:
+                    return [self._typed_dict(self.typed_dicts, schema, properties, depth, path)]
+        if schema_type == "object":
+            additional = schema.get("additionalProperties")
+            if self.mode == "shape" and isinstance(additional, Mapping):
+                return [f"dict[str, {self.annotation(additional, depth + 1)}]"]
+            return ["dict[str, Any]"]
+        return ["Any"]
+
+    def _fields(
+        self, schema: Mapping[str, Any], properties: Mapping[str, Any], depth: int, path: str
+    ) -> list[tuple[str, str, bool, str]]:
+        """Return ``(key, annotation, required, description)`` for each property."""
+        required = schema.get("required")
+        required_names = set(required) if isinstance(required, list) else set()
+        fields: list[tuple[str, str, bool, str]] = []
+        for name, property_schema in properties.items():
+            key = str(name)
+            annotation = self.annotation(property_schema, depth + 1, f"{path}.{key}")
+            description = (
+                property_schema.get("description") if isinstance(property_schema, Mapping) else None
+            )
+            shown = self.mode == "shape" and isinstance(description, str)
+            note = _one_line(description) if shown else ""
+            fields.append((key, annotation, key in required_names, note))
+        return fields
+
+    def _typed_dict(
+        self,
+        typed_dicts: _TypedDicts,
+        schema: Mapping[str, Any],
+        properties: Mapping[str, Any],
+        depth: int,
+        path: str,
+    ) -> str:
+        fields = self._fields(schema, properties, depth, path)
+        shape = _Renderer(self.definitions, "display").annotation(schema, depth)
+        return typed_dicts.add(
+            path, [(key, annotation, required) for key, annotation, required, _ in fields], shape
+        )
+
+    def _object(self, schema: Mapping[str, Any], properties: Mapping[str, Any], depth: int) -> str:
+        """Render ``{key: type, optional?: type}``, on one line unless it has comments.
+
+        With comments, each top-level field, commented field or multi-line field gets its own
+        line; runs of other nested fields share one.
+        """
+        if self.collapse_depth is not None and 0 < self.collapse_depth <= depth:
+            return "{...}"
+        rendered: list[tuple[str, str]] = []
+        for key, annotation, required, note in self._fields(schema, properties, depth, ""):
+            name = key if key.isidentifier() else json.dumps(key)
+            kept = (
+                self.notes == "all"
+                or depth == 0
+                or (self.notes == "numeric" and any(char.isdigit() for char in note))
+            )
+            rendered.append(
+                (f"{name}{'' if required else '?'}: {annotation}", note if kept else "")
+            )
+        if not any(note or "\n" in text for text, note in rendered):
+            return "{" + ", ".join(text for text, _ in rendered) + "}"
+        lines: list[str] = []
+        group: list[str] = []
+        for text, note in rendered:
+            if depth and not note and "\n" not in text:
+                group.append(text)
+                continue
+            if group:
+                lines.append(", ".join(group) + ",")
+                group = []
+            first, newline, rest = text.partition("\n")
+            comment = f"  # {note}" if note else ""
+            lines.append(f"{first}{comment}{newline}{rest}," if newline else f"{text},{comment}")
+        if group:
+            lines.append(", ".join(group) + ",")
+        body = "\n".join(f"    {line}" for block in lines for line in block.split("\n"))
+        return "{\n" + body + "\n}"
 
 
 def _docstring_literal(text: str) -> str:
@@ -401,68 +606,11 @@ def _docstring_literal(text: str) -> str:
     return escaped[:-1] + '\\"' if escaped.endswith('"') else escaped
 
 
-def _render_parameter(parameter: PtcParameter) -> str:
-    rendered = f"{parameter.python_name}: {parameter.annotation}"
+def _render_parameter(parameter: PtcParameter, *, type_check: bool) -> str:
+    annotation = parameter.annotation if type_check else parameter.display or parameter.annotation
+    rendered = f"{parameter.python_name}: {annotation}"
     # `= ...` marks "has a default" in a stub: omitting it lets the tool apply its own default.
     return rendered if parameter.required else f"{rendered} = ..."
-
-
-def _annotation(
-    schema: Any, definitions: Mapping[str, Any], depth: int = 0, *, shape: bool = False
-) -> str:
-    return _union(_union_members(schema, definitions, depth, shape=shape))
-
-
-def _union_members(
-    schema: Any, definitions: Mapping[str, Any], depth: int, *, shape: bool = False
-) -> list[str]:
-    """Return flattened union members so nested unions never repeat a member.
-
-    ``shape`` renders documentation rather than a type annotation: objects show their fields
-    and enums are written as ``"a" | "b"``.
-    """
-    if not isinstance(schema, Mapping) or depth > _MAX_ANNOTATION_DEPTH:
-        return ["Any"]
-    ref = schema.get("$ref")
-    if isinstance(ref, str):
-        target = _resolve_local_ref(ref, definitions)
-        if target is None:
-            return ["Any"]
-        siblings = {key: value for key, value in schema.items() if key != "$ref"}
-        return _union_members({**target, **siblings}, definitions, depth + 1, shape=shape)
-    values = [schema["const"]] if "const" in schema else schema.get("enum")
-    if isinstance(values, list) and values:
-        return _literal_members(values) if shape else [_literal(values)]
-    for key in ("anyOf", "oneOf"):
-        options = schema.get(key)
-        if isinstance(options, list) and options:
-            return [
-                member
-                for option in options
-                for member in _union_members(option, definitions, depth + 1, shape=shape)
-            ]
-
-    schema_type = schema.get("type")
-    if isinstance(schema_type, list):
-        return [
-            member
-            for item in schema_type
-            for member in _union_members(
-                {**schema, "type": item}, definitions, depth + 1, shape=shape
-            )
-        ]
-    if isinstance(schema_type, str) and schema_type in _JSON_SCALAR_TYPES:
-        return [_JSON_SCALAR_TYPES[schema_type]]
-    if schema_type == "array":
-        return [f"list[{_annotation(schema.get('items'), definitions, depth + 1, shape=shape)}]"]
-    if schema_type in ("object", None) and shape and isinstance(schema.get("properties"), Mapping):
-        return [_object_shape(schema, definitions, depth)]
-    if schema_type == "object":
-        additional = schema.get("additionalProperties")
-        if shape and isinstance(additional, Mapping):
-            return [f"dict[str, {_annotation(additional, definitions, depth + 1, shape=True)}]"]
-        return ["dict[str, Any]"]
-    return ["Any"]
 
 
 def _resolve_local_ref(ref: str, definitions: Mapping[str, Any]) -> Mapping[str, Any] | None:

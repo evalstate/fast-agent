@@ -918,6 +918,7 @@ class ProgrammaticToolRuntime:
                     "Type check failed; the code was NOT executed. Fix it and retry.\n"
                     + detail
                     + self._error_hints(detail, catalog)
+                    + _argument_type_hints(detail, catalog)
                     + self._name_hints(undefined_names(detail), catalog)
                 )
             except MontySyntaxError as exc:
@@ -1163,6 +1164,50 @@ def _process_wait_call(process_id: str, catalog: PtcCatalog) -> str | None:
         if name == POLL_PROCESS_TOOL_NAME:
             return f'await {function.python_name}(process_id="{process_id}")'
     return None
+
+
+_EXPECTED_FOUND = re.compile(r"Expected `(.+?)`, found `(.+?)`$", re.MULTILINE)
+_TYPED_DICT_KEY_ERROR = re.compile(r"\[(?:invalid-key|missing-typed-dict-key)\]|on TypedDict `")
+_INLINE_ARGUMENTS_HINT = (
+    "\nHint: write Literal and dict arguments inline in the call; variables and `**kwargs` dicts "
+    "infer plain `str`, `list` or `dict` types. To build one separately, annotate it `Any` "
+    "(`from typing import Any`)."
+)
+
+
+def _argument_type_hints(detail: str, catalog: PtcCatalog) -> str:
+    """Name the keys of rejected dict arguments; point non-literal arguments at inline values.
+
+    The checker names a dict parameter's private TypedDict but not its keys, and rejects a
+    variable holding a valid value because its inferred type is wider than a Literal/TypedDict.
+    """
+    mismatches = _EXPECTED_FOUND.findall(detail)
+    rejected = [
+        (function, typed)
+        for function in catalog.functions.values()
+        for typed in function.typed_dicts
+        if f"TypedDict `{typed.name}`" in detail
+        or any(
+            re.search(rf"\b{re.escape(typed.name)}\b", expected) and "dict[" in found
+            for expected, found in mismatches
+        )
+    ]
+    shapes: dict[tuple[str, str], list[str]] = {}
+    for function, typed in rejected:
+        shapes.setdefault((function.python_name, typed.path), []).append(typed.shape)
+    hints = "".join(
+        f"\nHint: `{path}` of `{name}` takes {' | '.join(options)}."
+        for (name, path), options in shapes.items()
+    )
+    names = [
+        typed.name for function in catalog.functions.values() for typed in function.typed_dicts
+    ]
+    # A literal written inline infers Literal or TypedDict members; a variable infers neither.
+    widened = not _TYPED_DICT_KEY_ERROR.search(detail) and any(
+        any(marker in expected and marker not in found for marker in ("Literal[", *names))
+        for expected, found in mismatches
+    )
+    return hints + (_INLINE_ARGUMENTS_HINT if widened else "")
 
 
 def _sandbox_gap_hint(detail: str, catalog: PtcCatalog) -> str:

@@ -42,6 +42,7 @@ from fast_agent.mcp.url_elicitation_required import (
 )
 from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.ptc.runtime import _ExecutionStats, _NestedCalls
+from fast_agent.ptc.stubs import build_functions
 from fast_agent.ptc.values import MediaStore
 from fast_agent.tools.invocation_context import is_programmatic_tool_call, outer_tool_call_id
 from fast_agent.tools.local_shell_executor import LocalEnvironment
@@ -1029,6 +1030,162 @@ def test_return_shape_documents_fields_compactly() -> None:
     assert 'Returns: {items: list[{id: str, kind: "a" | "b"}], next?: str | None}' in description
     assert "Returns: {\n        code: int,  # Exit code.\n    }" in description
     assert "JSON schema" not in description
+
+
+_RANGE = {
+    "type": "object",
+    "properties": {"gte": {"type": "string"}, "lte": {"type": "string"}},
+    "additionalProperties": False,
+}
+_OBJECT_ARGUMENTS = {
+    "type": "object",
+    "properties": {
+        "created": _RANGE,
+        "filters": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"from": {"type": "string"}, "window": _RANGE},
+                "required": ["from"],
+            },
+        },
+        "labels": {
+            "type": "object",
+            "properties": {"team": {"type": "string"}},
+            "additionalProperties": True,
+        },
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_closed_object_arguments_show_their_keys_and_reject_unknown_ones(runtime) -> None:
+    runtime.model_tools([Tool(name="find", input_schema=_OBJECT_ARGUMENTS)])
+    dispatch = RecordingDispatcher()
+
+    description = runtime.tool().description or ""
+    unknown = await runtime.execute({"code": "await find(created={'from': '2026'})"}, dispatch)
+    nested = await runtime.execute(
+        {"code": "await find(filters=[{'from': 'a', 'window': {'after': 'x'}}])"}, dispatch
+    )
+    missing = await runtime.execute({"code": "await find(filters=[{'window': {}}])"}, dispatch)
+    valid = await runtime.execute(
+        {
+            "code": "await find(created={'gte': '2026'}, "
+            "filters=[{'from': 'a', 'window': {'lte': 'b'}}], labels={'any': 1})"
+        },
+        dispatch,
+    )
+
+    assert "created: {gte?: str, lte?: str} = ..." in description
+    assert "filters: list[{from: str, window?: {gte?: str, lte?: str}}] = ..." in description
+    assert "labels: dict[str, Any] = ..." in description
+    for rejected in (unknown, nested, missing):
+        assert rejected.is_error and "NOT executed" in _text(rejected)
+    assert "Hint: `created` of `find` takes {gte?: str, lte?: str}." in _text(unknown)
+    assert "Hint: `filters[].window` of `find` takes {gte?: str, lte?: str}." in _text(nested)
+    assert not valid.is_error, _text(valid)
+    assert dispatch.calls == [
+        (
+            "find",
+            {
+                "created": {"gte": "2026"},
+                "filters": [{"from": "a", "window": {"lte": "b"}}],
+                "labels": {"any": 1},
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code",
+    [
+        "statuses = ['open']\nfor status in statuses:\n    await orders__get_orders(customer_id='c', status=status)",
+        "created = {'gte': '2026'}\nawait find(created=created)",
+        "kwargs = {'created': {'gte': '2026'}, 'filters': []}\nawait find(**kwargs)",
+    ],
+)
+async def test_typed_arguments_built_outside_the_call_get_a_hint(runtime, code) -> None:
+    runtime.model_tools([*TOOLS, Tool(name="find", input_schema=_OBJECT_ARGUMENTS)])
+    dispatch = RecordingDispatcher()
+
+    result = await runtime.execute({"code": code}, dispatch)
+    annotated = await runtime.execute(
+        {"code": "from typing import Any\n" + re.sub(r"^(\w+) =", r"\1: Any =", code)}, dispatch
+    )
+
+    assert result.is_error and "NOT executed" in _text(result)
+    assert "Hint: write Literal and dict arguments inline in the call" in _text(result)
+    # The hint's way out: a variable annotated `Any` is accepted.
+    assert not annotated.is_error, _text(annotated)
+    assert len(dispatch.calls) == 1
+
+
+def _member_schema(*, handle_note: str, profile_fields: int) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "description": handle_note},
+            "orgs": {
+                "type": "array",
+                "description": "Organizations the member belongs to (first 100).",
+                "items": {"type": "object", "properties": {"name": {"type": "string"}}},
+            },
+            "profile": {
+                "type": "object",
+                "properties": {f"attr_{n}": {"type": "string"} for n in range(profile_fields)},
+            },
+        },
+        "required": ["id"],
+    }
+
+
+def test_return_shapes_keep_nested_descriptions_and_degrade_at_field_boundaries() -> None:
+    long_note = "Member handle. " + "Background detail. " * 70
+    schemas = {
+        "small": _member_schema(handle_note="Member handle.", profile_fields=1),
+        "verbose": _member_schema(handle_note=long_note, profile_fields=1),
+        "deep": _member_schema(handle_note=long_note, profile_fields=100),
+        "flat": {
+            "type": "object",
+            "properties": {f"f_{n}": {"type": "string"} for n in range(200)},
+        },
+    }
+    tools = [
+        Tool(
+            name=name,
+            input_schema={"type": "object"},
+            output_schema={
+                "type": "object",
+                "properties": {"members": {"type": "array", "items": schema}},
+            }
+            if name != "flat"
+            else schema,
+        )
+        for name, schema in schemas.items()
+    ]
+
+    functions = build_functions(tools)
+    shapes = {name: functions[name].returns_shape or "" for name in schemas}
+
+    assert shapes["small"] == (
+        "{\n"
+        "    members?: list[{\n"
+        "        id: str,  # Member handle.\n"
+        "        orgs?: list[{name?: str}],  # Organizations the member belongs to (first 100).\n"
+        "        profile?: {attr_0?: str},\n"
+        "    }],\n"
+        "}"
+    )
+    # Over budget, nested descriptions with a number (usually a limit) are kept longest...
+    assert "# Organizations the member belongs to (first 100)." in shapes["verbose"]
+    assert "Background detail" not in shapes["verbose"]
+    # ...then the deepest objects collapse, keeping the fields around them...
+    assert "{members?: list[{id: str, orgs?: list[{...}], profile?: {...}}]}" == shapes["deep"]
+    # ...and a shape that still cannot fit is cut after a whole field.
+    assert re.search(r", f_\d+\?: str, …$", shapes["flat"])
+    assert all(len(shape) <= 1200 for shape in shapes.values())
 
 
 def test_tools_declare_their_exposure_and_program_return_type() -> None:
