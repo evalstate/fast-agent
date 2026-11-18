@@ -15,8 +15,6 @@ from typing import (
 from rich.text import Text
 
 from fast_agent.commands.results import CommandOutcome
-from fast_agent.core.instruction_refresh import PtcSearchAware
-from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.connect_targets import (
     McpConnectMode,
     ParsedMcpConnectRequest,
@@ -47,7 +45,6 @@ if TYPE_CHECKING:
 
 
 _McpConnectRuntimeMode: TypeAlias = McpConnectMode
-logger = get_logger(__name__)
 
 
 class McpRuntimeManager(Protocol):
@@ -301,22 +298,14 @@ async def _add_tool_search_hint(
     agent_name: str,
     result: MCPAttachResult,
 ) -> None:
-    if not (result.tools_added or result.tools_total):
+    """Point at ``search_tools`` when the attached server's functions are deferred behind it."""
+    agent = ctx.agent_provider._agent(agent_name)
+    if not isinstance(agent, ToolSurfaceProvider):
         return
-    try:
-        agent = ctx.agent_provider._agent(agent_name)
-        if not isinstance(agent, PtcSearchAware) or not agent.ptc_search_enabled:
-            return
-        if not isinstance(agent, ToolSurfaceProvider):
-            return
-        surface = await agent.tool_surface()
-    except Exception:
-        logger.debug("Could not inspect tool search after MCP attach", exc_info=True)
-        return
+    surface = await agent.tool_surface()
     ptc = surface.programmatic
-    if ptc is None or not ptc.search_active:
-        return
-    if not any(
+    # Functions are only deferred while tool search is active.
+    if ptc is None or not any(
         tool.source == result.server_name for tool in surface.programmatic_functions(deferred=True)
     ):
         return
