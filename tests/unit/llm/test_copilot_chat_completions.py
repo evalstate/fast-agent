@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx2
 import pytest
@@ -14,7 +14,7 @@ from openai import AsyncOpenAI
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.config import GoogleSettings, OpenAISettings, Settings
-from fast_agent.constants import REASONING
+from fast_agent.constants import FAST_AGENT_PROVIDER_ERROR, FAST_AGENT_RETRY, REASONING
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_database import ModelDatabase
@@ -25,6 +25,12 @@ from fast_agent.llm.provider.copilot.policy import request_headers
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import RequestParams
+from fast_agent.types.llm_stop_reason import LlmStopReason
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletionMessageParam
+
+    from fast_agent.llm.stream_types import StreamChunk
 
 MODELS = ("gemini-4-argon", "gemini-4-carbon", "gemini-4-hydrogen")
 
@@ -229,3 +235,147 @@ def test_chat_policy_rejects_unsupported_or_unsafe_requests(metadata: dict[str, 
         llm._prepare_api_request(
             [{"role": "user", "content": "hello"}], None, RequestParams(metadata=metadata)
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("first_deltas", "retry_text", "calls_tool"),
+    [
+        (("<end_of_image>",), "Done.", False),
+        (("<end_", "of_image><end_of_image>", "\n<end_of_image>"), "Done.", False),
+        (("<end_of_image>",), "<end_of_image>", False),
+        (("The token is `<end_of_image>`.",), None, False),
+        (("<end_of_image>",), None, True),
+    ],
+)
+async def test_gemini_marker_only_reply_retries_completed_tool_boundary(
+    first_deltas: tuple[str, ...],
+    retry_text: str | None,
+    calls_tool: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = "gemini-4-carbon"
+    bodies: list[dict[str, Any]] = []
+    replies = [first_deltas] if retry_text is None else [first_deltas, (retry_text,)]
+
+    class Broker:
+        async def resolve(
+            self, model_id: str, *, owner_id: str, transport: Literal["sse", "websocket"]
+        ) -> CopilotEndpoint:
+            return CopilotEndpoint(
+                model_id=model_id,
+                wire_api="chat_completions",
+                transport=transport,
+                base_url="https://copilot.example",
+                headers={"authorization": "Bearer dummy-broker-token"},
+            )
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        index = len(bodies)
+        bodies.append(json.loads(request.content))
+        common = {
+            "id": f"chat-{index}",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": model,
+        }
+        chunks: list[dict[str, object]] = [
+            {
+                **common,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": text},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            for text in replies[index]
+        ]
+        if calls_tool:
+            chunks.append(
+                {
+                    **common,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call-next",
+                                        "type": "function",
+                                        "function": {"name": "run", "arguments": "{}"},
+                                    }
+                                ]
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                }
+            )
+        chunks.append(
+            {
+                **common,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "tool_calls" if calls_tool else "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
+            }
+        )
+        content = "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks)
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, content=content + "data: [DONE]\n\n"
+        )
+
+    def client_factory(**kwargs: Any) -> AsyncOpenAI:
+        kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
+        return AsyncOpenAI(**kwargs)
+
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.copilot.broker.get_copilot_broker", lambda context: Broker()
+    )
+    monkeypatch.setattr("fast_agent.llm.provider.copilot.openai_client.AsyncOpenAI", client_factory)
+    llm = CopilotChatCompletionsLLM(model=model, context=Context(config=Settings()))
+    events: list[StreamChunk] = []
+    llm.add_stream_listener(events.append)
+    messages: list[ChatCompletionMessageParam] = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {"id": "call-1", "type": "function", "function": {"name": "run", "arguments": "{}"}}
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call-1", "content": "already ran once"},
+    ]
+    result = await llm._openai_completion(messages)
+    assert bodies[0]["messages"] == messages
+    if retry_text is None:
+        assert len(bodies) == 1
+        assert result.first_text() == "".join(first_deltas)
+        if calls_tool:
+            assert result.stop_reason is LlmStopReason.TOOL_USE
+            assert result.tool_calls is not None and "call-next" in result.tool_calls
+        else:
+            assert result.stop_reason is LlmStopReason.END_TURN
+        assert not any(event.event == "rollback" for event in events)
+        return
+
+    assert len(bodies) == 2
+    assert bodies[1]["messages"] == bodies[0]["messages"]
+    assert result.channels is not None
+    assert FAST_AGENT_RETRY in result.channels
+    assert "<end_of_image>" not in json.dumps(llm.history.get())
+    if retry_text == "<end_of_image>":
+        assert result.stop_reason is LlmStopReason.ERROR
+        assert "only <end_of_image> markers" in result.all_text()
+        assert FAST_AGENT_PROVIDER_ERROR in result.channels
+        assert sum(event.event == "rollback" for event in events) == 2
+    else:
+        assert result.first_text() == retry_text
+        assert result.stop_reason is LlmStopReason.END_TURN
+        assert sum(event.event == "rollback" for event in events) == 1

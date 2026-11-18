@@ -1493,6 +1493,10 @@ class OpenAILLM(
             ]
         return channels or None
 
+    def _unusable_completion_text(self, model: str, text: str) -> str | None:
+        """Describe provider-specific text artifacts that are not usable assistant output."""
+        return None
+
     async def _finalize_openai_completion(
         self,
         request: _OpenAICompletionRequest,
@@ -1513,11 +1517,25 @@ class OpenAILLM(
 
         choice = response.choices[0]
         message = choice.message
-        response_content_blocks = self._append_openai_assistant_history(
-            request.messages, message, request.model_name
-        )
         stop_result = await self._openai_stop_result(choice, message)
-        self.history.set(request.messages)
+        unusable_output = None
+        if (
+            stop_result.stop_reason == LlmStopReason.END_TURN
+            and message.content
+            and not (
+                message.tool_calls or message.function_call or message.refusal or message.audio
+            )
+        ):
+            unusable_output = self._unusable_completion_text(request.model_name, message.content)
+        if unusable_output is None:
+            response_content_blocks = self._append_openai_assistant_history(
+                request.messages, message, request.model_name
+            )
+            self.history.set(request.messages)
+        else:
+            # Present an empty completion to the one-shot retry, without committing the artifact.
+            response_content_blocks = []
+            self._notify_stream_listeners(StreamChunk(event="rollback"))
         self._log_chat_finished(model=request.model_name)
         reasoning_blocks = self._openai_reasoning_blocks(completion.streamed_reasoning)
         result = PromptMessageExtended(
@@ -1542,6 +1560,7 @@ class OpenAILLM(
                 reasoning_tokens=details.reasoning_tokens if details is not None else None,
                 reasoning_chars=sum(len(part) for part in completion.streamed_reasoning),
                 streamed=completion.streamed,
+                unusable_output=unusable_output,
             ),
         )
         return result
@@ -1566,7 +1585,9 @@ class OpenAILLM(
         model_name = self._openai_completion_model_name(request_params)
         diagnostics = empty_completion_diagnostics(response)
         self.logger.warning(
-            "OpenAI completion returned no assistant content or tool calls; retrying once",
+            "Chat completion returned unusable assistant output; retrying once"
+            if diagnostics.unusable_output
+            else "OpenAI completion returned no assistant content or tool calls; retrying once",
             data={"model": model_name, "empty_completion": asdict(diagnostics)},
         )
         retry = await self._openai_completion_once(message, request_params, tools)

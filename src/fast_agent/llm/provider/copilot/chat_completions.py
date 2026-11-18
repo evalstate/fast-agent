@@ -66,6 +66,13 @@ class CopilotChatCompletionsLLM(OpenAILLM):
     def supports_files_api(self) -> bool:
         return False
 
+    def _unusable_completion_text(self, model: str, text: str) -> str | None:
+        # Gemini's Copilot gateway sometimes emits only the image boundary token as text.
+        marker = "<end_of_image>"
+        if model.startswith("gemini-") and marker in text and not text.replace(marker, "").strip():
+            return "only <end_of_image> markers"
+        return None
+
     def _prepare_api_request(
         self,
         messages: list[ChatCompletionMessageParam],
