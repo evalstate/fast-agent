@@ -17,7 +17,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
-from fast_agent.ptc.catalog import tool_identity
+from fast_agent.ptc.catalog import ToolRoute
 from fast_agent.ptc.store import STORE_FUNCTION_NAMES, STORE_STUBS
 from fast_agent.ptc.vocabulary import function_order, is_builtin_tool
 
@@ -193,6 +193,7 @@ def build_functions(
     reserved_names: frozenset[str] = frozenset(),
     profile_names: bool = False,
     ledger: PtcNameLedger | None = None,
+    routes: Mapping[str, ToolRoute] | None = None,
 ) -> dict[str, PtcFunction]:
     """Build sandbox functions keyed by Python name, resolving name collisions.
 
@@ -204,11 +205,13 @@ def build_functions(
     ordered = tools if profile_names else sorted(tools, key=function_order)
     for tool in ordered:
         candidate = _global_identifier(tool.name, reserved_names)
-        python_name = (
-            ledger.allocate(tool_identity(tool.name), candidate, functions, reserved_names)
-            if ledger is not None
-            else _unique(candidate, functions)
-        )
+        if ledger is None:
+            python_name = _unique(candidate, functions)
+        else:
+            route = routes.get(tool.name) if routes else None
+            if route is None:
+                route = ToolRoute.from_tool(tool)
+            python_name = ledger.allocate(route, candidate, functions, reserved_names)
         function = _build_function(tool, python_name)
         if profile_names:
             returns = "Any" if function.returns == UNSTRUCTURED_RETURNS else function.returns

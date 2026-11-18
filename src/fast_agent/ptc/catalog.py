@@ -10,10 +10,12 @@ so a newly connected tool can neither take an existing name nor inherit a remove
 from __future__ import annotations
 
 import hashlib
+import keyword
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final, Literal, NamedTuple
+from functools import cached_property
+from typing import TYPE_CHECKING, Final, Literal
 
-from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespaced_name
+from fast_agent.mcp.common import get_server_name, is_namespaced_name
 from fast_agent.ptc.vocabulary import is_builtin_tool
 
 if TYPE_CHECKING:
@@ -40,25 +42,31 @@ _ROSTER_HEADER = (
 )
 
 
-class ToolIdentity(NamedTuple):
-    """Source-qualified identity of a tool, independent of its Python name."""
+@dataclass(frozen=True, slots=True)
+class ToolRoute:
+    """A tool's origin and raw name (server-qualified for MCP), independent of any alias."""
 
-    kind: Literal["local", "mcp"]
-    server: str
+    origin: Literal["builtin", "local", "mcp"]
     name: str
 
+    @classmethod
+    def from_tool(cls, tool: Tool) -> ToolRoute:
+        """Default origin for standalone runtimes that receive tools without agent aliases."""
+        if is_builtin_tool(tool):
+            return cls("builtin", tool.name)
+        return cls("mcp" if is_namespaced_name(tool.name) else "local", tool.name)
 
-class ToolRoute(NamedTuple):
-    """Where a function aliased away from its tool name dispatches: the tool and its origin."""
 
-    name: str
-    local: bool
+@dataclass(frozen=True, slots=True)
+class PtcBindings:
+    """The conversation's name reservations, including tools currently unavailable."""
+
+    functions: dict[str, ToolRoute]
+    listed: dict[str, ToolRoute]
 
 
-def tool_identity(tool_name: str) -> ToolIdentity:
-    if is_namespaced_name(tool_name):
-        return ToolIdentity("mcp", get_server_name(tool_name), get_resource_name(tool_name))
-    return ToolIdentity("local", "", tool_name)
+def unavailable_tool_message(name: str) -> str:
+    return f"`{name}` is no longer available (its tool source was disconnected or removed)."
 
 
 def function_source(tool: Tool, overrides: Mapping[str, str]) -> str:
@@ -81,12 +89,13 @@ class PtcNameLedger:
     """
 
     def __init__(self) -> None:
-        self._names: dict[ToolIdentity, str] = {}
-        self._identities: dict[str, ToolIdentity] = {}
+        self._names: dict[ToolRoute, str] = {}
+        self._identities: dict[str, ToolRoute] = {}
+        self.listed: dict[str, ToolRoute] = {}
 
     def allocate(
         self,
-        identity: ToolIdentity,
+        identity: ToolRoute,
         candidate: str,
         taken: Collection[str],
         reserved: Collection[str] = (),
@@ -112,6 +121,18 @@ class PtcNameLedger:
         self._identities[name] = identity
         return name
 
+    def snapshot(self) -> PtcBindings:
+        return PtcBindings(self._identities.copy(), self.listed.copy())
+
+    def restore(self, bindings: PtcBindings) -> None:
+        # Restored names enter generated Python stubs and the sandbox prelude.
+        for name in bindings.functions:
+            if not name.isascii() or not name.isidentifier() or keyword.iskeyword(name):
+                raise ValueError(f"Invalid PTC function name: {name!r}")
+        self._identities = bindings.functions.copy()
+        self._names = {route: name for name, route in bindings.functions.items()}
+        self.listed = bindings.listed.copy()
+
     def retired(self, current: Collection[str]) -> frozenset[str]:
         """Names assigned earlier in the conversation that are not in ``current``."""
         return frozenset(name for name in self._identities if name not in current)
@@ -119,6 +140,7 @@ class PtcNameLedger:
     def clear(self) -> None:
         self._names.clear()
         self._identities.clear()
+        self.listed.clear()
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +199,7 @@ def build_roster(
     return SourceRoster(tuple(sorted(entries, key=lambda entry: entry.name.casefold())))
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PtcCatalog:
     """An immutable snapshot of the sandbox's functions and their definition visibility."""
 
@@ -198,12 +220,17 @@ class PtcCatalog:
     retired: frozenset[str] = frozenset()
     """Names assigned earlier in this conversation whose tools are gone."""
     routes: Mapping[str, ToolRoute] = field(default_factory=dict)
-    """Origin-qualified destination of each external (non-built-in) function's tool, by listed
+    """Origin-qualified destination of each canonical function's tool, by listed
     name; a run dispatches its nested calls through the routes of the catalogue it captured."""
     search_index: dict[str, SearchDocument] = field(
         default_factory=dict, init=False, compare=False, repr=False
     )
     """``search_tools`` documents by Python name, built on this catalogue's first search."""
+
+    @cached_property
+    def mention_names(self) -> frozenset[str]:
+        """Names accepted by ``^tool:``, computed on first use of this snapshot."""
+        return frozenset(self.functions) | (self.tools.keys() - self.retired)
 
     @property
     def upfront(self) -> list[PtcFunction]:

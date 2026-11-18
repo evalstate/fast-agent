@@ -11,6 +11,7 @@ from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, Te
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.agents.subagent_tool import set_subagent_tool_enabled
 from fast_agent.config import MCPServerSettings, ProgrammaticToolCallingSettings, Settings
 from fast_agent.constants import (
     FAST_AGENT_COMPACTION_CHANNEL,
@@ -18,6 +19,7 @@ from fast_agent.constants import (
     HUMAN_INPUT_TOOL_NAME,
 )
 from fast_agent.context import Context
+from fast_agent.core.harness_tools import set_harness_tools
 from fast_agent.core.instruction_refresh import format_server_instructions
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.model_factory import ModelFactory
@@ -28,11 +30,14 @@ from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.ptc.catalog import TOOL_SOURCES_FINGERPRINT_META
+from fast_agent.session import SessionHydrator
+from fast_agent.session.session_manager import SessionManager
 from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.types import RequestParams
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Mapping
+    from pathlib import Path
 
     from fastmcp.tools import FunctionTool
 
@@ -314,6 +319,110 @@ async def test_roster_accompanies_requests_without_history(harness: _Agent) -> N
 
 
 @pytest.mark.asyncio
+async def test_session_restores_original_routes_and_reports_missing_tools(
+    harness: _Agent, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    primary = Tool(name="svc__get_info", input_schema={})
+    collision = Tool(name="svc__get-info", input_schema={})
+    missing = Tool(name="svc__missing", input_schema={})
+    shared = Tool(name="svc__review", input_schema={})
+    seen: list[str] = []
+    harness.agent.add_tool(_local_tool(shared.name, seen))
+    harness.tools = [*harness.tools, primary, missing]
+    await harness.agent.list_tools()
+    harness.tools = [*harness.tools, collision, shared]
+    await harness.send()
+    manager = SessionManager(cwd=tmp_path, home_override=tmp_path, respect_env_override=False)
+    session = manager.create_session()
+    await session.save_history(harness.agent)
+    fork = manager.fork_session(session.info.name)
+    assert fork is not None
+
+    async with _running() as resumed:
+        resumed.agent.add_tool(_local_tool(shared.name, seen))
+        resumed.tools = [*resumed.tools, collision, primary, shared]
+        await resumed.agent.list_tools()  # Allocated in a different order before resume.
+        result = await SessionHydrator().hydrate_session(
+            session=fork,
+            agents={resumed.agent.name: resumed.agent},
+            fallback_agent_name=resumed.agent.name,
+        )
+        assert any(
+            w.code == "ptc-bindings-unresolved" and "svc__missing" in w.message
+            for w in result.warnings
+        )
+        assert resumed.agent.ptc_bindings == harness.agent.ptc_bindings
+        _record_mcp_calls(resumed, monkeypatch, seen)
+        text = await _run(
+            resumed.agent,
+            "await svc__review()\nawait svc__review_tool()\nawait svc__get_info()\n"
+            "try:\n    await svc__missing()\nexcept RuntimeError:\n    await svc__get_info_2()",
+        )
+        assert seen == [
+            f"local:{shared.name}",
+            f"mcp:{shared.name}",
+            f"mcp:{primary.name}",
+            f"mcp:{collision.name}",
+        ], text
+        resumed.tools = [*resumed.tools, missing]
+        await resumed.agent.list_tools()
+        await _run(resumed.agent, "await svc__missing()")
+        assert seen[-1] == f"mcp:{missing.name}"
+
+
+@pytest.mark.asyncio
+async def test_removed_plain_name_cannot_be_inherited_by_a_new_alias(harness: _Agent) -> None:
+    agent = harness.agent
+    seen: list[str] = []
+    agent.add_tool(_local_tool("exec_sandbox_tool", seen))
+    await agent.list_tools()
+    agent.remove_tool("exec_sandbox_tool")
+    agent.add_tool(_local_tool("exec_sandbox", seen))
+    await agent.list_tools()
+    text = await _run(
+        agent,
+        "try:\n    await exec_sandbox_tool()\nexcept RuntimeError:\n    await exec_sandbox_tool_2()",
+    )
+    assert seen == ["local:exec_sandbox"], text
+
+
+@pytest.mark.asyncio
+async def test_enabling_builtin_keeps_an_existing_user_binding(harness: _Agent) -> None:
+    agent = harness.agent
+    set_harness_tools(agent, False)
+    seen: list[str] = []
+    agent.add_tool(_local_tool("get_resource", seen))
+    await agent.list_tools()
+    set_harness_tools(agent, True)
+    await agent.list_tools()
+
+    text = await _run(agent, "await get_resource()")
+    assert seen == ["local:get_resource"], text
+    assert agent.ptc_bindings.functions["get_resource"].origin == "local"
+    assert agent.ptc_bindings.functions["get_resource_2"].origin == "builtin"
+
+
+@pytest.mark.asyncio
+async def test_captured_builtin_fails_locally_after_disable(
+    harness: _Agent, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    agent = harness.agent
+    assert set_subagent_tool_enabled(agent, True)
+    seen: list[str] = []
+    _record_mcp_calls(harness, monkeypatch, seen)
+    harness.tools = [Tool(name="svc__subagent", input_schema={})]
+
+    def disable() -> bool:
+        return set_subagent_tool_enabled(agent, False)
+
+    agent.add_tool(build_default_function_tool(disable))
+    await agent.list_tools()
+    text = await _run(agent, 'await disable()\nprint(await settle(subagent(message="hello")))')
+    assert "`subagent` is no longer available" in text
+    assert seen == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("local_first", [False, True])
 async def test_first_holder_keeps_a_shared_name(
     harness: _Agent, monkeypatch: pytest.MonkeyPatch, local_first: bool
@@ -509,6 +618,7 @@ async def test_mention_names_follow_the_latest_catalogue(harness: _Agent) -> Non
     await harness.agent.list_tools()
     names = harness.agent.ptc_mention_names
     assert names is not None and {"github__op_0", "github__op_3"} <= names
+    assert harness.agent.ptc_mention_names is names
 
     harness.tools = _tools("github", 1)
     await harness.agent.list_tools()

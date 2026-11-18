@@ -201,7 +201,7 @@ def _message_text_summary(message: "PromptMessageExtended") -> _TextSummary:
     text = next(
         (
             block_text
-            for block in user_authored_content(message.content)
+            for block in user_authored_content(message.content, as_typed=message.role == "user")
             if (block_text := get_text(block)) is not None
         ),
         "<no text>",

@@ -218,7 +218,7 @@ async def test_settle_helper_and_tool_are_both_callable(type_check: bool) -> Non
 async def test_removed_function_is_explained_with_or_without_type_checking(
     type_check: bool,
 ) -> None:
-    """Runtime NameErrors get the same hint as the type checker's undefined names."""
+    """Removed functions raise at the call site, so a script can recover in place."""
     runtime = ProgrammaticToolRuntime(
         ProgrammaticToolCallingSettings(enabled=True, type_check=type_check)
     )
@@ -230,7 +230,14 @@ async def test_removed_function_is_explained_with_or_without_type_checking(
     try:
         result = await runtime.execute({"code": "await gone()"}, RecordingDispatcher())
         assert result.is_error
-        assert "Hint: `gone` is no longer available" in _text(result)
+        assert "RuntimeError: `gone` is no longer available" in _text(result)
+        dispatch = RecordingDispatcher()
+        recovered = await runtime.execute(
+            {"code": "try:\n    await gone(old_arg=42)\nexcept RuntimeError:\n    await kept()"},
+            dispatch,
+        )
+        assert not recovered.is_error, _text(recovered)
+        assert dispatch.calls == [("kept", {})]
         runtime.reset_conversation()
         assert runtime.catalog.retired == frozenset()
     finally:

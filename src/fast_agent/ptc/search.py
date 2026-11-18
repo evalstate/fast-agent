@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
 from fast_agent.mcp.common import get_resource_name, is_namespaced_name
+from fast_agent.ptc.catalog import unavailable_tool_message
 from fast_agent.ptc.stubs import tool_ptc_options
 
 if TYPE_CHECKING:
@@ -33,10 +34,12 @@ async def search_tools(
     server: str | None = None,
     limit: int = 5,
     exclude: list[str] | tuple[str, ...] | set[str] | None = None,
+    offset: int = 0,
 ) -> str:
     """Search deferred sandbox functions by task keywords (e.g. "list repository files") or exact function name.
     Pass `server` to scope to one source from <fastagent:tool-sources>, or `exclude` to skip function names already seen.
-    Omit `query` to list searchable sources. Print or return the result to inspect full callable Python stubs."""
+    Omit `query` to list searchable sources. If a result continues, repeat the call with the supplied `offset`.
+    Print or return the result to inspect full callable Python stubs."""
     ...
 '''
 DEFAULT_LIMIT: Final = 5
@@ -303,6 +306,7 @@ def search_tools(
     server: str | None = None,
     limit: int = DEFAULT_LIMIT,
     exclude: list[str] | tuple[str, ...] | set[str] | frozenset[str] | None = None,
+    offset: int = 0,
     byte_limit: int | None = None,
 ) -> str:
     """Run a ``search_tools`` call from sandbox code against ``catalog``.
@@ -316,13 +320,41 @@ def search_tools(
         raise TypeError("search_tools() server must be a str or None")
     if isinstance(limit, bool) or not isinstance(limit, int):
         raise TypeError("search_tools() limit must be an int")
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        raise ValueError("search_tools() offset must be a non-negative integer")
     excluded = _excluded_names(exclude)
     limit = min(max(limit, 1), MAX_LIMIT)
-    budget = (
-        _SEARCH_RESULT_BYTE_LIMIT
-        if byte_limit is None
-        else min(_SEARCH_RESULT_BYTE_LIMIT, byte_limit - _RESULT_FRAMING_BYTES)
-    )
+    budget = _SEARCH_RESULT_BYTE_LIMIT
+    if byte_limit is not None:
+        framing = min(_RESULT_FRAMING_BYTES, byte_limit // 2)
+        budget = max(0, min(budget, byte_limit - framing))
+    result = _search_result(catalog, query, server, limit, excluded, budget)
+    return _result_page(result, offset, budget)
+
+
+def _result_page(result: str, offset: int, budget: int) -> str:
+    """Fit the returned text and its continuation in the budget, preferring whole lines."""
+    remaining = result[offset:]
+    encoded = remaining.encode()
+    if len(encoded) <= budget:
+        return remaining
+    continuation = "\n# Continue with offset={}"
+    room = budget - len(continuation.format(len(result)))
+    if room < 4:  # Insufficient room for one UTF-8 character and a continuation.
+        return "Result limit too small."[:budget]
+    prefix = encoded[:room].decode(errors="ignore")
+    end = prefix.rfind("\n") + 1 or len(prefix)
+    return prefix[:end] + continuation.format(offset + end)
+
+
+def _search_result(
+    catalog: PtcCatalog,
+    query: str | None,
+    server: str | None,
+    limit: int,
+    excluded: frozenset[str],
+    budget: int,
+) -> str:
     source = None
     if server is not None and server.strip():
         source = _resolve_source(catalog, server)
@@ -365,11 +397,11 @@ def search_tools(
     retired = _retired_name(catalog, query)
     if not matches:
         if retired is not None:
-            return f"# search_tools: {_gone(retired)}"
+            return f"# search_tools: {unavailable_tool_message(retired)}"
         return _no_matches(
             catalog, query, source, excluded_hits=len(all_matches) if excluded else 0
         )
-    note = f"# Note: {_gone(retired)}" if retired is not None else None
+    note = f"# Note: {unavailable_tool_message(retired)}" if retired is not None else None
     return _render_matches(matches, limit, source, budget, note)
 
 
@@ -382,10 +414,6 @@ def _retired_name(catalog: PtcCatalog, query: str) -> str | None:
         return None
     folded = name.casefold()
     return next((old for old in sorted(catalog.retired) if old.casefold() == folded), None)
-
-
-def _gone(name: str) -> str:
-    return f"`{name}` is no longer available (its tool source was disconnected or removed)."
 
 
 def _resolve_source(catalog: PtcCatalog, server: str) -> str | None:

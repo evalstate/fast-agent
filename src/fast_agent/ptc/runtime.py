@@ -41,6 +41,7 @@ from fast_agent.ptc.catalog import (
     ToolRoute,
     build_roster,
     function_source,
+    unavailable_tool_message,
 )
 from fast_agent.ptc.output import (
     OUTPUT_HELPER_NAMES,
@@ -379,7 +380,9 @@ class _PrintedOutput:
 class ProgrammaticToolRuntime:
     """Owns the Monty pool, a fresh sandbox per run, and the store that runs share."""
 
-    def __init__(self, settings: ProgrammaticToolCallingSettings) -> None:
+    def __init__(
+        self, settings: ProgrammaticToolCallingSettings, *, ledger: PtcNameLedger | None = None
+    ) -> None:
         self._settings = settings
         # ptc-vocab-v0: route override can change without resetting the sandbox store.
         self.function_names = settings.function_names
@@ -389,7 +392,7 @@ class ProgrammaticToolRuntime:
         self.search_enabled = settings.search
         self._direct_patterns = list(settings.direct_tools)
         self._warned_patterns: set[str] = set()
-        self._ledger = PtcNameLedger()
+        self._ledger = ledger if ledger is not None else PtcNameLedger()
         self._catalog = PtcCatalog(type_check_stubs=render_stubs({}))
         self._direct_shell_tool: str | None = None
         self._tool_format: PtcToolFormat = "json"
@@ -504,6 +507,7 @@ class ProgrammaticToolRuntime:
             profile_names=not canonical,
             reserved_names=(reserved | {SEARCH_FUNCTION_NAME}) if canonical else reserved,
             ledger=self._ledger if canonical else None,
+            routes=routes,
         )
         tools = {tool.name: tool for tool in nested}
         function_sources = {
@@ -555,8 +559,16 @@ class ProgrammaticToolRuntime:
             routes=routes,
         )
 
-    def _prelude(self) -> str:
-        return _PRELUDE + (OUTPUT_PRELUDE if self._output_guidance != "off" else "")
+    def _prelude(self, catalog: PtcCatalog) -> str:
+        # Old calls stay catchable after a refresh, without advertising missing tools.
+        helpers = self._output_guidance != "off"
+        retired = catalog.retired - OUTPUT_HELPER_NAMES if helpers else catalog.retired
+        unavailable = "".join(
+            f"\nasync def {name}(*args, **kwargs):\n"
+            f"    raise RuntimeError({unavailable_tool_message(name)!r})\n"
+            for name in sorted(retired)
+        )
+        return _PRELUDE + unavailable + (OUTPUT_PRELUDE if helpers else "")
 
     def surface(self, model_tools: Sequence[Tool]) -> ToolSurface:
         """Describe ``model_tools`` (as returned by ``model_tools()``) and the sandbox functions."""
@@ -847,7 +859,7 @@ class ProgrammaticToolRuntime:
         async with self._lock:
             # One catalogue for the whole run: a tool list refresh applies from the next run.
             catalog = self._catalog if catalog is None else catalog
-            prelude = self._prelude()
+            prelude = self._prelude(catalog)
             self._executions += 1
             stats = _ExecutionStats()
             output = _PrintedOutput()
@@ -942,10 +954,15 @@ class ProgrammaticToolRuntime:
         return self._direct_io_hint(detail, catalog) or _sandbox_gap_hint(detail, catalog)
 
     def _name_hints(self, undefined: set[str], catalog: PtcCatalog) -> str:
-        """Explain undefined names: renamed functions, retired ones and inactive search."""
+        """Explain renamed functions and inactive search."""
         # ptc-vocab-v0: remove undefined-name hints after matched rollout.
         legacy = legacy_name_hint(undefined, catalog.functions) if self.vocabulary == 1 else ""
-        return legacy + _unavailable_name_hint(undefined, catalog)
+        if SEARCH_FUNCTION_NAME in undefined and not catalog.search_active:
+            return legacy + (
+                f"\nHint: `{SEARCH_FUNCTION_NAME}` is not active because all available functions "
+                f"are already listed in `{PTC_TOOL_NAME}`."
+            )
+        return legacy
 
     @property
     def store(self) -> SandboxStore:
@@ -1160,20 +1177,6 @@ def _sandbox_gap_hint(detail: str, catalog: PtcCatalog) -> str:
             f'`await {catalog.shell_function.python_name}(command="python3 script.py")`.'
         )
     return hint
-
-
-def _unavailable_name_hint(undefined: set[str], catalog: PtcCatalog) -> str:
-    """Explain undefined names that were functions earlier, or ``search_tools`` while inactive."""
-    hints = [
-        f"`{name}` is no longer available (its tool source was disconnected or removed)."
-        for name in sorted(undefined & catalog.retired)
-    ]
-    if SEARCH_FUNCTION_NAME in undefined and not catalog.search_active:
-        hints.append(
-            f"`{SEARCH_FUNCTION_NAME}` is not active because all available functions are "
-            f"already listed in `{PTC_TOOL_NAME}`."
-        )
-    return "".join(f"\nHint: {hint}" for hint in hints)
 
 
 def _search_function(

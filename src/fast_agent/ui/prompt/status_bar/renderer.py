@@ -229,7 +229,7 @@ def render_input_toolbar(
         if resolved_agent_state.llm is not None
         else None,
         cwd=shell_state.working_dir,
-        tool_names=_tool_mention_names(resolved_agent_state.state.agent),
+        agent=resolved_agent_state.state.agent,
         cache=cache,
     )
     middle = _build_middle_segment(
@@ -284,11 +284,14 @@ def _resolve_attachment_summary(
     provider: Provider | None,
     cwd: Path | None,
     cache: ToolbarRenderCache | None,
-    tool_names: frozenset[str] | None = None,
+    agent: object | None = None,
 ) -> ResolvedAttachmentSummary:
     if not _should_resolve_attachment_summary(current_input_text):
         return ResolvedAttachmentSummary(summary=None, skipped=True)
 
+    tool_names = (
+        _tool_mention_names(agent) if tool_mention_token("") in current_input_text else None
+    )
     cache_key = _build_attachment_summary_cache_key(
         current_input_text=current_input_text,
         model_name=model_name,

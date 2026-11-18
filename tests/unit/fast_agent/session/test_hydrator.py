@@ -252,6 +252,27 @@ async def test_session_shell_restoration_respects_runtime_and_workspace(
 
 
 @pytest.mark.asyncio
+async def test_older_ptc_session_warns_about_missing_bindings(tmp_path: Path) -> None:
+    from fast_agent.config import Settings
+
+    manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
+    session = manager.create_session()
+    snapshot = session.load_snapshot()
+    snapshot.continuation.agents["worker"] = SessionAgentSnapshot(
+        ptc_enabled=True, model_spec="passthrough"
+    )
+    _write_snapshot(session, snapshot)
+    agent = McpAgent(AgentConfig("worker", skills=[]), context=Context(config=Settings()))
+    try:
+        result = await SessionHydrator().hydrate_session(
+            session=session, agents={"worker": agent}, fallback_agent_name="worker"
+        )
+        assert any(warning.code == "ptc-bindings-missing" for warning in result.warnings)
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_resume_legacy_snapshot_after_ptc_fallback(tmp_path: Path) -> None:
     from unittest.mock import Mock
 

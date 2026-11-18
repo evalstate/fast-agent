@@ -122,10 +122,17 @@ from fast_agent.ptc.catalog import (
     CARD_SOURCE,
     TOOL_SOURCES_FINGERPRINT_META,
     TOOL_SOURCES_TAG,
+    PtcBindings,
+    PtcNameLedger,
     ToolRoute,
+    unavailable_tool_message,
 )
 from fast_agent.ptc.search import SEARCH_FUNCTION_NAME
-from fast_agent.ptc.vocabulary import PtcFunctionNames, is_builtin_tool
+from fast_agent.ptc.vocabulary import (
+    PtcFunctionNames,
+    is_builtin_function_metadata,
+    is_builtin_tool,
+)
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_TOOL_NAME
@@ -260,6 +267,7 @@ class _PtcDecision:
 
 if TYPE_CHECKING:
     from a2a.types import AgentCard, AgentSkill
+    from fastmcp.tools import FunctionTool
     from rich.text import Text
 
     from fast_agent.agents.llm_decorator import LlmDecorator
@@ -369,10 +377,9 @@ class McpAgent(ABC, ToolAgent):
         # Model-facing names whose tool dispatch must not resolve by name: aliases, and
         # an MCP tool's plain name while a local tool of the same name is present.
         self._ptc_tool_aliases: dict[str, ToolRoute] = {}
-        # Alias names assigned this conversation: a new colliding tool never takes one.
-        self._ptc_alias_names: dict[ToolRoute, str] = {}
-        # Whether a local or an MCP tool first held each plain name this conversation.
-        self._ptc_name_owners: dict[str, bool] = {}
+        self._ptc_names = PtcNameLedger()
+        # Installed user functions moved aside to make room for a harness built-in.
+        self._ptc_displaced_functions: dict[str, FunctionTool] = {}
 
         # Instantiate human input tool once if enabled in config
         self._human_input_tool = self._initial_human_input_tool()
@@ -1812,17 +1819,26 @@ class McpAgent(ABC, ToolAgent):
         request_params: RequestParams | None,
     ) -> CallToolResult:
         """Call exactly the tool ``route`` names; never a tool of the other origin."""
-        if route.local:
-            # Routed local tools are function tools: built-in runtime tools have no route.
-            if route.name in self._execution_tools:
-                with self._codex_web_search.turn(request_params):
-                    self._codex_web_search.sync()
+        if route.origin == "builtin":
+            result = await self._call_local_tool(
+                route.name, arguments, tool_use_id, request_params=request_params, builtin_only=True
+            )
+            if result is not None:
+                return result
+        elif route.origin == "local":
+            with self._codex_web_search.turn(request_params):
+                self._codex_web_search.sync()
+                tool = self._ptc_local_function(route.name)
+                if tool is not None:
                     denial = await self._codex_web_search.permission_error(
-                        route.name, arguments, tool_use_id
+                        tool.name, arguments, tool_use_id
                     )
-                    return denial or await super().call_tool(
-                        route.name, arguments, tool_use_id, request_params=request_params
-                    )
+                    if denial is not None:
+                        return denial
+                    if self._execution_tools.get(tool.name) is tool:
+                        return await super().call_tool(
+                            tool.name, arguments, tool_use_id, request_params=request_params
+                        )
         elif self._mcp_tool_listed(route.name):
             return await self._aggregator.call_tool(
                 route.name,
@@ -1833,15 +1849,20 @@ class McpAgent(ABC, ToolAgent):
                 ),
             )
         return CallToolResult(
-            content=[
-                TextContent(
-                    type="text",
-                    text=f"`{name}` is no longer available "
-                    "(its tool source was disconnected or removed).",
-                )
-            ],
+            content=[TextContent(type="text", text=unavailable_tool_message(name))],
             is_error=True,
         )
+
+    def _ptc_local_function(self, name: str) -> FunctionTool | None:
+        displaced = self._ptc_displaced_functions.get(name)
+        if displaced is not None and self._execution_tools.get(displaced.name) is displaced:
+            return displaced
+        tool = self._execution_tools.get(name)
+        if tool is None or is_builtin_function_metadata(tool.meta):
+            return None
+        if any(tool is moved for moved in self._ptc_displaced_functions.values()):
+            return None
+        return tool
 
     def _mcp_tool_listed(self, namespaced_name: str) -> bool:
         """Whether the agent's MCP tools still include ``namespaced_name``."""
@@ -2003,7 +2024,9 @@ class McpAgent(ABC, ToolAgent):
             return None
         assert self._context is not None and self._context.config is not None
         if self._ptc_runtime is None:
-            self._ptc_runtime = ProgrammaticToolRuntime(self._context.config.ptc)
+            self._ptc_runtime = ProgrammaticToolRuntime(
+                self._context.config.ptc, ledger=self._ptc_names
+            )
         self._ptc_runtime.function_names = self._ptc.function_names
         self._ptc_runtime.search_enabled = self._ptc_search_setting()
         return self._ptc_runtime
@@ -2014,8 +2037,7 @@ class McpAgent(ABC, ToolAgent):
         runtime = self._programmatic_tool_runtime()
         if runtime is None or not runtime.catalog.functions:
             return None
-        catalog = runtime.catalog
-        return frozenset(catalog.functions) | (frozenset(catalog.tools) - catalog.retired)
+        return runtime.catalog.mention_names
 
     def _ptc_search_setting(self) -> bool:
         assert self._context is not None and self._context.config is not None
@@ -2060,6 +2082,21 @@ class McpAgent(ABC, ToolAgent):
             or self._external_runtime is not None
             or not local_filesystem(self._filesystem_runtime)
         )
+
+    @property
+    def ptc_bindings(self) -> PtcBindings:
+        """Saved Python and listed names mapped to their original destinations."""
+        return self._ptc_names.snapshot()
+
+    async def restore_ptc_bindings(self, bindings: PtcBindings) -> frozenset[str]:
+        """Apply the saved assignments and return unresolved Python names."""
+        self._ptc_names.restore(bindings)
+        runtime = self._programmatic_tool_runtime()
+        if runtime is None or runtime.vocabulary != 1:
+            return frozenset()
+        # Reconcile what is already connected. Normal discovery can resolve more later.
+        await self._list_tools(discover_mcp=False)
+        return runtime.catalog.retired
 
     @property
     def ptc_store(self) -> SandboxStore | None:
@@ -2139,7 +2176,7 @@ class McpAgent(ABC, ToolAgent):
                     nested_name,
                     nested_arguments,
                     call_id,
-                    route=catalog.routes.get(nested_name),
+                    route=catalog.routes[nested_name] if catalog.routes else None,
                     request_params=request_params,
                 )
 
@@ -2193,7 +2230,7 @@ class McpAgent(ABC, ToolAgent):
     ) -> CallToolResult:
         """Run a tool called from PTC sandbox code through the normal dispatch path.
 
-        ``route`` is the tool's origin in the run's catalogue; built-ins have none.
+        ``route`` is the tool's origin in the run's catalogue; legacy profile calls have none.
         """
         is_subagent = self._is_builtin_subagent_tool(self._tool_display_metadata(name))
         if is_subagent:
@@ -2235,6 +2272,7 @@ class McpAgent(ABC, ToolAgent):
         tool_use_id: str | None = None,
         *,
         request_params: RequestParams | None = None,
+        builtin_only: bool = False,
     ) -> CallToolResult | None:
         if self._external_runtime is not None and name == self._external_runtime.tool.name:
             return await self._external_runtime.execute(arguments or {}, tool_use_id)
@@ -2250,6 +2288,8 @@ class McpAgent(ABC, ToolAgent):
             )
 
         if self._skill_reader and name == READ_SKILL_TOOL_NAME:
+            if builtin_only and self._skill_reader_fallback_tool() is None:
+                return None
             return await self._skill_reader.execute(arguments)
 
         if self._shell_runtime and self._shell_runtime.owns_tool(name):
@@ -2261,25 +2301,13 @@ class McpAgent(ABC, ToolAgent):
                 defer_display_to_tool_result=self._defer_shell_display_to_tool_result,
             )
 
-        return await self._call_builtin_tool(
-            name,
-            arguments,
-            tool_use_id,
-            request_params=request_params,
-        )
-
-    async def _call_builtin_tool(
-        self,
-        name: str,
-        arguments: dict[str, Any] | None = None,
-        tool_use_id: str | None = None,
-        *,
-        request_params: RequestParams | None = None,
-    ) -> CallToolResult | None:
         if name == HUMAN_INPUT_TOOL_NAME:
+            if builtin_only and self._human_input_runtime_tool() is None:
+                return None
             return await self._call_human_input_tool(arguments)
 
-        if name in self._execution_tools:
+        tool = self._execution_tools.get(name)
+        if tool is not None and (not builtin_only or is_builtin_function_metadata(tool.meta)):
             return await super().call_tool(
                 name,
                 arguments,
@@ -3366,11 +3394,15 @@ class McpAgent(ABC, ToolAgent):
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)
+        self._reset_ptc_conversation()
+        self._codex_web_search.history_loaded(None)
+
+    def _reset_ptc_conversation(self) -> None:
         if self._ptc_runtime is not None:
             self._ptc_runtime.reset_conversation()
-        self._ptc_alias_names.clear()
-        self._ptc_name_owners.clear()
-        self._codex_web_search.history_loaded(None)
+        else:
+            self._ptc_names.clear()
+        self._ptc_tool_aliases.clear()
 
     def load_message_history(
         self, messages: list[PromptMessageExtended] | None, *, clear_state: bool = False
@@ -3378,23 +3410,22 @@ class McpAgent(ABC, ToolAgent):
         if clear_state:
             # Reset provider/agent state without overwriting persisted search identity.
             super().clear(clear_prompts=True)
-            if self._ptc_runtime is not None:
-                self._ptc_runtime.reset_conversation()
-            self._ptc_alias_names.clear()
-            self._ptc_name_owners.clear()
+            self._reset_ptc_conversation()
         super().load_message_history(messages)
         self._codex_web_search.history_loaded(messages)
 
     async def list_tools(self) -> ListToolsResult:
-        """
-        List all tools available to this agent, filtered by configuration.
+        """List all tools available to this agent, filtered by configuration."""
+        return await self._list_tools(discover_mcp=True)
 
-        Returns:
-            ListToolsResult with available tools
-        """
+    async def _list_tools(self, *, discover_mcp: bool) -> ListToolsResult:
         self._codex_web_search.sync()
         ptc_runtime = self._programmatic_tool_runtime()
-        mcp_tools = await self._get_filtered_mcp_tools()
+        mcp_tools = (
+            await self._get_filtered_mcp_tools()
+            if discover_mcp or self._aggregator.initialized
+            else []
+        )
         local_tools = await self._additional_runtime_tools()
         # ptc-vocab-v0: preserve parent merging/order for the profile comparison arm.
         routes: dict[str, ToolRoute] = {}
@@ -3448,12 +3479,14 @@ class McpAgent(ABC, ToolAgent):
         tool = self._execution_tools[name]
         alias = f"{name}_tool"
         suffix = 2
-        while alias in self._execution_tools:
+        while alias in self._execution_tools or alias in self._ptc_names.listed:
             alias = f"{name}_tool_{suffix}"
             suffix += 1
         card_tool = name in self._card_tool_names
         self.remove_tool(name)
-        self.add_tool(tool.model_copy(update={"name": alias}))
+        displaced = tool.model_copy(update={"name": alias})
+        self._ptc_displaced_functions[name] = displaced
+        self.add_tool(displaced)
         if card_tool:
             self._card_tool_names.add(alias)
         self.logger.warning(f"PTC tool '{name}' conflicts with a built-in; exposed as '{alias}'")
@@ -3471,61 +3504,57 @@ class McpAgent(ABC, ToolAgent):
         """
         # Only local tools are built-ins; the aggregator strips remote ownership claims.
         builtins = [tool for tool in local_tools if is_builtin_tool(tool)]
-        others = [(tool, False) for tool in mcp_tools] + [
-            (tool, True) for tool in local_tools if not is_builtin_tool(tool)
+        original_names = {
+            moved.name: name
+            for name, moved in self._ptc_displaced_functions.items()
+            if self._execution_tools.get(moved.name) is moved
+        }
+        others = [(tool, ToolRoute("mcp", tool.name)) for tool in mcp_tools] + [
+            (tool, ToolRoute("local", original_names.get(tool.name, tool.name)))
+            for tool in local_tools
+            if not is_builtin_tool(tool)
         ]
-        # search_tools is a sandbox global, not a tool name: build_functions reserves it.
-        claimed = {tool.name for tool in builtins} | {PTC_TOOL_NAME}
-        claimed.update(self._ptc_alias_names.values())
-        # Host dispatch still owns the reader when sandbox open() hides it.
+        reserved = {tool.name for tool in builtins} | {PTC_TOOL_NAME}
         if self.has_filesystem_read_text_file_tool:
-            claimed.add(READ_TEXT_FILE_TOOL_NAME)
-        occupied = claimed | {tool.name for tool, _ in others}
+            reserved.add(READ_TEXT_FILE_TOOL_NAME)
+        listed = self._ptc_names.listed
+        previous_alias = {route: name for name, route in listed.items() if route.name != name}
+        occupied = reserved | listed.keys() | {tool.name for tool, _ in others}
+        local_names = {tool.name for tool in local_tools}
         aliases: dict[str, ToolRoute] = {}
-        routes: dict[str, ToolRoute] = {}
+        routes = {tool.name: ToolRoute("builtin", tool.name) for tool in builtins}
+        for name, route in routes.items():
+            listed.setdefault(name, route)
         merged = list(builtins)
-        owners = self._ptc_name_owners
-        plain: set[str] = set()
 
-        def order(item: tuple[Tool, bool]) -> tuple[str, bool]:
-            tool, local = item
-            return tool.name, local is not owners.get(tool.name, local)
-
-        for tool, local in sorted(others, key=order):
-            target = ToolRoute(tool.name, local)
-            if tool.name in plain and not owners[tool.name]:
-                # Dispatch tries local tools first: route the MCP owner explicitly.
-                aliases[tool.name] = routes[tool.name]
-            if (
-                tool.name in claimed
-                or tool.name in plain
-                or owners.get(tool.name, local) is not local
-            ):
-                alias = self._ptc_alias_names.get(target)
-                if alias is None:
-                    alias = f"{tool.name}_tool"
-                    suffix = 2
-                    while alias in occupied:
-                        alias = f"{tool.name}_tool_{suffix}"
-                        suffix += 1
-                    self._ptc_alias_names[target] = alias
-                    self.logger.warning(
-                        f"PTC tool '{tool.name}' conflicts with a reserved or existing name; "
-                        f"exposed as '{alias}'"
-                    )
+        # The MCP tool wins a simultaneous first listing; thereafter the saved owner wins.
+        for tool, target in sorted(
+            others, key=lambda item: (item[0].name, item[1].origin == "local")
+        ):
+            alias = previous_alias.get(target)
+            if alias is None and (tool.name in reserved or listed.get(tool.name, target) != target):
+                alias = f"{target.name}_tool"
+                suffix = 2
+                while alias in occupied:
+                    alias = f"{target.name}_tool_{suffix}"
+                    suffix += 1
+                self.logger.warning(
+                    f"PTC tool '{tool.name}' conflicts with a reserved or existing name; "
+                    f"exposed as '{alias}'"
+                )
+            if alias is not None:
                 occupied.add(alias)
                 aliases[alias] = target
-                routes[alias] = target
                 tool = tool.model_copy(
                     update={
                         "name": alias,
                         "description": f"Tool `{tool.name}`.\n\n{tool.description or ''}",
                     }
                 )
-            else:
-                owners[tool.name] = local
-                plain.add(tool.name)
-                routes[tool.name] = target
+            elif target.origin == "mcp" and tool.name in local_names:
+                aliases[tool.name] = target
+            listed[tool.name] = target
+            routes[tool.name] = target
             merged.append(tool)
         self._ptc_tool_aliases = aliases
         return merged, routes
@@ -3535,7 +3564,7 @@ class McpAgent(ABC, ToolAgent):
         sources = {name: CARD_SOURCE for name in self.card_tool_names}
         sources.update({name: AGENTS_SOURCE for name in self.agent_backed_tools})
         for alias, target in self._ptc_tool_aliases.items():
-            if not target.local and is_namespaced_name(target.name):
+            if target.origin == "mcp" and is_namespaced_name(target.name):
                 sources[alias] = get_server_name(target.name)
             elif target.name in sources:
                 sources[alias] = sources[target.name]

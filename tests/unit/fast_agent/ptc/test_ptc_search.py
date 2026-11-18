@@ -428,6 +428,29 @@ def test_empty_query_lists_sources_or_signatures() -> None:
     assert "async def github__create_issue(*, title: str = ...) -> str | Any" in listing
 
 
+@pytest.mark.parametrize(("query", "server"), [(None, None), (None, "missing"), ("zzzzz", None)])
+def test_long_source_lists_and_errors_can_be_read_in_full(
+    query: str | None, server: str | None
+) -> None:
+    tools = [_tool(f"source_{i:02d}_検索__fetch") for i in range(80)]
+    catalog = _catalog_runtime(tools).catalog
+    full = search_tools(catalog, query=query, server=server)
+    pages: list[str] = []
+    offset = 0
+    while True:
+        page = search_tools(catalog, query=query, server=server, byte_limit=1024, offset=offset)
+        assert len(page.encode()) <= 512
+        content, more, cursor = page.partition("\n# Continue with offset=")
+        pages.append(content)
+        if not more:
+            break
+        assert int(cursor) > offset
+        offset = int(cursor)
+    assert len(pages) > 1
+    assert "".join(pages) == full
+    assert all(f"- source_{i:02d}_検索:" in full for i in range(80))
+
+
 def test_results_never_cut_a_stub() -> None:
     big = [
         _tool(f"docs__page_{index}", f"Page reader {index}. " + "lorem ipsum " * 300)

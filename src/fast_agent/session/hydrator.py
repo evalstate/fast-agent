@@ -18,6 +18,7 @@ from fast_agent.mcp.prompts.prompt_load import (
 )
 
 from .snapshot import (
+    PtcBindingsRestorer,
     PtcSessionAgent,
     PtcStoreProvider,
     SessionAgentSnapshot,
@@ -270,6 +271,9 @@ class SessionHydrator:
             await self._restore_agent_transcript(
                 session, agent_name, agent, agent_snapshot, policy, state
             )
+        # History refresh also clears name reservations when it replaces the transcript.
+        if policy.restore_runtime_state or agent_name in state.loaded_agents:
+            await self._restore_ptc_bindings(agent, agent_name, agent_snapshot, state.warnings)
         if policy.restore_runtime_state:
             # After the transcript: loading history as a new conversation clears the store.
             self._restore_agent_ptc_store(
@@ -333,6 +337,41 @@ class SessionHydrator:
                 agent_name=agent_name,
             )
         )
+
+    @staticmethod
+    async def _restore_ptc_bindings(
+        agent: AgentProtocol,
+        agent_name: str,
+        snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
+        if not isinstance(agent, PtcBindingsRestorer):
+            return
+        if snapshot.ptc_bindings is None:
+            if snapshot.ptc_enabled:
+                warnings.append(
+                    SessionHydrationWarning(
+                        code="ptc-bindings-missing",
+                        message=(
+                            f"The session has no saved PTC bindings for {agent_name!r}. "
+                            "Check current tool names before reusing old calls."
+                        ),
+                        agent_name=agent_name,
+                    )
+                )
+            return
+        unresolved = await agent.restore_ptc_bindings(snapshot.ptc_bindings)
+        if unresolved:
+            examples = ", ".join(sorted(unresolved)[:5])
+            if len(unresolved) > 5:
+                examples += f", and {len(unresolved) - 5} more"
+            warnings.append(
+                SessionHydrationWarning(
+                    code="ptc-bindings-unresolved",
+                    message=f"Unavailable PTC bindings for {agent_name!r} ({examples}).",
+                    agent_name=agent_name,
+                )
+            )
 
     @staticmethod
     def _restore_agent_ptc_store(

@@ -88,6 +88,13 @@ mentions at the end of the prompt are removed from the text. Either way the defi
 are added to the message, and an unknown name stops the prompt from being sent. Agents
 without PTC treat `^tool:` as ordinary text (or as a resource of an MCP server named `tool`).
 
+Canonical PTC function names are saved with the session. If a tool disconnects or a
+built-in is disabled, calling its old function raises a catchable `RuntimeError`.
+The same tool can use its name again when it returns. Resume reports unresolved names.
+In the Python API, `agent.ptc_bindings.functions` maps each saved Python name to its
+origin and tool name. `(await agent.tool_surface()).programmatic.retired` lists the
+currently unavailable names when PTC is enabled.
+
 `direct_tools` keeps matching tools callable directly; `nested_tools` makes
 matching tools code-only, with `direct_tools` taking precedence. The engine
 is not configurable.

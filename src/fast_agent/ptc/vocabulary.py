@@ -57,10 +57,15 @@ BUILTIN_TOOL_OWNERS: Final = frozenset({"harness", "subagent", "elicitation"})
 
 def is_builtin_tool(tool: Tool) -> bool:
     """Runtime ownership, not a name guess: user tools cannot claim built-in names."""
-    metadata = (tool.meta or {}).get("fast_agent")
-    return tool_source(tool) in {SHELL_TOOL_SOURCE, SKILL_TOOL_SOURCE} or (
-        isinstance(metadata, Mapping) and metadata.get("builtin") in BUILTIN_TOOL_OWNERS
-    )
+    return tool_source(tool) in {
+        SHELL_TOOL_SOURCE,
+        SKILL_TOOL_SOURCE,
+    } or is_builtin_function_metadata(tool.meta)
+
+
+def is_builtin_function_metadata(meta: Mapping[str, object] | None) -> bool:
+    metadata = (meta or {}).get("fast_agent")
+    return isinstance(metadata, Mapping) and metadata.get("builtin") in BUILTIN_TOOL_OWNERS
 
 
 def function_order(tool: Tool) -> tuple[int, str]:

@@ -14,6 +14,7 @@ from urllib.parse import parse_qsl, urlencode
 from pydantic import BaseModel, ConfigDict, Field
 
 from fast_agent.llm.usage_tracking import UsageAccumulator
+from fast_agent.ptc.catalog import PtcBindings  # noqa: TC001 - Pydantic validates the snapshot field
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
@@ -158,6 +159,7 @@ class SessionAgentSnapshot(BaseModel):
     history_file: str | None = None
     # Values programmatic tool calling code kept with store(), written beside the history.
     ptc_store_file: str | None = None
+    ptc_bindings: PtcBindings | None = None
     # Whether the session used programmatic tool calling; resumed sessions keep it.
     ptc_enabled: bool | None = None
     resolved_prompt: str | None = None
@@ -287,6 +289,17 @@ class PtcSessionAgent(PtcSettingProvider, Protocol):
     def restore_ptc(self, enabled: bool) -> None: ...
 
     async def clear_session_ptc(self, *, refresh_instruction: bool) -> None: ...
+
+
+@runtime_checkable
+class PtcBindingsProvider(Protocol):
+    @property
+    def ptc_bindings(self) -> PtcBindings | None: ...
+
+
+@runtime_checkable
+class PtcBindingsRestorer(Protocol):
+    async def restore_ptc_bindings(self, bindings: PtcBindings) -> frozenset[str]: ...
 
 
 @runtime_checkable
@@ -1016,6 +1029,11 @@ def _capture_agent_snapshot(
             existing_snapshot=existing_snapshot,
         ),
         ptc_store_file=_capture_ptc_store_file(session=session, agent_name=agent.name),
+        ptc_bindings=(
+            agent.ptc_bindings
+            if isinstance(agent, PtcBindingsProvider)
+            else (existing_snapshot.ptc_bindings if existing_snapshot else None)
+        ),
         ptc_enabled=(
             agent.ptc_enabled
             if isinstance(agent, PtcSettingProvider)

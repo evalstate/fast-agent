@@ -255,7 +255,7 @@ class ACPServerSessionStore:
                 continue
             update_builder = update_builders[role_value]
 
-            for content in user_authored_content(message.content):
+            for content in user_authored_content(message.content, as_typed=role_value == "user"):
                 acp_block = convert_mcp_content_to_acp(content)
                 if acp_block is None:
                     continue

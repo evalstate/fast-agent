@@ -518,6 +518,18 @@ def test_toolbar_agent_state_uses_protocol_default_capabilities() -> None:
     assert result.state.web_fetch_indicator is None
 
 
+@pytest.mark.parametrize("text", ["ordinary prose", "^url:https://example.com"])
+def test_toolbar_only_looks_up_tool_names_for_tool_mentions(text: str) -> None:
+    class Agent:
+        @property
+        def ptc_mention_names(self) -> frozenset[str]:
+            raise AssertionError("tool names requested for a draft without a tool mention")
+
+    _resolve_attachment_summary(
+        current_input_text=text, model_name=None, provider=None, cwd=None, cache=None, agent=Agent()
+    )
+
+
 def test_attachment_summary_cache_invalidates_when_file_appears(tmp_path: Path) -> None:
     attachment_path = tmp_path / "draft.txt"
     cache = ToolbarRenderCache()
