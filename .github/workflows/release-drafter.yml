@@ -32,8 +32,3 @@ jobs:
       - uses: release-drafter/release-drafter@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-      # v7 split autolabeling out of the release-drafting action.
-      - uses: release-drafter/release-drafter/autolabeler@v7
-        if: github.event_name == 'pull_request' || github.event_name == 'pull_request_target'
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
