@@ -34,7 +34,8 @@ def test_picker_contract(source):
     last_claude_or_gpt = max(
         i for i, spec in enumerate(specs) if spec.startswith(("copilot.claude-", "copilot.gpt-"))
     )
-    assert specs[last_claude_or_gpt + 1 : last_claude_or_gpt + 4] == [
+    assert specs[last_claude_or_gpt + 1 : last_claude_or_gpt + 5] == [
+        "copilot.gemini-4-neon",
         "copilot.gemini-4-argon",
         "copilot.gemini-4-hydrogen",
         "copilot.gemini-4-carbon",

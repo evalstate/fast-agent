@@ -14,7 +14,7 @@ from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 pytestmark = pytest.mark.unit
 
 
-@pytest.mark.parametrize("variant", ["argon", "hydrogen", "carbon"])
+@pytest.mark.parametrize("variant", ["neon", "argon", "hydrogen", "carbon"])
 @pytest.mark.parametrize("form", ["short", "alias", "canonical", "qualified"])
 def test_native_gemini4_names_resolve_with_capabilities(variant: str, form: str) -> None:
     canonical = f"gemini-4-{variant}"
@@ -35,7 +35,7 @@ def test_native_gemini4_names_resolve_with_capabilities(variant: str, form: str)
     assert resolved.reasoning_mode == "google_thinking"
 
 
-@pytest.mark.parametrize("variant", ["argon", "hydrogen", "carbon"])
+@pytest.mark.parametrize("variant", ["neon", "argon", "hydrogen", "carbon"])
 def test_native_gemini4_factory_exposes_reasoning_defaults_and_flex(variant: str) -> None:
     factory = ModelFactory.create_factory(f"gemini4{variant}?service_tier=flex")
     llm = factory(LlmAgent(AgentConfig(name="Gemini registration test")))
@@ -45,17 +45,17 @@ def test_native_gemini4_factory_exposes_reasoning_defaults_and_flex(variant: str
     spec = llm.reasoning_effort_spec
     assert spec is not None
     assert spec.default == ReasoningEffortSetting(
-        kind="effort", value="high" if variant == "hydrogen" else "medium"
+        kind="effort", value="high" if variant in ("neon", "hydrogen") else "medium"
     )
     expected_levels = ["low", "medium", "high"]
-    if variant == "hydrogen":
+    if variant in ("neon", "hydrogen"):
         expected_levels.append("xhigh")
     assert spec.allowed_efforts == expected_levels
     assert not spec.allow_toggle_disable
     assert not spec.allow_auto
 
 
-@pytest.mark.parametrize("variant", ["argon", "hydrogen", "carbon"])
+@pytest.mark.parametrize("variant", ["neon", "argon", "hydrogen", "carbon"])
 @pytest.mark.parametrize(
     "mime", ["text/plain", "image/png", "application/pdf", "audio/mpeg", "video/mp4"]
 )
@@ -63,7 +63,7 @@ def test_native_gemini4_accepts_documented_inputs(variant: str, mime: str) -> No
     assert ModelDatabase.supports_mime(f"gemini-4-{variant}", mime)
 
 
-@pytest.mark.parametrize("variant", ["argon", "hydrogen", "carbon"])
+@pytest.mark.parametrize("variant", ["neon", "argon", "hydrogen", "carbon"])
 def test_native_gemini4_keeps_existing_tool_contract(variant: str) -> None:
     resolved = ModelFactory.resolve_model_spec(f"gemini4{variant}")
     previous = ModelFactory.resolve_model_spec("gemini38")
@@ -77,7 +77,7 @@ def test_native_gemini4_keeps_existing_tool_contract(variant: str) -> None:
 
 
 @pytest.mark.parametrize("route", ["google", "copilot"])
-@pytest.mark.parametrize("variant", ["argon", "hydrogen", "carbon"])
+@pytest.mark.parametrize("variant", ["neon", "argon", "hydrogen", "carbon"])
 def test_gemini4_ptc_is_opt_out(route: str, variant: str) -> None:
     model = f"{route}.gemini-4-{variant}"
     assert ModelFactory.resolve_model_spec(model).resolve_ptc_enabled()
@@ -89,6 +89,7 @@ def test_native_gemini4_picker_entries_dispatch_without_changing_default_alias()
     gemini4_entries = [entry for entry in entries if entry.model.startswith("google.gemini-4-")]
 
     assert {entry.model for entry in gemini4_entries} == {
+        "google.gemini-4-neon",
         "google.gemini-4-argon",
         "google.gemini-4-hydrogen",
         "google.gemini-4-carbon",
@@ -105,7 +106,7 @@ def test_native_gemini4_picker_entries_dispatch_without_changing_default_alias()
     assert default.wire_model_name == "gemini-3.8-flash"
 
 
-@pytest.mark.parametrize("variant", ["argon", "hydrogen", "carbon"])
+@pytest.mark.parametrize("variant", ["neon", "argon", "hydrogen", "carbon"])
 @pytest.mark.parametrize(
     "query", ["", "?web_search=on", "?web_search=off", "?service_tier=flex&web_search=on"]
 )

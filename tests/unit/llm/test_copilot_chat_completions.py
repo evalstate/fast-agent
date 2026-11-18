@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
     from fast_agent.llm.stream_types import StreamChunk
 
-MODELS = ("gemini-4-argon", "gemini-4-carbon", "gemini-4-hydrogen")
+MODELS = ("gemini-4-neon", "gemini-4-argon", "gemini-4-carbon", "gemini-4-hydrogen")
 
 
 @pytest.mark.parametrize("model", MODELS)
@@ -73,7 +73,7 @@ def test_factory_selects_chat_completions_and_isolates_native_metadata(model: st
     assert route.reasoning_effort_spec.default is None
     assert route.reasoning_effort_spec.allowed_efforts == (
         ["low", "medium", "high", "xhigh"]
-        if model.endswith("hydrogen")
+        if model.endswith(("hydrogen", "neon"))
         else ["low", "medium", "high"]
     )
     assert not route.google_search_supported
@@ -86,7 +86,12 @@ def test_factory_selects_chat_completions_and_isolates_native_metadata(model: st
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("model", "effort"),
-    [("gemini-4-argon", "high"), ("gemini-4-carbon", "medium"), ("gemini-4-hydrogen", "xhigh")],
+    [
+        ("gemini-4-neon", "xhigh"),
+        ("gemini-4-argon", "high"),
+        ("gemini-4-carbon", "medium"),
+        ("gemini-4-hydrogen", "xhigh"),
+    ],
 )
 async def test_gateway_wire_auth_effort_tools_and_usage(
     model: str, effort: str, monkeypatch: pytest.MonkeyPatch

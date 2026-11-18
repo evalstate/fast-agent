@@ -314,6 +314,7 @@ def go(
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
     mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     model: str | None = CommonAgentOptions.model(),
+    neon: bool = typer.Option(False, "--neon", help="Select native Google Gemini 4 Neon."),
     argon: bool = typer.Option(False, "--argon", help="Select native Google Gemini 4 Argon."),
     hydrogen: bool = typer.Option(
         False, "--hydrogen", help="Select native Google Gemini 4 Hydrogen."
@@ -453,13 +454,18 @@ def go(
 
     shortcuts = [
         name
-        for name, selected in (("argon", argon), ("hydrogen", hydrogen), ("carbon", carbon))
+        for name, selected in (
+            ("neon", neon),
+            ("argon", argon),
+            ("hydrogen", hydrogen),
+            ("carbon", carbon),
+        )
         if selected
     ]
     if shortcuts:
         if len(shortcuts) > 1 or model is not None:
             raise typer.BadParameter(
-                "Choose only one of --model/--models, --argon, --hydrogen, or --carbon."
+                "Choose only one of --model/--models, --neon, --argon, --hydrogen, or --carbon."
             )
         model = f"google.gemini-4-{shortcuts[0]}"
 

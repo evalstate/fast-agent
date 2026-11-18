@@ -39,26 +39,28 @@ Gemini 3.8 Flash capabilities were verified against the official [Gemini model p
 
 | Native model | Short alias | Thinking levels | Default thinking |
 | --- | --- | --- | --- |
+| [`google.gemini-4-neon`](https://aistudio.google.com/docs/models/gemini-4-neon) | `neon` | low, medium, high, xhigh | high |
 | [`google.gemini-4-argon`](https://aistudio.google.com/docs/models/gemini-4-argon) | `argon` | low, medium, high | medium |
 | [`google.gemini-4-hydrogen`](https://aistudio.google.com/docs/models/gemini-4-hydrogen) | `hydrogen` | low, medium, high, xhigh | high |
 | [`google.gemini-4-carbon`](https://aistudio.google.com/docs/models/gemini-4-carbon) | `carbon` | low, medium, high | medium |
 
-`fast-agent --argon`, `fast-agent --hydrogen`, and `fast-agent --carbon` select the native
-Google models above. They also work with explicit `go`. Use `--model` instead when setting
+`fast-agent --neon`, `fast-agent --argon`, `fast-agent --hydrogen`, and `fast-agent --carbon`
+select the native Google models above. They also work with explicit `go`. Use `--model` instead when setting
 reasoning or selecting the Copilot route.
 
 ```bash
+fast-agent go --model 'neon?reasoning=xhigh'
 fast-agent go --model 'argon?reasoning=low'
 fast-agent go --model 'google.gemini-4-hydrogen?reasoning=xhigh'
 fast-agent go --model 'carbon?web_search=on'
 ```
 
-All three accept text, images, audio, video and PDFs, return text, and support function calling,
+All four accept text, images, audio, video and PDFs, return text, and support function calling,
 JSON Schema output, Google Search grounding and Flex. They share a **1,048,576-token window
 for input and output combined**. fast-agent uses a 65,536-token output limit by default;
 a single non-streaming hop on Argon or Carbon is limited to 32,768. The separate
 [long decode](https://aistudio.google.com/docs/long-decode?generate-content=true) capability
-does not make 1M the default output budget. Use a named [thinking level](https://aistudio.google.com/docs/thinking)
+does not make 1M the default output budget. Neon is paid-tier only (no Free tier). Use a named [thinking level](https://aistudio.google.com/docs/thinking)
 rather than sampling controls or a numeric thinking budget.
 
 The native provider uses `generateContent` / `streamGenerateContent`, not a chat-completions

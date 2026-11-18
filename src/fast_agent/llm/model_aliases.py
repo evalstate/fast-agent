@@ -75,6 +75,8 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "deepseekpro": "deepseek.deepseek-v4-pro",
     "deepseekvision": "deepseek.deepseek-flash",
     "gemini": "gemini-3.8-flash",
+    "neon": "gemini-4-neon",
+    "gemini4neon": "gemini-4-neon",
     "argon": "gemini-4-argon",
     "gemini4argon": "gemini-4-argon",
     "hydrogen": "gemini-4-hydrogen",

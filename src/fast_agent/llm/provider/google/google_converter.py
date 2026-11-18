@@ -379,7 +379,7 @@ class GoogleConverter:
             uses_thinking_levels=uses_thinking_levels,
             default_thinking_level=(
                 types.ThinkingLevel.HIGH
-                if "gemini-4-hydrogen" in model
+                if "gemini-4-hydrogen" in model or "gemini-4-neon" in model
                 else types.ThinkingLevel.MEDIUM
             ),
             thinking_budget=thinking_budget,

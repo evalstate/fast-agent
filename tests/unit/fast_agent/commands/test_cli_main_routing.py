@@ -87,7 +87,7 @@ def test_root_go_options_auto_route_to_go(
 
 
 @pytest.mark.parametrize("command", [[], ["go"]])
-@pytest.mark.parametrize("alias", ["argon", "hydrogen", "carbon"])
+@pytest.mark.parametrize("alias", ["neon", "argon", "hydrogen", "carbon"])
 def test_gemini_shortcut_selects_native_google(command, alias, monkeypatch):
     run = Mock()
     monkeypatch.setattr("fast_agent.cli.commands.go.run_request", run)

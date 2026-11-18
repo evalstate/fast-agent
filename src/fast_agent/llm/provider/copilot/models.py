@@ -86,6 +86,7 @@ COPILOT_PICKER_MODELS: Final = (
             max_prompt_tokens=936_000 if model_id == "gemini-4-carbon" else 983_040,
         )
         for model_id in (
+            "gemini-4-neon",
             "gemini-4-argon",
             "gemini-4-hydrogen",
             "gemini-4-carbon",
