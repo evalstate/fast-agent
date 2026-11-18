@@ -271,6 +271,10 @@
       "family": "kimi",
       "status": "PTC"
     },
+    "tb4-fable52-low-noptc": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "anthropic"
+    },
     "tb4-glm53flash-max-ptc": {
       "benchmark": "terminal-bench-4.0-subset",
       "family": "glm",

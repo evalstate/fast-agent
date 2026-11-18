@@ -1,0 +1,787 @@
+{
+  "id": "tb4-fable52-low-noptc",
+  "benchmark": "terminal-bench-4.0-subset",
+  "harness": "fast-agent",
+  "harness_version": "0.10.54",
+  "model": "Fable 5.2",
+  "effort": "low",
+  "model_string": "copilot.claude-fable-5.2?reasoning=low&ptc=off",
+  "date": "2026-11-12",
+  "timeout": "standard",
+  "jobs": [
+    {
+      "id": "tb4-fable52-low-copilot-fa054-noptc-002-hf-basic",
+      "name": "tb4-fable52-low-copilot-fa054-noptc-002-hf-basic (85 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic",
+      "path": "/tmp/fa-fable-mirror/evalstate/published-benchmarks/tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic"
+    },
+    {
+      "id": "tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade",
+      "name": "tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade (10 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade",
+      "path": "/tmp/fa-fable-mirror/evalstate/published-benchmarks/tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade"
+    },
+    {
+      "id": "tb4-fable52-low-copilot-fa054-noptc-002-rg-001",
+      "name": "tb4-fable52-low-copilot-fa054-noptc-002-rg-001 (10 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001",
+      "path": "/tmp/fa-fable-mirror/evalstate/published-benchmarks/tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001"
+    }
+  ],
+  "excluded_trials": [
+    {
+      "id": "899b9a71-1c58-4446-b377-76c85a7536b5",
+      "task": "session-window-debug",
+      "error_type": null,
+      "cost_usd": null,
+      "reason": "error; re-graded (verifier only, tb4-fable52-low-copilot-fa054-noptc-002-rg-001) as session-window-debug__qVjSDg3, whose verdict is scored. Its agent cost is counted once, on the regrade."
+    },
+    {
+      "id": "95f46fd8-57a8-4d21-9829-9ab39b3e335b",
+      "task": "session-window-debug",
+      "error_type": null,
+      "cost_usd": null,
+      "reason": "error; re-graded (verifier only, tb4-fable52-low-copilot-fa054-noptc-002-rg-001) as session-window-debug__QDfsvQq, whose verdict is scored. Its agent cost is counted once, on the regrade."
+    },
+    {
+      "id": "7fe3171f-19d2-4035-bde5-d81f89d44779",
+      "task": "session-window-debug",
+      "error_type": null,
+      "cost_usd": null,
+      "reason": "error; re-graded (verifier only, tb4-fable52-low-copilot-fa054-noptc-002-rg-001) as session-window-debug__bAFwWye, whose verdict is scored. Its agent cost is counted once, on the regrade."
+    },
+    {
+      "id": "1bd11654-e733-40af-a051-5e4c959e265c",
+      "task": "session-window-debug",
+      "error_type": null,
+      "cost_usd": null,
+      "reason": "error; re-graded (verifier only, tb4-fable52-low-copilot-fa054-noptc-002-rg-001) as session-window-debug__WsEgJGe, whose verdict is scored. Its agent cost is counted once, on the regrade."
+    },
+    {
+      "id": "a8b6179b-dadf-491c-94a3-ac179df10805",
+      "task": "session-window-debug",
+      "error_type": null,
+      "cost_usd": null,
+      "reason": "error; re-graded (verifier only, tb4-fable52-low-copilot-fa054-noptc-002-rg-001) as session-window-debug__AvXtaNP, whose verdict is scored. Its agent cost is counted once, on the regrade."
+    },
+    {
+      "id": "9b89729d-5e7e-49df-985e-855492556c17",
+      "task": "wal-recovery-ordering",
+      "error_type": null,
+      "cost_usd": null,
+      "reason": "error; re-graded (verifier only, tb4-fable52-low-copilot-fa054-noptc-002-rg-001) as wal-recovery-ordering__ZwMJFkm, whose verdict is scored. Its agent cost is counted once, on the regrade."
+    },
+    {
+      "id": "35b99c11-e016-4795-9515-6db1f314b0b1",
+      "task": "wal-recovery-ordering",
+      "error_type": null,
+      "cost_usd": null,
+      "reason": "error; re-graded (verifier only, tb4-fable52-low-copilot-fa054-noptc-002-rg-001) as wal-recovery-ordering__q7xHsQ4, whose verdict is scored. Its agent cost is counted once, on the regrade."
+    },
+    {
+      "id": "81e6e814-eedf-457d-8339-f87aff2f6e60",
+      "task": "wal-recovery-ordering",
+      "error_type": null,
+      "cost_usd": null,
+      "reason": "error; re-graded (verifier only, tb4-fable52-low-copilot-fa054-noptc-002-rg-001) as wal-recovery-ordering__CrPQKmc, whose verdict is scored. Its agent cost is counted once, on the regrade."
+    },
+    {
+      "id": "2eff4358-5ae8-4391-92c6-9de0518c50f8",
+      "task": "wal-recovery-ordering",
+      "error_type": null,
+      "cost_usd": null,
+      "reason": "error; re-graded (verifier only, tb4-fable52-low-copilot-fa054-noptc-002-rg-001) as wal-recovery-ordering__TW24JrX, whose verdict is scored. Its agent cost is counted once, on the regrade."
+    },
+    {
+      "id": "1b800ec9-57d9-4ef2-9f1b-b4537d180063",
+      "task": "wal-recovery-ordering",
+      "error_type": null,
+      "cost_usd": null,
+      "reason": "error; re-graded (verifier only, tb4-fable52-low-copilot-fa054-noptc-002-rg-001) as wal-recovery-ordering__MvJzWtb, whose verdict is scored. Its agent cost is counted once, on the regrade."
+    }
+  ],
+  "disqualified_trials": [],
+  "slots": 95,
+  "passes": 63,
+  "score": 66.32,
+  "tasks": {
+    "atrx-vep-crispr": "eeeee",
+    "cad-model": "10010",
+    "cargo-flight-dispatch": "00100",
+    "fin-saccr-rwa": "11111",
+    "gsea-proteomics": "11111",
+    "hof-topology-interpenetration": "11111",
+    "html-js-filter": "10000",
+    "mvcc-lsm-compaction": "11011",
+    "photonic-waveguide-routing": "11111",
+    "production-planning": "10111",
+    "react-lead-form": "11111",
+    "satb-audio-transcription": "11111",
+    "session-window-debug": "10110",
+    "sound-change-cascade": "11111",
+    "telecom-entity-resolution": "11111",
+    "vba-userform-port": "11100",
+    "vllm-deepseek-streaming": "00000",
+    "vpp-loss-divergence": "10111",
+    "wal-recovery-ordering": "01000"
+  },
+  "trials": {
+    "atrx-vep-crispr": [
+      {
+        "name": "atrx-vep-crispr__NJsyUwM",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/atrx-vep-crispr__NJsyUwM"
+      },
+      {
+        "name": "atrx-vep-crispr__xFETNqp",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/atrx-vep-crispr__xFETNqp"
+      },
+      {
+        "name": "atrx-vep-crispr__fGu7Kek",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/atrx-vep-crispr__fGu7Kek"
+      },
+      {
+        "name": "atrx-vep-crispr__kHQHdVx",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/atrx-vep-crispr__kHQHdVx"
+      },
+      {
+        "name": "atrx-vep-crispr__isejUpL",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/atrx-vep-crispr__isejUpL"
+      }
+    ],
+    "cad-model": [
+      {
+        "name": "cad-model__iw9cs3F",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/cad-model__iw9cs3F"
+      },
+      {
+        "name": "cad-model__dV3CWz6",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/cad-model__dV3CWz6"
+      },
+      {
+        "name": "cad-model__VPaMP7r",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/cad-model__VPaMP7r"
+      },
+      {
+        "name": "cad-model__w3MBNVS",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/cad-model__w3MBNVS"
+      },
+      {
+        "name": "cad-model__4h5Ebv8",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/cad-model__4h5Ebv8"
+      }
+    ],
+    "cargo-flight-dispatch": [
+      {
+        "name": "cargo-flight-dispatch__SSfW4j4",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/cargo-flight-dispatch__SSfW4j4"
+      },
+      {
+        "name": "cargo-flight-dispatch__QbpvRcB",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/cargo-flight-dispatch__QbpvRcB"
+      },
+      {
+        "name": "cargo-flight-dispatch__peTN7zx",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/cargo-flight-dispatch__peTN7zx"
+      },
+      {
+        "name": "cargo-flight-dispatch__CdeZw3h",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/cargo-flight-dispatch__CdeZw3h"
+      },
+      {
+        "name": "cargo-flight-dispatch__N7MSAta",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/cargo-flight-dispatch__N7MSAta"
+      }
+    ],
+    "fin-saccr-rwa": [
+      {
+        "name": "fin-saccr-rwa__VPn6NR9",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/fin-saccr-rwa__VPn6NR9"
+      },
+      {
+        "name": "fin-saccr-rwa__92UEBw9",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/fin-saccr-rwa__92UEBw9"
+      },
+      {
+        "name": "fin-saccr-rwa__zr944jZ",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/fin-saccr-rwa__zr944jZ"
+      },
+      {
+        "name": "fin-saccr-rwa__PvdDmB6",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/fin-saccr-rwa__PvdDmB6"
+      },
+      {
+        "name": "fin-saccr-rwa__LAdpHr6",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/fin-saccr-rwa__LAdpHr6"
+      }
+    ],
+    "gsea-proteomics": [
+      {
+        "name": "gsea-proteomics__pKtAq6v",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade/gsea-proteomics__pKtAq6v"
+      },
+      {
+        "name": "gsea-proteomics__6eUQqnw",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade/gsea-proteomics__6eUQqnw"
+      },
+      {
+        "name": "gsea-proteomics__LyD9wdR",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade/gsea-proteomics__LyD9wdR"
+      },
+      {
+        "name": "gsea-proteomics__VFrdNWo",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade/gsea-proteomics__VFrdNWo"
+      },
+      {
+        "name": "gsea-proteomics__NtUvxjX",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade/gsea-proteomics__NtUvxjX"
+      }
+    ],
+    "hof-topology-interpenetration": [
+      {
+        "name": "hof-topology-interpenetration__qLrD22C",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/hof-topology-interpenetration__qLrD22C"
+      },
+      {
+        "name": "hof-topology-interpenetration__J6ZsLN3",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/hof-topology-interpenetration__J6ZsLN3"
+      },
+      {
+        "name": "hof-topology-interpenetration__VhNsL7Y",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/hof-topology-interpenetration__VhNsL7Y"
+      },
+      {
+        "name": "hof-topology-interpenetration__n9iCnRP",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/hof-topology-interpenetration__n9iCnRP"
+      },
+      {
+        "name": "hof-topology-interpenetration__bMDbFmv",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/hof-topology-interpenetration__bMDbFmv"
+      }
+    ],
+    "html-js-filter": [
+      {
+        "name": "html-js-filter__UYxnHEh",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/html-js-filter__UYxnHEh"
+      },
+      {
+        "name": "html-js-filter__oEYVFnF",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/html-js-filter__oEYVFnF"
+      },
+      {
+        "name": "html-js-filter__QsF47e8",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/html-js-filter__QsF47e8"
+      },
+      {
+        "name": "html-js-filter__LK35vtX",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/html-js-filter__LK35vtX"
+      },
+      {
+        "name": "html-js-filter__sMPySan",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/html-js-filter__sMPySan"
+      }
+    ],
+    "mvcc-lsm-compaction": [
+      {
+        "name": "mvcc-lsm-compaction__MRW4ky4",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/mvcc-lsm-compaction__MRW4ky4"
+      },
+      {
+        "name": "mvcc-lsm-compaction__hPb5DfP",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/mvcc-lsm-compaction__hPb5DfP"
+      },
+      {
+        "name": "mvcc-lsm-compaction__aEokFLy",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/mvcc-lsm-compaction__aEokFLy"
+      },
+      {
+        "name": "mvcc-lsm-compaction__EsBxKq8",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/mvcc-lsm-compaction__EsBxKq8"
+      },
+      {
+        "name": "mvcc-lsm-compaction__FwG6Yb8",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/mvcc-lsm-compaction__FwG6Yb8"
+      }
+    ],
+    "photonic-waveguide-routing": [
+      {
+        "name": "photonic-waveguide-routing__vaMEay3",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/photonic-waveguide-routing__vaMEay3"
+      },
+      {
+        "name": "photonic-waveguide-routing__s5Qyo2x",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/photonic-waveguide-routing__s5Qyo2x"
+      },
+      {
+        "name": "photonic-waveguide-routing__5Lgovuf",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/photonic-waveguide-routing__5Lgovuf"
+      },
+      {
+        "name": "photonic-waveguide-routing__UbqHaLW",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/photonic-waveguide-routing__UbqHaLW"
+      },
+      {
+        "name": "photonic-waveguide-routing__CiXXVxD",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/photonic-waveguide-routing__CiXXVxD"
+      }
+    ],
+    "production-planning": [
+      {
+        "name": "production-planning__eagFSZx",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/production-planning__eagFSZx"
+      },
+      {
+        "name": "production-planning__F3FFL2E",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/production-planning__F3FFL2E"
+      },
+      {
+        "name": "production-planning__nnBRkLY",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/production-planning__nnBRkLY"
+      },
+      {
+        "name": "production-planning__UgiPRDn",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/production-planning__UgiPRDn"
+      },
+      {
+        "name": "production-planning__WG8Qg32",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/production-planning__WG8Qg32"
+      }
+    ],
+    "react-lead-form": [
+      {
+        "name": "react-lead-form__cPgKgrB",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/react-lead-form__cPgKgrB"
+      },
+      {
+        "name": "react-lead-form__6KKguZA",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/react-lead-form__6KKguZA"
+      },
+      {
+        "name": "react-lead-form__bkVdub6",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/react-lead-form__bkVdub6"
+      },
+      {
+        "name": "react-lead-form__wsA3Avq",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/react-lead-form__wsA3Avq"
+      },
+      {
+        "name": "react-lead-form__rwXEXTx",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/react-lead-form__rwXEXTx"
+      }
+    ],
+    "satb-audio-transcription": [
+      {
+        "name": "satb-audio-transcription__ekfv5oj",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade/satb-audio-transcription__ekfv5oj"
+      },
+      {
+        "name": "satb-audio-transcription__hNsnkwd",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade/satb-audio-transcription__hNsnkwd"
+      },
+      {
+        "name": "satb-audio-transcription__GvB47pt",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade/satb-audio-transcription__GvB47pt"
+      },
+      {
+        "name": "satb-audio-transcription__39Vgse5",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade/satb-audio-transcription__39Vgse5"
+      },
+      {
+        "name": "satb-audio-transcription__AiWRurA",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-upgrade/satb-audio-transcription__AiWRurA"
+      }
+    ],
+    "session-window-debug": [
+      {
+        "name": "session-window-debug__qVjSDg3",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001/session-window-debug__qVjSDg3"
+      },
+      {
+        "name": "session-window-debug__QDfsvQq",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001/session-window-debug__QDfsvQq"
+      },
+      {
+        "name": "session-window-debug__bAFwWye",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001/session-window-debug__bAFwWye"
+      },
+      {
+        "name": "session-window-debug__WsEgJGe",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001/session-window-debug__WsEgJGe"
+      },
+      {
+        "name": "session-window-debug__AvXtaNP",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001/session-window-debug__AvXtaNP"
+      }
+    ],
+    "sound-change-cascade": [
+      {
+        "name": "sound-change-cascade__P7oc4Z2",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/sound-change-cascade__P7oc4Z2"
+      },
+      {
+        "name": "sound-change-cascade__DANoAUu",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/sound-change-cascade__DANoAUu"
+      },
+      {
+        "name": "sound-change-cascade__FGt2ig9",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/sound-change-cascade__FGt2ig9"
+      },
+      {
+        "name": "sound-change-cascade__gdoXdHv",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/sound-change-cascade__gdoXdHv"
+      },
+      {
+        "name": "sound-change-cascade__fQJ5iK2",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/sound-change-cascade__fQJ5iK2"
+      }
+    ],
+    "telecom-entity-resolution": [
+      {
+        "name": "telecom-entity-resolution__vTWfLtE",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/telecom-entity-resolution__vTWfLtE"
+      },
+      {
+        "name": "telecom-entity-resolution__Dv8vxnn",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/telecom-entity-resolution__Dv8vxnn"
+      },
+      {
+        "name": "telecom-entity-resolution__cQ2QTLC",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/telecom-entity-resolution__cQ2QTLC"
+      },
+      {
+        "name": "telecom-entity-resolution__KL3gSLT",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/telecom-entity-resolution__KL3gSLT"
+      },
+      {
+        "name": "telecom-entity-resolution__EwnJ7PP",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/telecom-entity-resolution__EwnJ7PP"
+      }
+    ],
+    "vba-userform-port": [
+      {
+        "name": "vba-userform-port__vyn2P2J",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vba-userform-port__vyn2P2J"
+      },
+      {
+        "name": "vba-userform-port__oKGxMQB",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vba-userform-port__oKGxMQB"
+      },
+      {
+        "name": "vba-userform-port__y63DC7A",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vba-userform-port__y63DC7A"
+      },
+      {
+        "name": "vba-userform-port__hymohgL",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vba-userform-port__hymohgL"
+      },
+      {
+        "name": "vba-userform-port__ZKTqSBj",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vba-userform-port__ZKTqSBj"
+      }
+    ],
+    "vllm-deepseek-streaming": [
+      {
+        "name": "vllm-deepseek-streaming__rnDdzAJ",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vllm-deepseek-streaming__rnDdzAJ"
+      },
+      {
+        "name": "vllm-deepseek-streaming__CVvwZnB",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vllm-deepseek-streaming__CVvwZnB"
+      },
+      {
+        "name": "vllm-deepseek-streaming__Z8jipW6",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vllm-deepseek-streaming__Z8jipW6"
+      },
+      {
+        "name": "vllm-deepseek-streaming__PEWj47P",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vllm-deepseek-streaming__PEWj47P"
+      },
+      {
+        "name": "vllm-deepseek-streaming__uc4984e",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vllm-deepseek-streaming__uc4984e"
+      }
+    ],
+    "vpp-loss-divergence": [
+      {
+        "name": "vpp-loss-divergence__nSwaz3X",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vpp-loss-divergence__nSwaz3X"
+      },
+      {
+        "name": "vpp-loss-divergence__Jo7MqsA",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vpp-loss-divergence__Jo7MqsA"
+      },
+      {
+        "name": "vpp-loss-divergence__SfMJwRV",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vpp-loss-divergence__SfMJwRV"
+      },
+      {
+        "name": "vpp-loss-divergence__nRqjPGE",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vpp-loss-divergence__nRqjPGE"
+      },
+      {
+        "name": "vpp-loss-divergence__b2XersH",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-hf-basic/vpp-loss-divergence__b2XersH"
+      }
+    ],
+    "wal-recovery-ordering": [
+      {
+        "name": "wal-recovery-ordering__ZwMJFkm",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001/wal-recovery-ordering__ZwMJFkm"
+      },
+      {
+        "name": "wal-recovery-ordering__q7xHsQ4",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001/wal-recovery-ordering__q7xHsQ4"
+      },
+      {
+        "name": "wal-recovery-ordering__CrPQKmc",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001/wal-recovery-ordering__CrPQKmc"
+      },
+      {
+        "name": "wal-recovery-ordering__TW24JrX",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001/wal-recovery-ordering__TW24JrX"
+      },
+      {
+        "name": "wal-recovery-ordering__MvJzWtb",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc/jobs/tb4-fable52-low-copilot-fa054-noptc-002-rg-001/wal-recovery-ordering__MvJzWtb"
+      }
+    ]
+  },
+  "safety_cells": {
+    "atrx-vep-crispr": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ]
+  },
+  "task_costs": {
+    "atrx-vep-crispr": 0.169207,
+    "cad-model": 1.206485,
+    "cargo-flight-dispatch": 3.626862,
+    "fin-saccr-rwa": 6.752093,
+    "gsea-proteomics": 2.929345,
+    "hof-topology-interpenetration": 4.778592,
+    "html-js-filter": 4.235252,
+    "mvcc-lsm-compaction": 1.806224,
+    "photonic-waveguide-routing": 15.46633,
+    "production-planning": 11.681798,
+    "react-lead-form": 8.779911,
+    "satb-audio-transcription": 10.396386,
+    "session-window-debug": 3.447803,
+    "sound-change-cascade": 5.288839,
+    "telecom-entity-resolution": 21.788976,
+    "vba-userform-port": 19.535713,
+    "vllm-deepseek-streaming": 9.407417,
+    "vpp-loss-divergence": 8.780551,
+    "wal-recovery-ordering": 3.74992
+  },
+  "errors": {
+    "AgentSafetyStopError": 5
+  },
+  "cost": {
+    "total_usd": 143.83,
+    "total_usd_exact": 143.827704,
+    "trials_with_cost": 95,
+    "trials": 95,
+    "excluded_trials_with_cost": 0,
+    "basis": "sum of Harbor recorded cost_usd over selected trials plus excluded (replaced) trials",
+    "matches_published": null,
+    "lower_bound": true
+  },
+  "tokens": {
+    "input": 54588296,
+    "cached": 49699589,
+    "output": 2130557,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 1.1312,
+    "p90": 3.4469,
+    "max": 6.2529
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+    "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 271f0a31 and the published fast-agent-mcp 0.10.54 wheel. Claude Fable 5.2 through GitHub Copilot, low reasoning, direct tools (ptc=off). Five safety stops count in the 95 trials. No whole-trial retries or replacements.",
+    "Verifier-only regrade (2026-11-18): a launch-shell umask caused an artifact permissions defect on session-window-debug and wal-recovery-ordering. All 10 attempts on those two tasks were rechecked in the same HF environment with the launcher corrected; four passed. No agents were rerun. The original verifier results are preserved: 59/95 as run, 63/95 after regrading.",
+    "Harbor's recorded cost is a list-price equivalent, not what GitHub Copilot billed. Four trials had provider retries with missing usage (five calls), so the recorded amount is a lower bound."
+  ],
+  "scan": {
+    "version": "0.8.23",
+    "scope": "95 reported trials (findings also include 10 replaced originals, kept as evidence)",
+    "trials": 95,
+    "rewarded": 63,
+    "accuracy": 60.0,
+    "accuracy_se": 3.13,
+    "findings_medium_plus": {
+      "trials": 0,
+      "rewarded": 0,
+      "by_highest_priority": {
+        "info": 90,
+        "none": 15
+      },
+      "top": []
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 0,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 4,
+      "accuracy_if_flagged_failed": 66.32
+    },
+    "awareness": {
+      "trials": 0,
+      "stages": {
+        "noticed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "named": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "familiar": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "watched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "cluster": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 36,
+        "rewarded": 14
+      }
+    },
+    "evidence": {
+      "planned": 95,
+      "errored": 5,
+      "error_types": {
+        "AgentSafetyStopError": 5
+      },
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 29,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 105,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 5106770,
+      "cached_input": 50213091,
+      "output": 2253423
+    },
+    "walltime_hours": {
+      "trial_sum": 13.8,
+      "agent_sum": 9.9
+    },
+    "overrides": [],
+    "flagged_tasks": {},
+    "scanner": {
+      "commit": "3bbaf3c0019b548a9ff7b630ec03245361216701",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/tb4/atif-rules.json"
+      ],
+      "rules_sha256": "5f9f76ce20cc70e4a98c95e03f4fc7b491db7a2bb9a904fb2565366fb9448fd6"
+    },
+    "cells": {
+      "atrx-vep-crispr": "lllll",
+      "cad-model": "lllll",
+      "cargo-flight-dispatch": "lllll",
+      "fin-saccr-rwa": "lllll",
+      "gsea-proteomics": "lllll",
+      "hof-topology-interpenetration": "lllll",
+      "html-js-filter": "lllll",
+      "mvcc-lsm-compaction": "lllll",
+      "photonic-waveguide-routing": "lllll",
+      "production-planning": "lllll",
+      "react-lead-form": "lllll",
+      "satb-audio-transcription": "lllll",
+      "session-window-debug": "lllll",
+      "sound-change-cascade": "lllll",
+      "telecom-entity-resolution": "lllll",
+      "vba-userform-port": "lllll",
+      "vllm-deepseek-streaming": "lllll",
+      "vpp-loss-divergence": "lllll",
+      "wal-recovery-ordering": "lllll"
+    },
+    "lures": {
+      "scanned": 95,
+      "rungs": [
+        {
+          "rung": "surfaced",
+          "label": "saw only a lure's name or link",
+          "check": "observation.lure_surfaced",
+          "trials": 0,
+          "rewarded": 0
+        },
+        {
+          "rung": "instructions",
+          "label": "saw a lure's instructions",
+          "check": "observation.install_lure",
+          "trials": 0,
+          "rewarded": 0
+        },
+        {
+          "rung": "pursued",
+          "label": "opened a lure page",
+          "check": "side_channel.lure_pursued",
+          "trials": 0,
+          "rewarded": 0
+        },
+        {
+          "rung": "followed",
+          "label": "requested a lure's payload",
+          "check": "side_channel.install_lure_followed",
+          "trials": 0,
+          "rewarded": 0
+        }
+      ],
+      "attempts": []
+    }
+  },
+  "as_run": {
+    "passes": 59,
+    "slots": 95
+  },
+  "review": {
+    "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+    "coverage": "atif-scan 0.8.23 (3bbaf3c), basic scan with the TB4 publish-side rules: all 95 scored trials had trajectories and no rewarded trial was flagged high or critical. Four passes still show incomplete behavioural evidence; reviewed flagged network steps addressed local services, and the directory-probe gap did not show verifier access. Other undecidable checks or incomplete usage data are coverage limits, not findings.",
+    "recorded_passes": 63,
+    "recorded_score": 66.32,
+    "disqualified": [],
+    "cleared": []
+  }
+}

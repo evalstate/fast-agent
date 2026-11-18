@@ -1179,6 +1179,40 @@
         "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-11-05.1, rule glm-53-flash-hf: $0.15 / $0.03 / $0.50 per million input / cached / output tokens). Fifteen trials have model calls that reported no usage, so the total is a lower bound."
       ],
       "scan": true
+    },
+    {
+      "id": "tb4-fable52-low-noptc",
+      "harness": "fast-agent",
+      "model": "Fable 5.2",
+      "effort": "low",
+      "model_string": "copilot.claude-fable-5.2?reasoning=low&ptc=off",
+      "date": "2026-11-12",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-fable52-low-noptc",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-fable52-low-fa054-noptc-r1 (cohort tb4-fable52-low-copilot-fa054-noptc-002)"
+      },
+      "expected": {
+        "passes": 63
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Every pass atif-scan flagged high or critical has a recorded decision.",
+        "coverage": "atif-scan 0.8.23 (3bbaf3c), basic scan with the TB4 publish-side rules: all 95 scored trials had trajectories and no rewarded trial was flagged high or critical. Four passes still show incomplete behavioural evidence; reviewed flagged network steps addressed local services, and the directory-probe gap did not show verifier access. Other undecidable checks or incomplete usage data are coverage limits, not findings.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), each task's native deadline, five attempts per task.",
+        "bench-run cohort on HF Jobs (cpu-basic/upgrade partitions; hardware capacity matching, not strict CPU/RAM enforcement), Harbor 271f0a31 and the published fast-agent-mcp 0.10.54 wheel. Claude Fable 5.2 through GitHub Copilot, low reasoning, direct tools (ptc=off). Five safety stops count in the 95 trials. No whole-trial retries or replacements.",
+        "Verifier-only regrade (2026-11-18): a launch-shell umask caused an artifact permissions defect on session-window-debug and wal-recovery-ordering. All 10 attempts on those two tasks were rechecked in the same HF environment with the launcher corrected; four passed. No agents were rerun. The original verifier results are preserved: 59/95 as run, 63/95 after regrading.",
+        "Harbor's recorded cost is a list-price equivalent, not what GitHub Copilot billed. Four trials had provider retries with missing usage (five calls), so the recorded amount is a lower bound."
+      ],
+      "scan": true
     }
   ]
 }
