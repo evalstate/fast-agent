@@ -67,6 +67,8 @@ class SurfaceTool:
     source: str | None = None
     """Source group of a programmatic function: an MCP server name, ``card``, ``agents``,
     ``local`` or ``builtin``."""
+    seen: bool = False
+    """Whether this deferred function's signature is in the retained conversation."""
 
     @property
     def large(self) -> bool:

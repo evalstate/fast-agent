@@ -81,7 +81,10 @@ sources are searchable (for example `github: 91 functions`) in the conversation 
 in the tool description, so connecting a server with `/mcp connect` does not rewrite it.
 `/tools` shows upfront and searchable functions. To give the model a definition yourself,
 mention it in a prompt as `^tool:<name>`, use `/tools add <name>...`, or browse and pick
-functions with `/tools select`. Mentions work in interactive prompts (including
+functions with `/tools select`. A `[-]` checkbox means the model already has the
+signature, either upfront in the code tool description or in the retained conversation
+from a search result or a sent mention. You can still select these functions again.
+Mentions work in interactive prompts (including
 `#agent` messages, resolved against that agent), ACP clients, and `go --message` /
 `--prompt-file`. A mention inside a sentence is sent as the function name in backticks;
 mentions at the end of the prompt are removed from the text. Either way the definitions

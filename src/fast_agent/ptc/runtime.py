@@ -572,7 +572,9 @@ class ProgrammaticToolRuntime:
         )
         return _PRELUDE + unavailable + (OUTPUT_PRELUDE if helpers else "")
 
-    def surface(self, model_tools: Sequence[Tool]) -> ToolSurface:
+    def surface(
+        self, model_tools: Sequence[Tool], *, seen_signatures: frozenset[str] = frozenset()
+    ) -> ToolSurface:
         """Describe ``model_tools`` (as returned by ``model_tools()``) and the sandbox functions."""
         exposed = [
             SurfaceTool(
@@ -589,17 +591,19 @@ class ProgrammaticToolRuntime:
             stub = function.stub()
             tokens = estimate_tokens(stub)
             deferred = name in catalog.deferred
+            signature = function.signature()
             nested.append(
                 SurfaceTool(
                     tool=catalog.tools[function.tool_name],
                     exposure=ToolExposure.PROGRAMMATIC,
                     context_tokens=0 if deferred else tokens,
                     python_name=function.python_name,
-                    signature=function.signature(),
+                    signature=signature,
                     stub=stub,
                     deferred=deferred,
                     stub_tokens=tokens,
                     source=catalog.sources[name],
+                    seen=deferred and signature in seen_signatures,
                 )
             )
         return ToolSurface(

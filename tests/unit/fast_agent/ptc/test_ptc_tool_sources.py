@@ -31,6 +31,7 @@ from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.ptc.catalog import TOOL_SOURCES_FINGERPRINT_META
+from fast_agent.ptc.mentions import expand_tool_mentions
 from fast_agent.session import SessionHydrationPolicy, SessionHydrator
 from fast_agent.session.session_manager import SessionManager
 from fast_agent.tools.function_tool_loader import build_default_function_tool
@@ -562,6 +563,44 @@ async def test_a_running_script_keeps_the_routes_it_started_with(
     else:
         assert seen == [], text
         assert "`agent__review` is no longer available" in text
+
+
+@pytest.mark.asyncio
+async def test_seen_functions_follow_signatures_in_the_active_conversation(harness: _Agent) -> None:
+    agent = harness.agent
+
+    async def seen() -> set[str]:
+        return {
+            tool.python_name
+            for tool in (await agent.tool_surface()).programmatic_functions()
+            if tool.seen and tool.python_name is not None
+        }
+
+    assert await seen() == set()
+
+    code = "\n".join(
+        [
+            'ignored = await search_tools(query="github__op_0", limit=1)',
+            'print(await search_tools(query="github__op_1", limit=1))',
+        ]
+    )
+    await agent.generate(
+        f"***CALL_TOOL exec_sandbox {json.dumps({'code': code})}", RequestParams(max_iterations=3)
+    )
+    assert await seen() == {"github__op_1"}
+
+    message = Prompt.user("Use ^tool:github__op_2 for this")
+    expand_tool_mentions(await agent.tool_surface(), message)
+    assert await seen() == {"github__op_1"}
+    await harness.send(message)
+    assert await seen() == {"github__op_1", "github__op_2"}
+
+    checkpoint = PromptMessageExtended(
+        role="user",
+        channels={FAST_AGENT_COMPACTION_CHANNEL: [TextContent(type="text", text="summary")]},
+    )
+    agent.load_message_history([*agent.message_history, checkpoint])
+    assert await seen() == set()
 
 
 @pytest.mark.asyncio

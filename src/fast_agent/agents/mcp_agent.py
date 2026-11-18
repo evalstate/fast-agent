@@ -64,11 +64,8 @@ from fast_agent.commands.model_capabilities import (
 from fast_agent.config import MCPServerSettings, ShellSettings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
-    FAST_AGENT_COMPACTION_CHANNEL,
-    FAST_AGENT_PROVIDER_CHECKPOINT,
     HUMAN_INPUT_TOOL_NAME,
     MAX_PROCESS_POLL_WAIT_SECONDS,
-    OPENAI_COMPACTION_ITEMS,
     OPENAI_COMPACTION_TRIGGER,
     should_parallelize_tool_calls,
 )
@@ -127,6 +124,7 @@ from fast_agent.ptc.catalog import (
     ToolRoute,
     unavailable_tool_message,
 )
+from fast_agent.ptc.context_blocks import recent_ptc_messages, seen_tool_signatures
 from fast_agent.ptc.search import SEARCH_FUNCTION_NAME
 from fast_agent.ptc.vocabulary import (
     PtcFunctionNames,
@@ -227,17 +225,11 @@ _TOOL_SOURCES_RETRACTION = (
     f"<{TOOL_SOURCES_TAG}>All available functions are now listed directly in "
     f"`{PTC_TOOL_NAME}`; `{SEARCH_FUNCTION_NAME}` is no longer available.</{TOOL_SOURCES_TAG}>"
 )
-# Channels of messages after which the provider no longer sees what came before in full.
-_CHECKPOINT_CHANNELS: Final = frozenset(
-    {FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_PROVIDER_CHECKPOINT, OPENAI_COMPACTION_ITEMS}
-)
 
 
 def _last_tool_sources_fingerprint(messages: list[PromptMessageExtended]) -> str | None:
     """The fingerprint of the latest source roster in ``messages`` since the last checkpoint."""
-    for message in reversed(messages):
-        if not _CHECKPOINT_CHANNELS.isdisjoint(message.channels or {}):
-            return None
+    for message in recent_ptc_messages(messages):
         for block in reversed(message.content):
             if isinstance(block, TextContent) and block.meta:
                 fingerprint = block.meta.get(TOOL_SOURCES_FINGERPRINT_META)
@@ -3489,7 +3481,12 @@ class McpAgent(ABC, ToolAgent):
         ptc_runtime = self._programmatic_tool_runtime()
         if ptc_runtime is None:
             return ToolSurface.direct(model_tools)
-        return ptc_runtime.surface(model_tools)
+        seen = (
+            seen_tool_signatures(self.message_history)
+            if ptc_runtime.catalog.search_active
+            else frozenset()
+        )
+        return ptc_runtime.surface(model_tools, seen_signatures=seen)
 
     def reserve_ptc_builtin_name(self, name: str) -> bool:
         """Move an installed user function aside before installing a canonical PTC built-in."""
