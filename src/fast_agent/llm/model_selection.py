@@ -105,6 +105,12 @@ class ModelSelectionCatalog:
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
+                alias="neon",
+                display_label="Gemini 4 Neon",
+                model="google.gemini-4-neon",
+                description="Frontier intelligence with fast end-to-end coding and agentic work.",
+            ),
+            CatalogModelEntry(
                 alias="argon",
                 display_label="Gemini 4 Argon",
                 model="google.gemini-4-argon",

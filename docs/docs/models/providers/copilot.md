@@ -115,6 +115,7 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | `copilot.gpt-6.1-terra` | Responses |
 | `copilot.gpt-6-sol` | Responses |
 | `copilot.gpt-6-luna` | Responses |
+| `copilot.gemini-4-neon` | Chat Completions (SSE) |
 | `copilot.gemini-4-argon` | Chat Completions (SSE) |
 | `copilot.gemini-4-carbon` | Chat Completions (SSE) |
 | `copilot.gemini-4-hydrogen` | Chat Completions (SSE) |
@@ -125,16 +126,18 @@ with `(cp)`; this does not change the model name used in configuration.
 
 ## Gemini 4 Chat Completions
 
-The Copilot `/models` catalog confirmed these three exact IDs and their
-`/chat/completions` endpoint on November 17, 2026. Argon and Carbon advertise
-`low`, `medium`, and `high` reasoning effort; Hydrogen also advertises `xhigh`.
-Use, for example, `copilot.gemini-4-hydrogen?reasoning=xhigh`.
+The Copilot `/models` catalog confirmed these exact IDs and their
+`/chat/completions` endpoint on November 17, 2026 (Neon on November 18, 2026).
+Argon and Carbon advertise `low`, `medium`, and `high` reasoning effort; Neon and
+Hydrogen also advertise `xhigh`. Use, for example,
+`copilot.gemini-4-neon?reasoning=xhigh`.
 
 This is an OpenAI-compatible gateway route, not the native Google API. Native
 Google thinking configuration, thought-signature replay, Search grounding, and
-service tiers are not enabled through Copilot. No Gemini 4 inference or
-structured-output verification was performed for this addition. Catalog
-availability does not guarantee entitlement for every account.
+service tiers are not enabled through Copilot. Neon text, `xhigh` reasoning and
+PTC tool calls were smoke-tested on November 18, 2026; structured output has not
+been verified for any Gemini 4 route. Catalog availability does not guarantee
+entitlement for every account.
 
 ## Structured output
 

@@ -359,7 +359,7 @@ def test_google_picker_leads_with_the_gemini4_short_aliases() -> None:
     entries = ModelSelectionCatalog.list_entries(Provider.GOOGLE)
     current_entries = [entry for entry in entries if entry.current]
 
-    assert [entry.alias for entry in current_entries[:3]] == ["argon", "hydrogen", "carbon"]
+    assert [entry.alias for entry in current_entries[:4]] == ["neon", "argon", "hydrogen", "carbon"]
     legacy_flash = next(entry for entry in entries if entry.alias == "gemini38flash")
     assert legacy_flash.model == "google.gemini-3.8-flash"
     assert "$0.75/M input" in (legacy_flash.description or "")

@@ -41,6 +41,7 @@ PUBLIC_IDS = {
     "gpt-6-luna",
     "grok-4.6",
     "grok-4.7",
+    "gemini-4-neon",
     "gemini-4-argon",
     "gemini-4-carbon",
     "gemini-4-hydrogen",

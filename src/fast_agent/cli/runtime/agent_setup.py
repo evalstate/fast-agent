@@ -99,6 +99,7 @@ if TYPE_CHECKING:
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.harness import HarnessSession
+    from fast_agent.mcp_server_registry import ServerRegistry
     from fast_agent.session.session_manager import SessionManager
     from fast_agent.types import PromptMessageExtended
 
@@ -1514,7 +1515,7 @@ async def _run_initialized_agent_request(
         await cli_agent()
 
 
-def _server_registry(fast: Any) -> Any | None:
+def _server_registry(fast: Any) -> ServerRegistry | None:
     """The core's server registry, or None once the core is disposed or never initialized."""
     try:
         return fast.app.context.server_registry

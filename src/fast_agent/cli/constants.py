@@ -44,6 +44,7 @@ GO_SPECIFIC_OPTIONS = {
     "--mcp-protocol",
     "--model",
     "--models",
+    "--neon",
     "--argon",
     "--hydrogen",
     "--carbon",

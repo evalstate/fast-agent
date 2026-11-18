@@ -16,6 +16,7 @@
 | `gemini-4-argon` | `gemini-4-argon` | `gemini3flash` | `gemini-3-flash-preview` |
 | `gemini-4-carbon` | `gemini-4-carbon` | `gemini4argon` | `gemini-4-argon` |
 | `gemini-4-hydrogen` | `gemini-4-hydrogen` | `gemini4carbon` | `gemini-4-carbon` |
-| `gemini2` | `gemini-2.0-flash` | `gemini4hydrogen` | `gemini-4-hydrogen` |
+| `gemini-4-neon` | `gemini-4-neon` | `gemini4hydrogen` | `gemini-4-hydrogen` |
+| `gemini2` | `gemini-2.0-flash` | `gemini4neon` | `gemini-4-neon` |
 | `gemini25` | `gemini-2.5-flash` | `hydrogen` | `gemini-4-hydrogen` |
-| `gemini25pro` | `gemini-2.5-pro` |  |  |
+| `gemini25pro` | `gemini-2.5-pro` | `neon` | `gemini-4-neon` |

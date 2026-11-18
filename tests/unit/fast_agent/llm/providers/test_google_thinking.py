@@ -280,6 +280,7 @@ def test_available_reasoning_values() -> None:
         ("gemini-4-carbon", "MEDIUM"),
         ("gemini-4-argon", "MEDIUM"),
         ("gemini-4-hydrogen", "HIGH"),
+        ("gemini-4-neon", "HIGH"),
     ],
 )
 def test_gemini4_defaults_to_model_thinking_level(model: str, default_level: str) -> None:

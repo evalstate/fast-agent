@@ -1122,6 +1122,9 @@ class ModelDatabase:
     GEMINI_4_HYDROGEN = GEMINI_4_STANDARD.model_copy(
         update={"reasoning_effort_spec": GOOGLE_GEMINI_4_HYDROGEN_THINKING_LEVEL_SPEC}
     )
+    # Neon shares Hydrogen's limits and thinking levels (low..xhigh, default high).
+    # https://aistudio.google.com/docs/models/gemini-4-neon
+    GEMINI_4_NEON = GEMINI_4_HYDROGEN.model_copy()
 
     GEMINI_2_FLASH = ModelParameters(
         context_window=1_048_576,
@@ -1659,6 +1662,7 @@ class ModelDatabase:
         "gemini-4-argon": GEMINI_4_STANDARD,
         "gemini-4-hydrogen": _with_fast(GEMINI_4_HYDROGEN),
         "gemini-4-carbon": GEMINI_4_STANDARD,
+        "gemini-4-neon": GEMINI_4_NEON,
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,
         "gemini-2.5-flash": _with_fast(GEMINI_25_STANDARD),
@@ -2509,7 +2513,7 @@ def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
         # Copilot /models, 2026-11-17: Gemini uses an OpenAI-compatible gateway,
         # not native Google's thinking, grounding, service tiers or media APIs.
         efforts: list[ReasoningEffortLevel] = ["low", "medium", "high"]
-        if spec.model_id == "gemini-4-hydrogen":
+        if spec.model_id in ("gemini-4-hydrogen", "gemini-4-neon"):
             efforts.append("xhigh")
         # Copilot's Gemini gateway pricing and prompt reliability degrade past 200k
         # input tokens (the catalog's default context tier), so auto-compact at 190k
