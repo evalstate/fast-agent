@@ -2,18 +2,68 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from mcp_types import TextContent
 
+from fast_agent.constants import (
+    FAST_AGENT_COMPACTION_CHANNEL,
+    FAST_AGENT_PROVIDER_CHECKPOINT,
+    OPENAI_COMPACTION_ITEMS,
+)
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.ptc.catalog import TOOL_SOURCES_FINGERPRINT_META
 from fast_agent.ptc.mentions import ORIGINAL_TEXT_META, TOOL_DEFINITIONS_META
+from fast_agent.ptc.vocabulary import PTC_VOCABULARY_META
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Iterator, Sequence
 
     from mcp_types import ContentBlock
+
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+
+
+_CHECKPOINT_CHANNELS: Final = frozenset(
+    {FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_PROVIDER_CHECKPOINT, OPENAI_COMPACTION_ITEMS}
+)
+_SIGNATURE_PREFIX = "async def "
+
+
+def recent_ptc_messages(
+    messages: Sequence[PromptMessageExtended],
+) -> Iterator[PromptMessageExtended]:
+    """Walk backwards through messages still available in full after compaction."""
+    for message in reversed(messages):
+        if not _CHECKPOINT_CHANNELS.isdisjoint(message.channels or {}):
+            break
+        yield message
+
+
+def seen_tool_signatures(messages: Sequence[PromptMessageExtended]) -> frozenset[str]:
+    """Read signatures from sent mentions and visible sandbox results, not nested call logs.
+
+    A search whose result was discarded or truncated away does not reveal a signature.
+    """
+    signatures: set[str] = set()
+
+    def collect(block: TextContent) -> None:
+        signatures.update(
+            line.removeprefix(_SIGNATURE_PREFIX).removesuffix(":")
+            for line in block.text.splitlines()
+            if line.startswith(_SIGNATURE_PREFIX)
+        )
+
+    for message in recent_ptc_messages(messages):
+        for block in message.content:
+            if isinstance(block, TextContent) and TOOL_DEFINITIONS_META in (block.meta or {}):
+                collect(block)
+        for result in (message.tool_results or {}).values():
+            if PTC_VOCABULARY_META in (result.meta or {}):
+                for block in result.content:
+                    if isinstance(block, TextContent):
+                        collect(block)
+    return frozenset(signatures)
 
 
 def is_generated_ptc_context_block(block: ContentBlock) -> bool:

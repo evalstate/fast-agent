@@ -21,6 +21,7 @@ from prompt_toolkit.layout.margins import ScrollbarMargin
 from prompt_toolkit.widgets import Frame
 
 from fast_agent.commands.tool_summaries import format_token_estimate
+from fast_agent.mcp.common import SEP
 from fast_agent.ptc.catalog import LOCAL_SOURCE
 from fast_agent.ptc.mentions import tool_mention_token
 from fast_agent.ui.picker_theme import build_picker_style
@@ -39,9 +40,7 @@ _MIN_ROWS = 10
 _MAX_ROWS = 18
 _CHROME_ROWS = 7
 """Rows used by the header, frame borders and footer around the list."""
-_KEY_HINTS = (
-    " Type to filter · ↑↓ move · Space toggle · Tab/←→ source · Enter add to message · Esc cancel"
-)
+_KEY_HINTS = " Type to search · [-] already seen · Space toggle · Tab source · Enter add · Esc"
 _WORD_SEPARATORS = re.compile(r"[\s_/-]+")
 
 
@@ -55,6 +54,15 @@ class ToolPickerItem:
     stub: str
     tokens: int
     deferred: bool
+    seen: bool
+
+    @property
+    def row_name(self) -> str:
+        """Show the tool's local name when its source already identifies the namespace."""
+        prefix = f"{self.source}{SEP}"
+        return (
+            self.tool_name.removeprefix(prefix) if self.tool_name.startswith(prefix) else self.name
+        )
 
     def matches(self, query: str) -> bool:
         """Whether the filter ``query`` keeps this item.
@@ -85,6 +93,7 @@ def tool_picker_items(surface: ToolSurface) -> tuple[ToolPickerItem, ...]:
             stub=function.stub or function.signature or function.tool.name,
             tokens=function.stub_tokens,
             deferred=function.deferred,
+            seen=function.seen,
         )
         for function in surface.programmatic_functions()
     ]
@@ -319,27 +328,38 @@ class _ToolPicker:
         if not visible:
             return [("class:muted", "  No matching functions")]
         width = self._list_width()
-        source_width = max(len(item.source) for item in self.state.items)
+        source_width = (
+            max(len(item.source) for item in self.state.items) if self.state.source is None else 0
+        )
         fragments: StyleAndTextTuples = []
         for index, item in enumerate(visible):
             highlighted = index == self.state.cursor
             chosen = item.name in self.state.selected
             tokens = format_token_estimate(item.tokens).removesuffix(" tokens")
-            status = "" if item.deferred else "upfront"
-            meta = f"  {item.source.ljust(source_width)} {tokens.rjust(6)} {status.ljust(7)}"
-            label = f"{'❯' if highlighted else ' '} {'[x]' if chosen else '[ ]'} {item.name}"
-            label = _truncate(label, max(width - len(meta), 8))
+            check = "x" if chosen else "-" if item.seen or not item.deferred else " "
+            source = f"{item.source.ljust(source_width)} " if source_width else ""
+            meta = f"  {source}{tokens.rjust(6)}"
+            marker = f"{'❯' if highlighted else ' '} [{check}] "
+            name_width = max(width - len(marker) - len(meta), 2)
+            label = _truncate(item.row_name, name_width)
             row_style = "class:selected" if highlighted else ""
-            mark_style = "class:active" if chosen else ""
-            fragments.append((f"{row_style} {mark_style}".strip(), label.ljust(width - len(meta))))
-            fragments.append((f"{row_style} class:muted".strip(), f"{meta}\n"))
+            label_style = f"{row_style} class:active".strip() if chosen else row_style
+            fragments.extend(
+                [
+                    (label_style, marker),
+                    (label_style, label.ljust(name_width)),
+                    (f"{row_style} class:muted".strip(), f"{meta}\n"),
+                ]
+            )
         return fragments
 
     def _render_preview(self) -> StyleAndTextTuples:
         item = self.state.current
         if item is None:
             return [("class:muted", "Nothing to preview.")]
-        if item.deferred:
+        if item.seen:
+            cost = f"{format_token_estimate(item.tokens)} on demand · seen in this conversation"
+        elif item.deferred:
             cost = f"{format_token_estimate(item.tokens)} on demand (found by search_tools)"
         else:
             cost = (

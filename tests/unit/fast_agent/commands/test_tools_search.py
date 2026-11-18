@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -102,7 +103,7 @@ def _surface(*, deferred: bool = True) -> ToolSurface:
                 deferred=deferred,
             ),
         ),
-        programmatic=PTC,
+        programmatic=replace(PTC, search_active=deferred),
     )
 
 
@@ -160,6 +161,7 @@ def test_upfront_token_totals_exclude_deferred_functions() -> None:
 async def test_tools_listing_separates_upfront_from_searchable_functions() -> None:
     rendered = _rendered(await _run(""))
 
+    assert "search_tools: available" in rendered
     assert "Callable from exec_sandbox (1 upfront · ~50 tokens inside exec_sandbox)" in rendered
     assert "Runs Python that calls the 1 function listed below. 3 more are found" in rendered
     assert "Searchable from exec_sandbox (3 · ~260 tokens on demand)" in rendered
@@ -185,6 +187,7 @@ async def test_tools_listing_without_deferred_functions_has_no_search_section() 
     rendered = _rendered(await _run("", surface=_surface(deferred=False)))
 
     assert "Callable from exec_sandbox (4 · ~310 tokens inside exec_sandbox)" in rendered
+    assert "search_tools: available" not in rendered
     assert "Searchable" not in rendered
     assert "upfront" not in rendered
     assert "/tools select" not in rendered
@@ -197,6 +200,7 @@ def test_tools_markdown_separates_upfront_from_searchable_functions() -> None:
     summary = render_tools_markdown(listing, heading="tools")
     full = render_tools_markdown(listing, heading="tools", show_all=True)
 
+    assert r"search\_tools: available" in summary
     assert "## Callable from exec\\_sandbox (1 upfront · ~50 tokens inside" in summary
     assert "## Searchable from exec\\_sandbox (3 · ~260 tokens on demand)" in summary
     assert "- **github** (2): `create_issue`, `list_issues`" in summary

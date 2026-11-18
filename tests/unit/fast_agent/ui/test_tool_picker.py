@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 import pytest
 from mcp_types import Tool
 from prompt_toolkit.application import create_app_session
+from prompt_toolkit.formatted_text import fragment_list_to_text
 from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.output import DummyOutput
 
@@ -18,6 +20,7 @@ from fast_agent.tools.tool_surface import (
 )
 from fast_agent.ui.tool_picker import (
     ToolPickerState,
+    _ToolPicker,
     run_tool_picker_async,
     tool_picker_items,
 )
@@ -74,6 +77,63 @@ def test_items_list_deferred_functions_first_grouped_by_source() -> None:
 
     assert _names(state) == ["create_issue", "list_issues", "list_orders", "read_file"]
     assert state.sources == (None, "github", "orders", "local")
+
+
+def test_rows_show_short_names_without_changing_the_selected_function() -> None:
+    name = "my_github__issues"
+    function = replace(
+        _function("issues", source="my-github", tokens=210),
+        python_name=name,
+        stub=f"async def {name}() -> Any: ...",
+    )
+    surface = replace(SURFACE, tools=(function,))
+    picker = _ToolPicker(tool_picker_items(surface), tool_name="exec_sandbox")
+
+    all_rows = fragment_list_to_text(picker._render_rows())
+    assert "issues" in all_rows
+    assert name not in all_rows
+    assert "my-github" in all_rows
+
+    picker.state.cycle_source(1)
+    picker.state.type_text(name)
+    server_rows = fragment_list_to_text(picker._render_rows())
+    assert "issues" in server_rows
+    assert name not in server_rows
+    assert "my-github" not in server_rows
+    assert f"^tool:{name}" in fragment_list_to_text(picker._render_preview())
+    assert picker.state.chosen_names() == (name,)
+
+
+def test_picker_marks_known_functions_without_disabling_selection() -> None:
+    surface = replace(
+        SURFACE,
+        tools=(
+            replace(_function("seen_before", source="github", tokens=30), seen=True),
+            _function("still_new", source="github", tokens=40),
+            _function("advertised", source="github", tokens=50, deferred=False),
+        ),
+    )
+    picker = _ToolPicker(tool_picker_items(surface), tool_name="exec_sandbox")
+    picker.state.cycle_source(1)
+
+    seen, unseen, upfront = fragment_list_to_text(picker._render_rows()).splitlines()
+    assert "[-] seen_before" in seen
+    assert "[ ] still_new" in unseen
+    assert "[-] advertised" in upfront
+    assert "[-] already seen" in fragment_list_to_text(picker._render_footer())
+
+    picker.state.toggle()
+    assert "[x] seen_before" in fragment_list_to_text(picker._render_rows())
+    picker.state.move(2)
+    assert "already in the exec_sandbox description" in fragment_list_to_text(
+        picker._render_preview()
+    )
+    picker.state.toggle()
+    assert "[x] advertised" in fragment_list_to_text(picker._render_rows())
+    assert picker.state.chosen_names() == ("seen_before", "advertised")
+
+    picker.state.toggle()
+    assert "[-] advertised" in fragment_list_to_text(picker._render_rows())
 
 
 def test_typing_filters_and_backspace_edits_the_query() -> None:

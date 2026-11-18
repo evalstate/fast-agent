@@ -27,6 +27,7 @@ from fast_agent.mcp.app_integrations import (
     AppIntegrationKind,
 )
 from fast_agent.mcp.common import get_server_name, is_namespaced_name
+from fast_agent.ptc.search import SEARCH_FUNCTION_NAME
 from fast_agent.tools.tool_sources import TOOL_SOURCE_LABELS, ToolSource, tool_source
 from fast_agent.tools.tool_surface import (
     ProgrammaticSurface,
@@ -481,7 +482,10 @@ def build_tools_listing(agent: object, surface: ToolSurface) -> ToolsListing:
 
 
 def ptc_settings_label(ptc: ProgrammaticSurface) -> str:
-    parts = ["Programmatic tool calling: on", f"vocabulary: {ptc.vocabulary}"]
+    parts = ["Programmatic tool calling: on"]
+    if ptc.search_active:
+        parts.append(f"{SEARCH_FUNCTION_NAME}: available")
+    parts.append(f"vocabulary: {ptc.vocabulary}")
     if ptc.tool_format == "freeform":
         parts.append("freeform input")
     if ptc.type_check:
