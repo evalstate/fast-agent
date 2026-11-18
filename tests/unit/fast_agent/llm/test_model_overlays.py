@@ -1160,7 +1160,9 @@ metadata:
 
 
 @pytest.mark.asyncio
-async def test_overlay_model_switch_reapplies_overlay_max_tokens_defaults(tmp_path: Path) -> None:
+async def test_overlay_model_switch_reapplies_destination_defaults_and_endpoint(
+    tmp_path: Path,
+) -> None:
     home = tmp_path / ".fast-agent"
     _write_overlay(
         home,
@@ -1199,17 +1201,22 @@ metadata:
 
     with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         agent = LlmAgent(AgentConfig(name="switcher"))
-        await agent.attach_llm(ModelFactory.create_factory("big-local"))
+        await agent.attach_llm(
+            ModelFactory.create_factory("big-local"), base_url="http://localhost:8082/v1"
+        )
 
-        assert agent.llm is not None
+        assert isinstance(agent.llm, OpenResponsesLLM)
         assert agent.llm.default_request_params.max_tokens == 8192
+        async with agent.llm._responses_client() as client:
+            assert client.base_url.port == 8082
 
         await agent.set_model("tiny-local")
 
-        assert agent.llm is not None
+        assert isinstance(agent.llm, OpenResponsesLLM)
         assert agent.llm.default_request_params.max_tokens == 1024
-        assert agent.llm.resolved_model is not None
         assert agent.llm.resolved_model.overlay_name == "tiny-local"
+        async with agent.llm._responses_client() as client:
+            assert client.base_url.port == 8080
 
 
 def test_overlay_secret_ref_resolves_api_key_from_companion_file(tmp_path: Path) -> None:

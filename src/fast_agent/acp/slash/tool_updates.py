@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from acp.helpers import text_block, tool_content
-from acp.schema import ToolCallProgress, ToolCallStart
+from acp.schema import ContentToolCallContent, TextContentBlock, ToolCallProgress, ToolCallStart
 
 if TYPE_CHECKING:
-    from acp.schema import ContentToolCallContent, FileEditToolCallContent, TerminalToolCallContent
+    from acp.schema import FileEditToolCallContent, TerminalToolCallContent
 
 ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
 
@@ -20,7 +19,7 @@ class SessionUpdateSender(Protocol):
 def _message_content(
     message: str | None,
 ) -> list[ContentToolCallContent | FileEditToolCallContent | TerminalToolCallContent] | None:
-    return [tool_content(text_block(message))] if message else None
+    return [ContentToolCallContent(content=TextContentBlock(text=message))] if message else None
 
 
 async def send_fetch_tool_call_start(

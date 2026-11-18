@@ -15,8 +15,8 @@ import json
 import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
+from contextlib import AsyncExitStack, suppress
+from dataclasses import dataclass, field, replace
 from io import StringIO
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -33,6 +33,16 @@ from fast_agent.mcp.tool_result_metadata import (
     add_url_elicitation_required_payloads,
     url_elicitation_required_payloads,
 )
+from fast_agent.ptc.catalog import (
+    PTC_SEARCH_EXTRA_THRESHOLD,
+    PtcCatalog,
+    PtcNameLedger,
+    SourceRoster,
+    ToolRoute,
+    build_roster,
+    function_source,
+    unavailable_tool_message,
+)
 from fast_agent.ptc.output import (
     OUTPUT_HELPER_NAMES,
     OUTPUT_PRELUDE,
@@ -40,6 +50,7 @@ from fast_agent.ptc.output import (
     PtcOutputGuidance,
     shell_output_note,
 )
+from fast_agent.ptc.search import SEARCH_FUNCTION_NAME, SEARCH_STUBS, search_tools
 from fast_agent.ptc.store import STORE_STUBS, SandboxStore
 from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs, tool_ptc_options
 from fast_agent.ptc.syntax import describe_syntax_error
@@ -50,6 +61,7 @@ from fast_agent.ptc.vocabulary import (
     PTC_VOCABULARY_VERSION,
     is_builtin_tool,
     legacy_name_hint,
+    undefined_names,
 )
 from fast_agent.tools.apply_patch_tool import (
     APPLY_PATCH_INPUT_FIELD as FREEFORM_TOOL_INPUT_FIELD,
@@ -102,6 +114,8 @@ _CARRIED_RESULT_META = (FAST_AGENT_SUBAGENT_RESULT_METADATA,)
 
 ToolDispatcher = Callable[[str, dict[str, Any], str], Awaitable[CallToolResult]]
 """Dispatch a nested call: (tool name, arguments, nested call id) -> result."""
+SearchObserver = Callable[[str, dict[str, Any], str], None]
+"""Observe a ``search_tools`` call: (call id, arguments, result text)."""
 
 PTC_BATCHING_INSTRUCTION_TEMPLATE = (
     "Batch independent searches, file reads, and other read-only calls in a single "
@@ -121,13 +135,14 @@ the machine's Python. Only `print()` output and the final expression value come 
 filter and aggregate large results in code.
 {input_note}\
 - Sandbox Python: the only importable modules are asyncio, base64, binascii, bisect, \
-collections, copy, csv, dataclasses, datetime, decimal, functools, hashlib, itertools, json, \
+collections, copy, csv, dataclasses, datetime, decimal, fnmatch, functools, hashlib, itertools, json, \
 math, os, os.path, pathlib, random, re, sys, time, tomllib, typing and unicodedata. No other \
 standard library (difflib, heapq, io, string, struct, subprocess, ...), no packages, no \
 environment variables. Unsupported syntax: class inheritance, `@staticmethod`/`@classmethod`/\
 `@property`, `yield`, `del`, `async with`/`async for`, `except*`, `import *`.
 {shell_python_note}\
 {functions_note}\
+{search_note}\
 - Independent calls can run concurrently: `a, b = await asyncio.gather(f(x=1), g(y=2))` \
 (asyncio is pre-imported). `settle(aw)` returns an exception instead of raising, so \
 `await asyncio.gather(*[settle(f(x=x)) for x in xs])` collects every result \
@@ -160,6 +175,13 @@ Available functions:
 ```python
 {stubs}```
 """
+_SEARCH_NOTE = (
+    "- Additional functions from connected tool sources are searchable on demand: run "
+    '`print(await search_tools(query="operation object"))` (or scope with `server="..."`) to '
+    "get full Python signatures, then call them in the next step or if you already know their "
+    "signature.\n"
+)
+_SEARCH_EXAMPLE_CALL = 'await search_tools(query="...")'
 _FREEFORM_INPUT_NOTE = (
     "This is a FREEFORM tool: send the Python source itself, not JSON, quotes or markdown fences.\n"
 )
@@ -170,8 +192,14 @@ _FUNCTIONS_NOTE = (
     "- The functions below are defined in the sandbox{only_code}. Call them as "
     '`r = await name(arg="value")` (async, keyword arguments only, no import). `= ...` marks an '
     "optional parameter; pass `None` only where the type allows it. Where other instructions "
-    'say to use a tool of the same name (e.g. "use the `{tool}` tool"), call `{call}` here.\n'
+    "{mapping}\n"
 )
+_TOOL_MAPPING = (
+    'say to use a tool of the same name (e.g. "use the `{tool}` tool"), call `{call}` here.'
+)
+# With only search_tools upfront, every tool other instructions name is a deferred function.
+_SEARCH_MAPPING = "say to use a tool, call the function of the same name here."
+_SEARCH_IO = "find them with `search_tools`"
 _SHELL_BATCH_NOTE = (
     "- Run independent shell commands as separate gathered `{function}` calls rather than "
     "chained with `;` or `&&`, so each keeps its own stdout, stderr and exit_code: "
@@ -196,8 +224,8 @@ _SHARED_NOTE = (
     "process results.\n"
 )
 _IO_NOTE = (
-    "- The functions are your only access to files, commands and the network, e.g. "
-    "`r = {example}`; `open()`, `os`, `pathlib` and `subprocess` cannot reach them here.\n"
+    "- The functions are your only access to files, commands and the network, {how}; "
+    "`open()`, `os`, `pathlib` and `subprocess` cannot reach them here.\n"
 )
 _FILES_NOTE = (
     "- Files are the machine's real files: `open()`, `pathlib.Path` and the `os` file functions "
@@ -211,7 +239,7 @@ _READ_LIMITS_NOTE = (
 _READ_LIMITS_ADVICE = (
     " For larger or binary files, use commands such as `head -c` or `xxd` via `{shell}`."
 )
-_COMMANDS_NOTE = " Commands and the network go through the functions, e.g. `r = {example}`."
+_COMMANDS_NOTE = " Commands and the network go through the functions, {how}."
 # Sandbox errors from trying to do I/O directly instead of through tool functions.
 _DIRECT_IO_ERROR = re.compile(
     r"PermissionError|`open` used when not defined|Module `os` has no member"
@@ -352,25 +380,25 @@ class _PrintedOutput:
 class ProgrammaticToolRuntime:
     """Owns the Monty pool, a fresh sandbox per run, and the store that runs share."""
 
-    def __init__(self, settings: ProgrammaticToolCallingSettings) -> None:
+    def __init__(
+        self, settings: ProgrammaticToolCallingSettings, *, ledger: PtcNameLedger | None = None
+    ) -> None:
         self._settings = settings
         # ptc-vocab-v0: route override can change without resetting the sandbox store.
         self.function_names = settings.function_names
         # The name avoids "python": models treat a Python-named tool as the machine's Python.
         self.tool_name = PTC_TOOL_NAME
-        self._functions: dict[str, PtcFunction] = {}
+        # Defer extra function definitions behind search_tools; the agent applies CLI overrides.
+        self.search_enabled = settings.search
         self._direct_patterns = list(settings.direct_tools)
         self._warned_patterns: set[str] = set()
-        self._nested_tools: dict[str, Tool] = {}
-        # Functions whose tools the model can also call directly.
-        self._shared_functions: tuple[str, ...] = ()
-        self._shell_function: PtcFunction | None = None
+        self._ledger = ledger if ledger is not None else PtcNameLedger()
+        self._catalog = PtcCatalog(type_check_stubs=render_stubs({}))
         self._direct_shell_tool: str | None = None
         self._tool_format: PtcToolFormat = "json"
         # Shell output guidance in effect: "off" unless sandbox code can run local shell commands.
         self._output_guidance: PtcOutputGuidance = "off"
         self._result_byte_limit = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
-        self._stubs = render_stubs({})
         self._pool: AsyncMonty | None = None
         self._pool_stack = AsyncExitStack()
         self._store = SandboxStore()
@@ -382,7 +410,13 @@ class ProgrammaticToolRuntime:
 
     @property
     def functions(self) -> Mapping[str, PtcFunction]:
-        return self._functions
+        """Every function sandbox code can call, including deferred ones."""
+        return self._catalog.functions
+
+    @property
+    def catalog(self) -> PtcCatalog:
+        """The catalogue built by the latest ``model_tools()`` call."""
+        return self._catalog
 
     @property
     def batching_instruction(self) -> str:
@@ -410,11 +444,17 @@ class ProgrammaticToolRuntime:
         result_byte_limit: int = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
         file_read: bool = False,
         file_write: bool = False,
+        sources: Mapping[str, str] | None = None,
+        unavailable_sources: Mapping[str, str] | None = None,
+        routes: Mapping[str, ToolRoute] | None = None,
     ) -> list[Tool]:
         """Replace the agent's tools with the code tool, keeping configured direct tools.
 
         ``result_byte_limit`` is how much of a code tool result the model sees, for the
-        shell output guidance.
+        shell output guidance and search results. ``sources`` overrides the source group of
+        tools by listed name; ``unavailable_sources`` notes configured sources without
+        loaded functions; ``routes`` (the tools' origins by listed name) is kept with the
+        catalogue for dispatching its runs' calls.
         """
         self._tool_format = tool_format
         names = {tool.name for tool in tools}
@@ -437,38 +477,100 @@ class ProgrammaticToolRuntime:
         local_shell = any(_returns_shell_output(tool) for tool in nested)
         self._output_guidance = output_guidance if local_shell else "off"
         self._result_byte_limit = result_byte_limit
-        self._functions = build_functions(
-            nested,
-            profile_names=self.vocabulary == 0,
-            reserved_names=OUTPUT_HELPER_NAMES if self._output_guidance != "off" else frozenset(),
-        )
-        self._nested_tools = {tool.name: tool for tool in nested}
-        self._shell_function = next(
-            (
-                function
-                for function in self._functions.values()
-                if _returns_shell_output(self._nested_tools[function.tool_name])
-            ),
-            None,
-        )
         self._direct_shell_tool = next(
             (tool.name for tool in direct if _returns_shell_output(tool)), None
         )
         self._file_read = file_read
         self._file_write = file_write
-        direct_names = {tool.name for tool in direct}
-        self._shared_functions = tuple(
-            function.python_name
-            for function in self._functions.values()
-            if function.tool_name in direct_names
-        )
-        self._stubs = render_stubs(self._functions) + (
-            OUTPUT_STUBS if self._output_guidance != "off" else ""
+        self._catalog = self._build_catalog(
+            nested,
+            direct_names={tool.name for tool in direct},
+            sources=sources or {},
+            unavailable_sources=unavailable_sources or {},
+            routes=routes or {},
         )
         return [self.tool(), *direct]
 
-    def _prelude(self) -> str:
-        return _PRELUDE + (OUTPUT_PRELUDE if self._output_guidance != "off" else "")
+    def _build_catalog(
+        self,
+        nested: Sequence[Tool],
+        *,
+        direct_names: set[str],
+        sources: Mapping[str, str],
+        unavailable_sources: Mapping[str, str],
+        routes: Mapping[str, ToolRoute],
+    ) -> PtcCatalog:
+        canonical = self.vocabulary == 1
+        reserved = OUTPUT_HELPER_NAMES if self._output_guidance != "off" else frozenset()
+        functions = build_functions(
+            nested,
+            profile_names=not canonical,
+            reserved_names=(reserved | {SEARCH_FUNCTION_NAME}) if canonical else reserved,
+            ledger=self._ledger if canonical else None,
+            routes=routes,
+        )
+        tools = {tool.name: tool for tool in nested}
+        function_sources = {
+            name: function_source(
+                tools[function.tool_name], sources, routes.get(function.tool_name)
+            )
+            for name, function in functions.items()
+        }
+        # Built-ins and functions the model can also call directly always stay upfront.
+        extras = [
+            name
+            for name, function in functions.items()
+            if not is_builtin_tool(tools[function.tool_name])
+            and function.tool_name not in direct_names
+        ]
+        search_active = (
+            self.search_enabled and canonical and len(extras) > PTC_SEARCH_EXTRA_THRESHOLD
+        )
+        deferred = frozenset(extras) if search_active else frozenset()
+        stubs = render_stubs(functions)
+        if self._output_guidance != "off":
+            stubs += OUTPUT_STUBS
+        if search_active:
+            stubs += SEARCH_STUBS
+        return PtcCatalog(
+            functions=functions,
+            tools=tools,
+            sources=function_sources,
+            deferred=deferred,
+            search_active=search_active,
+            roster=(
+                build_roster(function_sources, deferred, unavailable_sources)
+                if search_active
+                else SourceRoster()
+            ),
+            shared_functions=tuple(
+                function.python_name
+                for function in functions.values()
+                if function.tool_name in direct_names
+            ),
+            shell_function=next(
+                (
+                    function
+                    for name, function in functions.items()
+                    if name not in deferred and _returns_shell_output(tools[function.tool_name])
+                ),
+                None,
+            ),
+            type_check_stubs=stubs,
+            retired=self._ledger.retired(functions) if canonical else frozenset(),
+            routes=routes,
+        )
+
+    def _prelude(self, catalog: PtcCatalog) -> str:
+        # Old calls stay catchable after a refresh, without advertising missing tools.
+        helpers = self._output_guidance != "off"
+        retired = catalog.retired - OUTPUT_HELPER_NAMES if helpers else catalog.retired
+        unavailable = "".join(
+            f"\nasync def {name}(*args, **kwargs):\n"
+            f"    raise RuntimeError({unavailable_tool_message(name)!r})\n"
+            for name in sorted(retired)
+        )
+        return _PRELUDE + unavailable + (OUTPUT_PRELUDE if helpers else "")
 
     def surface(self, model_tools: Sequence[Tool]) -> ToolSurface:
         """Describe ``model_tools`` (as returned by ``model_tools()``) and the sandbox functions."""
@@ -481,17 +583,25 @@ class ProgrammaticToolRuntime:
             )
             for tool in model_tools
         ]
-        nested = [
-            SurfaceTool(
-                tool=self._nested_tools[function.tool_name],
-                exposure=ToolExposure.PROGRAMMATIC,
-                context_tokens=estimate_tokens(function.stub()),
-                python_name=function.python_name,
-                signature=function.signature(),
-                stub=function.stub(),
+        catalog = self._catalog
+        nested: list[SurfaceTool] = []
+        for name, function in catalog.functions.items():
+            stub = function.stub()
+            tokens = estimate_tokens(stub)
+            deferred = name in catalog.deferred
+            nested.append(
+                SurfaceTool(
+                    tool=catalog.tools[function.tool_name],
+                    exposure=ToolExposure.PROGRAMMATIC,
+                    context_tokens=0 if deferred else tokens,
+                    python_name=function.python_name,
+                    signature=function.signature(),
+                    stub=stub,
+                    deferred=deferred,
+                    stub_tokens=tokens,
+                    source=catalog.sources[name],
+                )
             )
-            for function in self._functions.values()
-        ]
         return ToolSurface(
             tools=(*exposed, *nested),
             programmatic=ProgrammaticSurface(
@@ -502,6 +612,8 @@ class ProgrammaticToolRuntime:
                 type_check=self._settings.type_check,
                 max_duration_seconds=self._settings.max_duration_seconds,
                 max_memory_mb=self._settings.max_memory_mb,
+                search_active=catalog.search_active,
+                retired=catalog.retired,
             ),
         )
 
@@ -511,48 +623,42 @@ class ProgrammaticToolRuntime:
         return PTC_VOCABULARY_VERSION if self.function_names == "canonical" else 0
 
     def _instructions(self) -> str:
-        shared = ", ".join(f"`{name}`" for name in self._shared_functions)
+        catalog = self._catalog
+        shared = ", ".join(f"`{name}`" for name in catalog.shared_functions)
+        shell = catalog.shell_function
         return _INSTRUCTIONS.format(
-            shell_exit_note=_SHELL_EXIT_NOTE if self._shell_function else "",
-            functions_note=self._functions_note(),
-            io_note=self._io_note(),
-            shell_python_note=self._shell_python_note(),
-            shell_output_note=self._shell_output_note(),
-            shell_batch_note=_SHELL_BATCH_NOTE.format(function=self._shell_function.python_name)
-            if self._shell_function
-            else "",
+            shell_exit_note=_SHELL_EXIT_NOTE if shell else "",
+            functions_note=self._functions_note(catalog),
+            search_note=_SEARCH_NOTE if catalog.search_active else "",
+            io_note=self._io_note(catalog),
+            shell_python_note=self._shell_python_note(catalog),
+            shell_output_note=self._shell_output_note(catalog),
+            shell_batch_note=_SHELL_BATCH_NOTE.format(function=shell.python_name) if shell else "",
             shared_note=_SHARED_NOTE.format(functions=shared) if shared else "",
             input_note=_FREEFORM_INPUT_NOTE if self._tool_format == "freeform" else "",
             store_note=_STORE_NOTE,
             type_check_note=_TYPE_CHECK_NOTE if self._settings.type_check else "",
         )
 
-    def _functions_note(self) -> str:
-        if not self._functions:
+    def _functions_note(self, catalog: PtcCatalog) -> str:
+        example = _example_function(catalog)
+        if example is not None:
+            mapping = _TOOL_MAPPING.format(tool=example.tool_name, call=example.example_call())
+        elif catalog.search_active:
+            mapping = _SEARCH_MAPPING
+        else:
             return ""
-        example = self._example_function()
-        note = _FUNCTIONS_NOTE.format(
-            only_code="" if self._shared_functions else ", and code is the only way to call them",
-            tool=example.tool_name,
-            call=f"{example.example_call()}",
+        return _FUNCTIONS_NOTE.format(
+            only_code="" if catalog.shared_functions else ", and code is the only way to call them",
+            mapping=mapping,
         )
-        return note
 
-    def _shell_output_note(self) -> str:
-        if self._output_guidance == "off":
-            return ""
-        shell = next(
-            (
-                function
-                for function in self._functions.values()
-                if _returns_shell_output(self._nested_tools[function.tool_name])
-            ),
-            None,
-        )
-        if shell is None:
+    def _shell_output_note(self, catalog: PtcCatalog) -> str:
+        shell = catalog.shell_function
+        if self._output_guidance == "off" or shell is None:
             return ""
         wait, read = None, None
-        for function in self._functions.values():
+        for function in catalog.upfront:
             name = function.tool_name.casefold()
             if name == PROCESS_TOOL_NAME:
                 wait = f"await {function.python_name}(action='wait', process_id=r['process_id'])"
@@ -572,48 +678,48 @@ class ProgrammaticToolRuntime:
             read=read,
         )
 
-    def _shell_python_note(self) -> str:
-        if self._shell_function is not None:
+    def _shell_python_note(self, catalog: PtcCatalog) -> str:
+        if catalog.shell_function is not None:
             return _SHELL_PYTHON_NOTE.format(
-                call_python=f'await {self._shell_function.python_name}(command="python3 script.py")'
+                call_python=f'await {catalog.shell_function.python_name}(command="python3 script.py")'
             )
         if self._direct_shell_tool is not None:
             return _DIRECT_SHELL_PYTHON_NOTE.format(tool=self._direct_shell_tool)
         return ""
 
-    def _io_note(self) -> str:
-        example = self._example_function().example_call() if self._functions else None
+    def _io_note(self, catalog: PtcCatalog) -> str:
+        example = _example_function(catalog)
+        how = f"e.g. `r = {example.example_call()}`" if example else None
+        if how is None and catalog.search_active:
+            how = _SEARCH_IO
         if self._file_read or self._file_write:
             from fast_agent.ptc.files import MAX_BINARY_READ_BYTES, MAX_TEXT_READ_BYTES, format_size
 
             files_note = _FILES_NOTE.format(
-                commands=_COMMANDS_NOTE.format(example=example) if example else "",
+                commands=_COMMANDS_NOTE.format(how=how) if how else "",
             )
             return files_note + _READ_LIMITS_NOTE.format(
                 binary=format_size(MAX_BINARY_READ_BYTES),
                 text=format_size(MAX_TEXT_READ_BYTES),
-                advice=_READ_LIMITS_ADVICE.format(shell=self._shell_function.python_name)
-                if self._shell_function
+                advice=_READ_LIMITS_ADVICE.format(shell=catalog.shell_function.python_name)
+                if catalog.shell_function
                 else "",
             )
-        return _IO_NOTE.format(example=example) if example else ""
+        return _IO_NOTE.format(how=how) if how else ""
 
-    def _io_guidance(self) -> str:
+    def _io_guidance(self, catalog: PtcCatalog) -> str:
         """Tell sandbox code that cannot do some I/O itself which functions can."""
-        if not self._functions:
+        calls = [function.example_call() for function in catalog.upfront[:_MAX_HINT_EXAMPLES]]
+        if catalog.search_active:
+            calls.append(_SEARCH_EXAMPLE_CALL)
+        if not calls:
             return "No functions are available to do it."
-        examples = ", ".join(
-            f"`{function.example_call()}`"
-            for function in list(self._functions.values())[:_MAX_HINT_EXAMPLES]
-        )
+        examples = ", ".join(f"`{call}`" for call in calls)
         return f"Call the functions from this code instead, e.g. {examples}."
 
-    def _example_function(self) -> PtcFunction:
-        return self._shell_function or next(iter(self._functions.values()))
-
-    def _direct_io_hint(self, detail: str) -> str:
+    def _direct_io_hint(self, detail: str, catalog: PtcCatalog) -> str:
         """Point code that tried to do I/O itself at the tool functions that can."""
-        if not self._functions:
+        if not catalog.functions:
             return ""
         if self._file_read or self._file_write:
             unsupported = (
@@ -625,24 +731,27 @@ class ProgrammaticToolRuntime:
                 return ""
             return (
                 "\nHint: that is not available in the sandbox. Use `open()`, `pathlib.Path` "
-                "(including `Path.glob`) or `os` for files. " + self._io_guidance()
+                "(including `Path.glob`) or `os` for files. " + self._io_guidance(catalog)
             )
         if _DIRECT_IO_ERROR.search(detail) is None:
             return ""
-        return "\nHint: sandbox code cannot touch files or processes itself. " + self._io_guidance()
+        return "\nHint: sandbox code cannot touch files or processes itself. " + self._io_guidance(
+            catalog
+        )
 
     def unavailable_tool_hint(self, name: str) -> str | None:
         """Explain how to reach a tool the model called directly that only code can call."""
         # ptc-vocab-v0: remove legacy direct-call lookup after matched rollout.
+        catalog = self._catalog
         lookup_name = name
-        if self.vocabulary == 1 and name not in self._functions:
+        if self.vocabulary == 1 and name not in catalog.functions:
             lookup_name = LEGACY_FUNCTIONS.get(name, name)
         function = next(
             (
                 function
-                for function in self._functions.values()
+                for function in catalog.functions.values()
                 if lookup_name in (function.tool_name, function.python_name)
-                and function.python_name not in self._shared_functions
+                and function.python_name not in catalog.shared_functions
             ),
             None,
         )
@@ -662,8 +771,13 @@ class ProgrammaticToolRuntime:
         }
 
     def tool(self) -> Tool:
+        catalog = self._catalog
         stubs = "\n\n".join(
-            [*(function.stub() for function in self._functions.values()), STORE_STUBS.rstrip()]
+            [
+                *(function.stub() for function in catalog.upfront),
+                *([SEARCH_STUBS.rstrip()] if catalog.search_active else []),
+                STORE_STUBS.rstrip(),
+            ]
         )
         freeform = self._tool_format == "freeform"
         code_arg = _FREEFORM_CODE_ARG if freeform else "code"
@@ -696,15 +810,27 @@ class ProgrammaticToolRuntime:
         arguments: Mapping[str, Any],
         dispatch: ToolDispatcher,
         *,
+        catalog: PtcCatalog | None = None,
         parent_call_id: str | None = None,
         cwd: str | None = None,
+        on_search: SearchObserver | None = None,
     ) -> CallToolResult:
         """Run model code; nested call ids derive from ``parent_call_id`` when it is known.
 
-        ``cwd`` is the tools' working directory, against which sandbox code resolves relative
-        file paths; it must be an absolute POSIX path.
+        ``catalog`` is the catalogue the run uses, by default the latest; a caller that routes
+        nested calls by a catalogue's ``routes`` passes the one it captured. ``cwd`` is the
+        tools' working directory, against which sandbox code resolves relative file paths; it
+        must be an absolute POSIX path. ``on_search`` observes ``search_tools`` calls, which
+        the runtime answers itself rather than dispatching.
         """
-        result = await self._execute(arguments, dispatch, parent_call_id=parent_call_id, cwd=cwd)
+        result = await self._execute(
+            arguments,
+            dispatch,
+            catalog=catalog,
+            parent_call_id=parent_call_id,
+            cwd=cwd,
+            on_search=on_search,
+        )
         result.meta = {**(result.meta or {}), PTC_VOCABULARY_META: self.vocabulary}
         return result
 
@@ -713,8 +839,10 @@ class ProgrammaticToolRuntime:
         arguments: Mapping[str, Any],
         dispatch: ToolDispatcher,
         *,
-        parent_call_id: str | None = None,
-        cwd: str | None = None,
+        catalog: PtcCatalog | None,
+        parent_call_id: str | None,
+        cwd: str | None,
+        on_search: SearchObserver | None,
     ) -> CallToolResult:
         """Execute validated code and collect nested calls."""
         # Accept both input formats: history can contain calls made before a model switch.
@@ -731,6 +859,9 @@ class ProgrammaticToolRuntime:
         )
 
         async with self._lock:
+            # One catalogue for the whole run: a tool list refresh applies from the next run.
+            catalog = self._catalog if catalog is None else catalog
+            prelude = self._prelude(catalog)
             self._executions += 1
             stats = _ExecutionStats()
             output = _PrintedOutput()
@@ -749,13 +880,17 @@ class ProgrammaticToolRuntime:
             dispatches = calls.tasks
             lookup: dict[str, Callable[..., Awaitable[Any]]] = {
                 name: self._host_function(function, calls)
-                for name, function in self._functions.items()
+                for name, function in catalog.functions.items()
             }
+            if catalog.search_active:
+                lookup[SEARCH_FUNCTION_NAME] = _search_function(
+                    catalog, calls, on_search, byte_limit=self._result_byte_limit
+                )
             lookup.update(self._store.functions())
             started = time.perf_counter()
             try:
-                async with await self._checkout() as session:
-                    await session.feed_run(self._prelude())
+                async with await self._checkout(catalog) as session:
+                    await session.feed_run(prelude)
                     try:
                         value = await self._feed(session, code, lookup, output, files, cwd)
                     except Exception:
@@ -772,53 +907,65 @@ class ProgrammaticToolRuntime:
             except MontyTypingError as exc:
                 # The type checker also reports syntax errors, mixed with errors they cause.
                 detail = exc.display()
-                report = self._describe_syntax_error(code) if "invalid-syntax" in detail else None
+                report = (
+                    self._describe_syntax_error(code, catalog)
+                    if "invalid-syntax" in detail
+                    else None
+                )
                 if report is not None:
                     return _syntax_error_result(report)
                 return _error_result(
                     "Type check failed; the code was NOT executed. Fix it and retry.\n"
                     + detail
-                    + self._error_hints(detail)
-                    # ptc-vocab-v0: remove undefined-name hints after matched rollout.
-                    + (legacy_name_hint(detail, self._functions) if self.vocabulary == 1 else "")
+                    + self._error_hints(detail, catalog)
+                    + _argument_type_hints(detail, catalog)
+                    + self._name_hints(undefined_names(detail), catalog)
                 )
             except MontySyntaxError as exc:
-                return _syntax_error_result(self._describe_syntax_error(code) or exc.display())
+                return _syntax_error_result(
+                    self._describe_syntax_error(code, catalog) or exc.display()
+                )
             except MontyRuntimeError as exc:
                 detail = exc.display()
-                return self._failure(detail + self._error_hints(detail), output, stats, started)
+                return self._failure(
+                    detail
+                    + self._error_hints(detail, catalog)
+                    + self._name_hints(undefined_names(detail, ran=True), catalog),
+                    output,
+                    stats,
+                    started,
+                    catalog,
+                )
             except MontyCrashedError as exc:
-                return self._failure(f"{exc}\nThe sandbox crashed.", output, stats, started)
+                return self._failure(
+                    f"{exc}\nThe sandbox crashed.", output, stats, started, catalog
+                )
             except MontyError as exc:
-                return self._failure(str(exc), output, stats, started)
+                return self._failure(str(exc), output, stats, started, catalog)
             finally:
                 await files.close()
 
-            return self._success(value, output, stats, started)
+            return self._success(value, output, stats, started, catalog)
 
-    def _describe_syntax_error(self, code: str) -> str | None:
-        report = describe_syntax_error(code, direct_functions=self._shared_functions)
+    def _describe_syntax_error(self, code: str, catalog: PtcCatalog) -> str | None:
+        report = describe_syntax_error(code, direct_functions=catalog.shared_functions)
         if report is not None and _GATHER_BRACKETS.search(report) and "gather(*[" in code:
             report += _GATHER_HINT
         return report
 
-    def _error_hints(self, detail: str) -> str:
-        return self._direct_io_hint(detail) or self._sandbox_gap_hint(detail)
+    def _error_hints(self, detail: str, catalog: PtcCatalog) -> str:
+        return self._direct_io_hint(detail, catalog) or _sandbox_gap_hint(detail, catalog)
 
-    def _sandbox_gap_hint(self, detail: str) -> str:
-        """Point code that hit a missing built-in method or module at the system Python."""
-        if not (_MISSING_BUILTIN.search(detail) or _MISSING_MODULE.search(detail)):
-            return ""
-        hint = (
-            "\nHint: the sandbox's Python lacks this; it has a reduced standard library and "
-            "built-in methods, and no packages."
-        )
-        if self._shell_function is not None:
-            hint += (
-                " Run code that needs it with the system Python: write it to a file and run "
-                f'`await {self._shell_function.python_name}(command="python3 script.py")`.'
+    def _name_hints(self, undefined: set[str], catalog: PtcCatalog) -> str:
+        """Explain renamed functions and inactive search."""
+        # ptc-vocab-v0: remove undefined-name hints after matched rollout.
+        legacy = legacy_name_hint(undefined, catalog.functions) if self.vocabulary == 1 else ""
+        if SEARCH_FUNCTION_NAME in undefined and not catalog.search_active:
+            return legacy + (
+                f"\nHint: `{SEARCH_FUNCTION_NAME}` is not active because all available functions "
+                f"are already listed in `{PTC_TOOL_NAME}`."
             )
-        return hint
+        return legacy
 
     @property
     def store(self) -> SandboxStore:
@@ -826,9 +973,12 @@ class ProgrammaticToolRuntime:
         return self._store
 
     def reset_conversation(self) -> None:
-        """Forget what earlier runs of this conversation kept: stored values and media."""
+        """Forget what earlier runs of this conversation kept: stored values, media and names."""
         self._store.clear()
         self._media.clear()
+        self._ledger.clear()
+        # The tools are unchanged; only names from earlier in the conversation are forgotten.
+        self._catalog = replace(self._catalog, retired=frozenset())
 
     async def close(self) -> None:
         await self._pool_stack.aclose()
@@ -880,7 +1030,7 @@ class ProgrammaticToolRuntime:
 
         return call
 
-    async def _checkout(self) -> AsyncMontySession:
+    async def _checkout(self, catalog: PtcCatalog) -> AsyncMontySession:
         """Check out a fresh sandbox for one run; nothing but the store carries between runs."""
         if self._pool is None:
             from pydantic_monty import AsyncMonty
@@ -891,7 +1041,7 @@ class ProgrammaticToolRuntime:
         return self._pool.checkout(
             script_name="ptc.py",
             type_check=self._settings.type_check,
-            type_check_stubs=self._stubs if self._settings.type_check else None,
+            type_check_stubs=catalog.type_check_stubs if self._settings.type_check else None,
             type_check_format="concise",
             limits={
                 "max_feed_duration_secs": self._settings.max_duration_seconds,
@@ -932,7 +1082,12 @@ class ProgrammaticToolRuntime:
         )
 
     def _success(
-        self, value: Any, output: _PrintedOutput, stats: _ExecutionStats, started: float
+        self,
+        value: Any,
+        output: _PrintedOutput,
+        stats: _ExecutionStats,
+        started: float,
+        catalog: PtcCatalog,
     ) -> CallToolResult:
         sections = [_header("completed", stats, started)]
         printed = output.render()
@@ -948,7 +1103,7 @@ class ProgrammaticToolRuntime:
                 "ran). Use `r = await name(...)`."
             )
         if stats.running:
-            sections.append(self._running_note(stats))
+            sections.append(_running_note(stats, catalog))
         media = self._media.referenced(value)
         if media:
             sections.append(f"Attached {len(media)} media item(s) referenced by the result.")
@@ -957,36 +1112,13 @@ class ProgrammaticToolRuntime:
         _add_nested_metadata(result, stats)
         return result
 
-    def _running_note(self, stats: _ExecutionStats) -> str:
-        """Name the commands the shell returned before they finished: their output is partial."""
-        count = len(stats.running)
-        noun, pronoun = ("command", "it") if count == 1 else ("commands", "them")
-        header = (
-            f"Note: {count} {noun} returned while still running, so the output this script "
-            f"saw from {pronoun} is incomplete:"
-        )
-        lines = [header]
-        lines.extend(
-            f"- {process_id}: `{summarize_command(command)}`" if command else f"- {process_id}"
-            for process_id, command in stats.running.items()
-        )
-        process_id = next(iter(stats.running))
-        wait = self._process_wait_call(process_id)
-        how = f"Wait for {pronoun} with `{wait}`" if wait else f"Wait for {pronoun}"
-        lines.append(f"{how}, or pass `check=True` to make a command wait until it finishes.")
-        return "\n".join(lines)
-
-    def _process_wait_call(self, process_id: str) -> str | None:
-        for function in self._functions.values():
-            name = function.tool_name.casefold()
-            if name == PROCESS_TOOL_NAME:
-                return f'await {function.python_name}(action="wait", process_id="{process_id}")'
-            if name == POLL_PROCESS_TOOL_NAME:
-                return f'await {function.python_name}(process_id="{process_id}")'
-        return None
-
     def _failure(
-        self, detail: str, output: _PrintedOutput, stats: _ExecutionStats, started: float
+        self,
+        detail: str,
+        output: _PrintedOutput,
+        stats: _ExecutionStats,
+        started: float,
+        catalog: PtcCatalog,
     ) -> CallToolResult:
         sections = [_header("failed", stats, started)]
         printed = output.render()
@@ -998,10 +1130,139 @@ class ProgrammaticToolRuntime:
             )
         sections.append(f"Error:\n{detail}")
         if stats.running:
-            sections.append(self._running_note(stats))
+            sections.append(_running_note(stats, catalog))
         result = _error_result("\n".join(sections))
         _add_nested_metadata(result, stats)
         return result
+
+
+def _running_note(stats: _ExecutionStats, catalog: PtcCatalog) -> str:
+    """Name the commands the shell returned before they finished: their output is partial."""
+    count = len(stats.running)
+    noun, pronoun = ("command", "it") if count == 1 else ("commands", "them")
+    header = (
+        f"Note: {count} {noun} returned while still running, so the output this script "
+        f"saw from {pronoun} is incomplete:"
+    )
+    lines = [header]
+    lines.extend(
+        f"- {process_id}: `{summarize_command(command)}`" if command else f"- {process_id}"
+        for process_id, command in stats.running.items()
+    )
+    process_id = next(iter(stats.running))
+    wait = _process_wait_call(process_id, catalog)
+    how = f"Wait for {pronoun} with `{wait}`" if wait else f"Wait for {pronoun}"
+    lines.append(f"{how}, or pass `check=True` to make a command wait until it finishes.")
+    return "\n".join(lines)
+
+
+def _process_wait_call(process_id: str, catalog: PtcCatalog) -> str | None:
+    for function in catalog.functions.values():
+        name = function.tool_name.casefold()
+        if name == PROCESS_TOOL_NAME:
+            return f'await {function.python_name}(action="wait", process_id="{process_id}")'
+        if name == POLL_PROCESS_TOOL_NAME:
+            return f'await {function.python_name}(process_id="{process_id}")'
+    return None
+
+
+_EXPECTED_FOUND = re.compile(r"Expected `(.+?)`, found `(.+?)`$", re.MULTILINE)
+_TYPED_DICT_KEY_ERROR = re.compile(r"\[(?:invalid-key|missing-typed-dict-key)\]|on TypedDict `")
+_INLINE_ARGUMENTS_HINT = (
+    "\nHint: write Literal and dict arguments inline in the call; variables and `**kwargs` dicts "
+    "infer plain `str`, `list` or `dict` types. To build one separately, annotate it `Any` "
+    "(`from typing import Any`)."
+)
+
+
+def _argument_type_hints(detail: str, catalog: PtcCatalog) -> str:
+    """Name the keys of rejected dict arguments; point non-literal arguments at inline values.
+
+    The checker names a dict parameter's private TypedDict but not its keys, and rejects a
+    variable holding a valid value because its inferred type is wider than a Literal/TypedDict.
+    """
+    mismatches = _EXPECTED_FOUND.findall(detail)
+    rejected = [
+        (function, typed)
+        for function in catalog.functions.values()
+        for typed in function.typed_dicts
+        if f"TypedDict `{typed.name}`" in detail
+        or any(
+            re.search(rf"\b{re.escape(typed.name)}\b", expected) and "dict[" in found
+            for expected, found in mismatches
+        )
+    ]
+    shapes: dict[tuple[str, str], list[str]] = {}
+    for function, typed in rejected:
+        shapes.setdefault((function.python_name, typed.path), []).append(typed.shape)
+    hints = "".join(
+        f"\nHint: `{path}` of `{name}` takes {' | '.join(options)}."
+        for (name, path), options in shapes.items()
+    )
+    names = [
+        typed.name for function in catalog.functions.values() for typed in function.typed_dicts
+    ]
+    # A literal written inline infers Literal or TypedDict members; a variable infers neither.
+    widened = not _TYPED_DICT_KEY_ERROR.search(detail) and any(
+        any(marker in expected and marker not in found for marker in ("Literal[", *names))
+        for expected, found in mismatches
+    )
+    return hints + (_INLINE_ARGUMENTS_HINT if widened else "")
+
+
+def _sandbox_gap_hint(detail: str, catalog: PtcCatalog) -> str:
+    """Point code that hit a missing built-in method or module at the system Python."""
+    if not (_MISSING_BUILTIN.search(detail) or _MISSING_MODULE.search(detail)):
+        return ""
+    hint = (
+        "\nHint: the sandbox's Python lacks this; it has a reduced standard library and "
+        "built-in methods, and no packages."
+    )
+    if catalog.shell_function is not None:
+        hint += (
+            " Run code that needs it with the system Python: write it to a file and run "
+            f'`await {catalog.shell_function.python_name}(command="python3 script.py")`.'
+        )
+    return hint
+
+
+def _search_function(
+    catalog: PtcCatalog, calls: _NestedCalls, on_search: SearchObserver | None, *, byte_limit: int
+) -> Callable[..., Awaitable[str]]:
+    """The host side of ``search_tools``: answered from ``catalog``, recorded like a call.
+
+    ``byte_limit`` is how much of the run's result the model sees.
+    """
+
+    async def call(*args: Any, **kwargs: Any) -> str:
+        if args:
+            raise TypeError(f"{SEARCH_FUNCTION_NAME}() accepts keyword arguments only")
+        stats = calls.stats
+        stats.started += 1
+        call_id = f"{calls.call_prefix}{stats.started}"
+        record = _started_call_record(call_id, SEARCH_FUNCTION_NAME, kwargs)
+        record["function"] = SEARCH_FUNCTION_NAME
+        stats.calls.append(record)
+        try:
+            text = search_tools(catalog, **kwargs, byte_limit=byte_limit)
+        except Exception:
+            record.update(status="raised", is_error=True)
+            stats.failed.append(SEARCH_FUNCTION_NAME)
+            raise
+        record.update(status="completed", is_error=False)
+        stats.completed.append(SEARCH_FUNCTION_NAME)
+        if on_search is not None:
+            # Displaying the search must never fail the sandbox code that made it.
+            with suppress(Exception):
+                on_search(call_id, dict(kwargs), text)
+        return text
+
+    return call
+
+
+def _example_function(catalog: PtcCatalog) -> PtcFunction | None:
+    """The function the code tool's description uses in examples: never a deferred one."""
+    return catalog.shell_function or next(iter(catalog.upfront), None)
 
 
 def _returns_shell_output(tool: Tool) -> bool:

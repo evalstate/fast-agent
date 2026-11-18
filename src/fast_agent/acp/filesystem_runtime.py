@@ -10,8 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from acp.helpers import tool_diff_content
-from acp.schema import ToolCallProgress
+from acp.schema import FileEditToolCallContent, ToolCallProgress
 from mcp_types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
@@ -476,7 +475,7 @@ class ACPFilesystemRuntime:
         if not tool_call_id:
             return
         try:
-            diff_content = tool_diff_content(
+            diff_content = FileEditToolCallContent(
                 path=path,
                 new_text=content,
                 old_text=old_text,

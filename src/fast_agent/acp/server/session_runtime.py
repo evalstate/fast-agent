@@ -6,14 +6,15 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from acp.helpers import update_agent_message_text
 from acp.schema import (
     AcpMcpServer,
+    AgentMessageChunk,
     HttpMcpServer,
     McpServerStdio,
     SessionMode,
     SessionModeState,
     SseMcpServer,
+    TextContentBlock,
 )
 
 from fast_agent.acp.acp_context import ACPContext, ClientInfo
@@ -48,6 +49,7 @@ from fast_agent.context import Context
 from fast_agent.core.instruction_refresh import (
     McpInstructionCapable,
     build_instruction,
+    lists_server_tools,
     resolve_instruction_skill_manifests,
 )
 from fast_agent.core.instruction_utils import (
@@ -585,6 +587,7 @@ class ACPServerSessionRuntime:
             skill_read_access=skill_read_access,
             context=effective_context,
             source=agent.name if isinstance(agent, AgentProtocol) else None,
+            include_tool_names=lists_server_tools(agent),
         )
 
     async def replace_instance_for_session(
@@ -1291,7 +1294,7 @@ class ACPServerSessionRuntime:
         if not status_line_meta:
             return
         try:
-            message_chunk = update_agent_message_text("")
+            message_chunk = AgentMessageChunk(content=TextContentBlock(text=""))
             await self._host._connection.session_update(
                 session_id=session_id,
                 update=message_chunk,

@@ -259,7 +259,13 @@ def _history_rewind_target(
     if content:
         from fast_agent.mcp.helpers.content_helpers import get_text
 
-        user_text = optional_string(get_text(content[0]))
+        first_block = content[0]
+        original_text = (first_block.meta or {}).get("fast_agent_original_text")
+        user_text = (
+            original_text
+            if isinstance(original_text, str)
+            else optional_string(get_text(first_block))
+        )
     if not user_text or user_text == "<no text>":
         outcome.add_message(
             "Selected turn has no text content to rewind.",

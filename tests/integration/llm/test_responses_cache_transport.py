@@ -394,3 +394,210 @@ async def test_tool_error_and_staged_media_wait_for_genuine_turn(
         assert items[index + 1]["content"] == [{"type": "input_text", "text": "Next task"}]
     finally:
         await llm.close()
+
+
+def format_updates(payload: dict[str, Any]) -> list[str]:
+    return [
+        item["text"]["format"]["type"]
+        for item in payload["input"]
+        if item["type"] == "configuration_update" and "text" in item
+    ]
+
+
+@pytest.mark.parametrize(("codex", "lite"), [(False, False), (True, False), (True, True)])
+@pytest.mark.parametrize("transport", ["sse", "websocket"])
+async def test_gpt62_history_is_append_only_across_system_prompt_and_format_changes(
+    simulator, codex: bool, lite: bool, transport: str
+) -> None:
+    url, requests = simulator
+    response_format = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "count",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {"total": {"type": "integer"}},
+                "required": ["total"],
+                "additionalProperties": False,
+            },
+        },
+    }
+    turns = [
+        RequestParams(),
+        RequestParams(response_format=response_format),
+        RequestParams(),
+    ]
+
+    async def run(agent: LlmAgent) -> None:
+        for params in turns:
+            await agent.generate([Prompt.user("Work")], params)
+
+    agent, llm = await make_agent(
+        url, codex=codex, transport=transport, model="gpt-6.2-sol", lite=lite
+    )
+    agent.set_instruction("Stable system prompt")
+    try:
+        await run(agent)
+        saved = to_json(agent.message_history)
+    finally:
+        await llm.close()
+
+    for request in requests:
+        # Turn-scoped on GPT-6.2: the system prompt must lead the input instead.
+        assert "instructions" not in request
+        assert "format" not in request.get("text", {})
+    if transport == "sse":
+        assert [format_updates(request) for request in requests] == [
+            [],
+            ["json_schema"],
+            ["json_schema", "text"],
+        ]
+        # Every request extends the previous one, so cached reasoning stays valid.
+        for before, after in zip(requests, requests[1:], strict=False):
+            assert after["input"][: len(before["input"])] == before["input"]
+    else:
+        assert [format_updates(request) for request in requests] == [[], ["json_schema"], ["text"]]
+
+    resumed, llm = await make_agent(
+        url, codex=codex, transport="sse", model="gpt-6.2-sol", lite=lite
+    )
+    resumed.set_instruction("Stable system prompt")
+    try:
+        resumed.load_message_history(from_json(saved))
+        await resumed.generate([Prompt.user("Resume")])
+        replay = requests[-1]["input"]
+        developer = [
+            item for item in replay if item["type"] == "message" and item["role"] == "developer"
+        ]
+        assert developer == [
+            {
+                "type": "message",
+                "role": "developer",
+                "content": [{"type": "input_text", "text": "Stable system prompt"}],
+            }
+        ]
+        assert format_updates(requests[-1]) == ["json_schema", "text"]
+        if transport == "sse":
+            assert replay[: len(requests[2]["input"])] == requests[2]["input"]
+    finally:
+        await llm.close()
+
+
+@pytest_asyncio.fixture
+async def turn_state_simulator(
+    unused_tcp_port: int,
+) -> AsyncIterator[tuple[str, list[dict[str, Any]]]]:
+    """Codex-like server issuing a fresh ``x-codex-turn-state`` per response.
+
+    Each recorded request has its payload and the turn state it carried (HTTP header
+    over SSE, client metadata over WebSockets).
+    """
+    seen: list[dict[str, Any]] = []
+
+    def respond(payload: dict[str, Any], turn_state: str | None) -> tuple[str, list[dict]]:
+        seen.append({"payload": payload, "turn_state": turn_state})
+        number = len(seen)
+        texts = [
+            block.get("text")
+            for item in payload["input"]
+            if item.get("type") == "message"
+            for block in item.get("content", [])
+        ]
+        if texts[-1:] == ["Call tool"]:
+            output = {
+                "type": "function_call",
+                "id": f"fc_{number}",
+                "call_id": f"call_{number}",
+                "name": "test_tool",
+                "arguments": "{}",
+                "status": "completed",
+            }
+        else:
+            output = {
+                "type": "message",
+                "id": f"msg_{number}",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": "OK", "annotations": []}],
+            }
+        response = {
+            "id": f"resp_{number}",
+            "object": "response",
+            "created_at": 1,
+            "status": "completed",
+            "model": payload["model"],
+            "output": [output],
+            "parallel_tool_calls": False,
+            "tool_choice": "auto",
+            "tools": [],
+        }
+        return f"state-{number}", [
+            {"type": "response.created", "response": {**response, "output": []}},
+            {"type": "response.output_item.added", "output_index": 0, "item": output},
+            {"type": "response.output_item.done", "output_index": 0, "item": output},
+            {"type": "response.completed", "response": response},
+        ]
+
+    async def sse(request: web.Request) -> web.Response:
+        state, events = respond(await request.json(), request.headers.get("x-codex-turn-state"))
+        body = "".join(f"data: {json.dumps(event)}\n\n" for event in events)
+        return web.Response(
+            text=body, content_type="text/event-stream", headers={"x-codex-turn-state": state}
+        )
+
+    async def websocket(request: web.Request) -> web.WebSocketResponse:
+        socket = web.WebSocketResponse()
+        await socket.prepare(request)
+        async for message in socket:
+            if message.type == WSMsgType.TEXT:
+                payload = json.loads(message.data)
+                metadata = payload.get("client_metadata") or {}
+                state, events = respond(payload, metadata.get("x-codex-turn-state"))
+                await socket.send_json(
+                    {"type": "codex.response.metadata", "headers": {"x-codex-turn-state": state}}
+                )
+                for event in events:
+                    await socket.send_json(event)
+        return socket
+
+    app = web.Application()
+    app.router.add_post("/v1/responses", sse)
+    app.router.add_get("/v1/responses", websocket)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    await web.TCPSite(runner, "127.0.0.1", unused_tcp_port).start()
+    try:
+        yield f"http://127.0.0.1:{unused_tcp_port}/v1", seen
+    finally:
+        await runner.cleanup()
+
+
+@pytest.mark.parametrize("transport", ["sse", "websocket"])
+async def test_codex_turn_state_is_replayed_within_a_turn_only(
+    turn_state_simulator, transport: str
+) -> None:
+    url, seen = turn_state_simulator
+    _, llm = await make_agent(url, codex=True, transport=transport, model="gpt-6.2-sol")
+    history = [Prompt.user("Call tool")]
+    try:
+        history.append(await llm._apply_prompt_provider_specific(history))
+        history.append(
+            PromptMessageExtended(
+                role="user",
+                tool_results={
+                    "call_1": CallToolResult(content=[TextContent(type="text", text="result")])
+                },
+            )
+        )
+        history.append(await llm._apply_prompt_provider_specific(history))
+        history.append(Prompt.user("Next task"))
+        await llm._apply_prompt_provider_specific(history)
+    finally:
+        await llm.close()
+
+    # The tool continuation keeps the turn's routing; the next user turn starts fresh.
+    assert [request["turn_state"] for request in seen] == [None, "state-1", None]
+    if transport == "websocket":
+        # Routing metadata must not defeat incremental continuation.
+        assert "previous_response_id" in seen[1]["payload"]

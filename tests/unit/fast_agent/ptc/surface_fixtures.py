@@ -57,7 +57,8 @@ def surface_rows(mode: SurfaceMode) -> list[SurfaceRow]:
 async def surface_record(mode: SurfaceMode, row: SurfaceRow) -> dict[str, Any]:
     """Full definitions, plus PTC prose, function order, signatures and stubs in profile mode.
 
-    Only the additive vocabulary marker is excluded; nothing else is normalized.
+    Only the additive vocabulary and tool search markers are excluded; nothing else is
+    normalized.
     """
     enabled = mode == "profile"
     agent = McpAgent(
@@ -95,6 +96,10 @@ async def surface_record(mode: SurfaceMode, row: SurfaceRow) -> dict[str, Any]:
             assert surface.programmatic is not None
             programmatic = asdict(surface.programmatic)
             programmatic.pop("vocabulary")
+            # Additive: tool search never activates for the profile arm, and names retire
+            # only when tools leave mid-conversation.
+            assert programmatic.pop("search_active") is False
+            assert programmatic.pop("retired") == frozenset()
             record["programmatic"] = programmatic
             record["functions"] = [
                 (entry.python_name, entry.tool.name, entry.signature, entry.stub)

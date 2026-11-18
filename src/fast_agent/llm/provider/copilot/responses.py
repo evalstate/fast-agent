@@ -28,6 +28,7 @@ from fast_agent.llm.provider.openai.responses import (
     _ResponsesWsAttemptState,
     _ResponsesWsContext,
 )
+from fast_agent.llm.provider.openai.responses_cache import COPILOT_UPDATE_MODELS
 from fast_agent.llm.provider.openai.responses_raw_stream import open_raw_responses_stream
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
@@ -117,6 +118,9 @@ class CopilotResponsesLLM(ResponsesLLM):
 
     def _replays_native_compaction(self) -> bool:
         return self._copilot_spec.supports_native_compaction
+
+    def _manages_responses_cache(self, model: object) -> bool:
+        return model in COPILOT_UPDATE_MODELS
 
     def _resends_astra_effort_after_checkpoint(self) -> bool:
         return True

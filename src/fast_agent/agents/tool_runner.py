@@ -156,13 +156,18 @@ class ToolRunner:
         messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
+        refresh_tools: bool = False,
         hooks: ToolRunnerHooks | None = None,
     ) -> None:
+        """``refresh_tools`` lists the agent's tools again before each follow-up LLM call;
+        it is implied when ``tools`` is None. Tools a caller supplies are otherwise kept."""
         self._agent = agent
         self._delta_messages: list[PromptMessageExtended] = list(messages)
         self._turn_messages: list[PromptMessageExtended] = list(messages)
         self._request_params = request_params
         self._tools = tools
+        # A slash command or tool may connect or disconnect tool sources mid-turn.
+        self._refresh_tools = refresh_tools or tools is None
         self._hooks = hooks or ToolRunnerHooks()
 
         self._iteration = 0
@@ -828,6 +833,7 @@ class ToolRunner:
             self._delta_messages.append(assistant_message)
             self._delta_messages.append(finalizer)
         self._tools = []
+        self._refresh_tools = False
 
     def _consume_staged_terminal_response(self) -> PromptMessageExtended | None:
         staged = self._staged_terminal_response
@@ -953,7 +959,7 @@ class ToolRunner:
         return False
 
     async def _ensure_tools_ready(self) -> None:
-        if self._tools is None:
+        if self._tools is None or (self._refresh_tools and self._iteration > 0):
             self._tools = (await self._agent.list_tools()).tools
 
     async def _ensure_tool_response_staged(self) -> None:

@@ -39,6 +39,7 @@ from fast_agent.integrations.hc_children import current_hc_attachments, format_s
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
+from fast_agent.ptc.mentions import ToolMentionNamesProvider, tool_mention_token
 from fast_agent.ui import notification_tracker
 from fast_agent.ui.context_usage_display import (
     ContextUsageAccumulator,
@@ -228,6 +229,7 @@ def render_input_toolbar(
         if resolved_agent_state.llm is not None
         else None,
         cwd=shell_state.working_dir,
+        agent=resolved_agent_state.state.agent,
         cache=cache,
     )
     middle = _build_middle_segment(
@@ -282,15 +284,20 @@ def _resolve_attachment_summary(
     provider: Provider | None,
     cwd: Path | None,
     cache: ToolbarRenderCache | None,
+    agent: object | None = None,
 ) -> ResolvedAttachmentSummary:
     if not _should_resolve_attachment_summary(current_input_text):
         return ResolvedAttachmentSummary(summary=None, skipped=True)
 
+    tool_names = (
+        _tool_mention_names(agent) if tool_mention_token("") in current_input_text else None
+    )
     cache_key = _build_attachment_summary_cache_key(
         current_input_text=current_input_text,
         model_name=model_name,
         provider=provider,
         cwd=cwd,
+        tool_names=tool_names,
     )
     if cache is not None and cache.attachment_summary_key == cache_key:
         return ResolvedAttachmentSummary(summary=cache.attachment_summary, cache_hit=True)
@@ -300,11 +307,16 @@ def _resolve_attachment_summary(
         model_name=model_name,
         provider=provider,
         cwd=cwd,
+        tool_names=tool_names,
     )
     if cache is not None:
         cache.attachment_summary_key = cache_key
         cache.attachment_summary = attachment_summary
     return ResolvedAttachmentSummary(summary=attachment_summary)
+
+
+def _tool_mention_names(agent: object | None) -> frozenset[str] | None:
+    return agent.ptc_mention_names if isinstance(agent, ToolMentionNamesProvider) else None
 
 
 def _build_attachment_summary_cache_key(
@@ -313,12 +325,14 @@ def _build_attachment_summary_cache_key(
     model_name: str | None,
     provider: Provider | None,
     cwd: Path | None,
+    tool_names: frozenset[str] | None = None,
 ) -> tuple[object, ...]:
     return (
         current_input_text,
         model_name,
         provider,
         cwd,
+        tool_names,
         _attachment_resource_cache_snapshot(current_input_text, cwd=cwd),
     )
 
@@ -365,7 +379,9 @@ def _snapshot_local_attachment_path(path: Path) -> AttachmentResourceSnapshot:
 
 
 def _should_resolve_attachment_summary(current_input_text: str) -> bool:
-    return "^file:" in current_input_text or "^url:" in current_input_text
+    return any(
+        prefix in current_input_text for prefix in ("^file:", "^url:", tool_mention_token(""))
+    )
 
 
 def _resolve_toolbar_mode(multiline_mode: bool) -> ToolbarMode:

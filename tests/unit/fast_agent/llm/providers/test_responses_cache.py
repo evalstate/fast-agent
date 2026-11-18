@@ -145,3 +145,68 @@ def test_empty_replacement_history_establishes_new_baseline() -> None:
         assert state.effort == effort
         assert params.metadata and params.metadata["reasoning"]["effort"] == effort
         assert not any(item["type"] == "configuration_update" for item in items)
+
+
+_SCHEMA_FORMAT = {"type": "json_schema", "name": "count", "schema": {"type": "object"}}
+
+
+def test_mid_turn_format_change_is_appended_after_tool_results() -> None:
+    """Deferred structured output switches format after tools without editing the prefix."""
+    llm = ResponsesLLM(model="gpt-6.2-sol")
+
+    def prepare(history: list[PromptMessageExtended], text_format: dict | None):
+        return prepare_cached_request(
+            history,
+            RequestParams(model="gpt-6.2-sol", response_format=text_format),
+            key="key",
+            default_effort="low",
+            convert=llm._convert_message_to_items,
+            text_format=text_format,
+        )
+
+    history = [Prompt.user("Work")]
+    _, state, _ = prepare(history, None)
+    call = Prompt.assistant("Calling tool")
+    state.attach(call)
+    history += [
+        call,
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_test": CallToolResult(content=[TextContent(type="text", text="r")])
+            },
+        ),
+    ]
+    items, state, params = prepare(history, _SCHEMA_FORMAT)
+    assert items[-1] == {"type": "configuration_update", "text": {"format": _SCHEMA_FORMAT}}
+    assert items[-2]["type"] == "function_call_output"
+    assert params.response_format is None
+    assert state.text_format == _SCHEMA_FORMAT
+
+    answer = Prompt.assistant('{"total": 1}')
+    state.attach(answer)
+    history = from_json(to_json([*history, answer, Prompt.user("Plain again")]))
+    replay, state, _ = prepare(history, None)
+    # The mid-turn update keeps its position; plain text is restored before the user turn.
+    assert replay[: len(items)] == items
+    assert replay[-2:] == [
+        {"type": "configuration_update", "text": {"format": {"type": "text"}}},
+        replay[-1],
+    ]
+    assert replay[-1]["role"] == "user"
+    assert state.text_format is None
+
+
+def test_unsupported_models_keep_request_level_format() -> None:
+    llm = ResponsesLLM(model="gpt-5.4")
+    items, state, params = prepare_cached_request(
+        [Prompt.user("Work")],
+        RequestParams(model="gpt-5.4", response_format=_SCHEMA_FORMAT),
+        key="key",
+        default_effort="low",
+        convert=llm._convert_message_to_items,
+        text_format=_SCHEMA_FORMAT,
+    )
+    assert not any(item["type"] == "configuration_update" for item in items)
+    assert params.response_format == _SCHEMA_FORMAT
+    assert state.text_format is None

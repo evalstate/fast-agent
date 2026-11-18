@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import pytest
-from acp.helpers import text_block
+from acp.schema import TextContentBlock
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -71,7 +71,7 @@ async def test_acp_filesystem_read_tool_call(
     # Use passthrough model's ***CALL_TOOL directive to invoke read_text_file
     prompt_text = f'***CALL_TOOL read_text_file {{"path": "{test_path}"}}'
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
 
     # Should complete successfully
@@ -109,7 +109,7 @@ async def test_acp_filesystem_write_tool_call(
     )
 
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
 
     # Should complete successfully

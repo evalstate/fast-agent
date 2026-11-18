@@ -233,3 +233,47 @@ async def test_custom_endpoint_requests_are_sent_unchanged(
     with pytest.raises(APIStatusError):
         await llm._run_openai_completion_request(request)
     assert sent == [request.arguments], "no fitting and no 413 resend"
+
+
+def test_image_count_budget_omits_oldest_images_first() -> None:
+    from fast_agent.llm.provider.openai.request_images import ChatRequestImageFitter, ImageBudget
+
+    llm = _llm(_UNLIMITED)
+    images = [_image((32, 32), noisy=False) for _ in range(4)]
+    request = _request(llm, *images)
+    fitter = ChatRequestImageFitter()
+    fitted_args, report = fitter.fit(
+        request.arguments,
+        ImageBudget(
+            max_dimension=None,
+            reencode_min_bytes=None,
+            max_request_bytes=None,
+            max_images=2,
+        ),
+    )
+    assert report.images == 4
+    assert report.omitted == 2
+    assert _placeholders(fitted_args) == 2
+    assert _image_urls(fitted_args) == _image_urls(request.arguments)[2:]
+
+
+def test_per_image_byte_cap_shrinks_oversized_image() -> None:
+    from fast_agent.llm.provider.openai.request_images import ChatRequestImageFitter, ImageBudget
+
+    llm = _llm(_UNLIMITED)
+    big_noisy = _image((1200, 1200), noisy=True)
+    request = _request(llm, big_noisy)
+    fitter = ChatRequestImageFitter()
+    fitted_args, report = fitter.fit(
+        request.arguments,
+        ImageBudget(
+            max_dimension=None,
+            reencode_min_bytes=None,
+            max_request_bytes=None,
+            max_image_bytes=120_000,
+        ),
+    )
+    (url,) = _image_urls(fitted_args)
+    raw = base64.b64decode(url.split(",", 1)[1])
+    assert len(raw) <= 120_000
+    assert report.changed

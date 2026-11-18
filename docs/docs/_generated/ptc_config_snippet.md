@@ -3,6 +3,7 @@
 ```yaml
 ptc:
   enabled: null
+  search: true
   function_names: 'canonical'
   direct_tools: []
   nested_tools: []

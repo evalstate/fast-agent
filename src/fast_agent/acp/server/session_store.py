@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast
 
 from acp.exceptions import RequestError
-from acp.helpers import update_agent_message, update_user_message
 from acp.schema import (
     AcpMcpServer,
     AgentMessageChunk,
@@ -36,6 +35,7 @@ if TYPE_CHECKING:
 from fast_agent.acp.content_conversion import convert_mcp_content_to_acp
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.message_roles import is_message_role
+from fast_agent.ptc.context_blocks import user_authored_content
 from fast_agent.session import (
     Session,
     SessionBusyError,
@@ -246,8 +246,8 @@ class ACPServerSessionStore:
     ) -> list[UserMessageChunk | AgentMessageChunk]:
         updates: list[UserMessageChunk | AgentMessageChunk] = []
         update_builders = {
-            "user": update_user_message,
-            "assistant": update_agent_message,
+            "user": UserMessageChunk,
+            "assistant": AgentMessageChunk,
         }
         for message in history:
             role_value = str(message.role)
@@ -255,11 +255,11 @@ class ACPServerSessionStore:
                 continue
             update_builder = update_builders[role_value]
 
-            for content in message.content:
+            for content in user_authored_content(message.content, as_typed=role_value == "user"):
                 acp_block = convert_mcp_content_to_acp(content)
                 if acp_block is None:
                     continue
-                updates.append(update_builder(acp_block))
+                updates.append(update_builder(content=acp_block))
 
         return updates
 

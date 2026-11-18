@@ -11,7 +11,7 @@ from fast_agent.commands.context import (
 from fast_agent.commands.history_summaries import HistoryOverview, build_history_overview
 from fast_agent.commands.results import CommandMessage
 from fast_agent.commands.status_summaries import SystemPromptSummary
-from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.ptc.context_blocks import user_authored_text
 
 if TYPE_CHECKING:
     from fast_agent.llm.usage_tracking import UsageAccumulator
@@ -34,9 +34,7 @@ def render_history_turn_text(
     lines = [heading, "", f"Agent: {agent_name}", ""]
     for message in turn:
         role = str(message.role)
-        text = message.all_text() or message.first_text() or ""
-        if not text and message.content:
-            text = get_text(message.content[0]) or ""
+        text = user_authored_text(message.content)
 
         lines.append(f"- {role}: {' '.join(text.split()) if text else '<no text>'}")
 

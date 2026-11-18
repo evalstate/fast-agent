@@ -42,6 +42,7 @@ from fast_agent.mcp.url_elicitation_required import (
 )
 from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.ptc.runtime import _ExecutionStats, _NestedCalls
+from fast_agent.ptc.stubs import _MAX_RETURNS_CHARS, build_functions
 from fast_agent.ptc.values import MediaStore
 from fast_agent.tools.invocation_context import is_programmatic_tool_call, outer_tool_call_id
 from fast_agent.tools.local_shell_executor import LocalEnvironment
@@ -209,6 +210,37 @@ async def test_settle_helper_and_tool_are_both_callable(type_check: bool) -> Non
         assert not result.is_error, _text(result)
         assert dispatch.calls == [("settle", {"invoice_id": "123"})]
         assert json.loads(_text(result).split("Result:\n", 1)[1])["tool"] == "settle"
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("type_check", [True, False])
+async def test_removed_function_is_explained_with_or_without_type_checking(
+    type_check: bool,
+) -> None:
+    """Removed functions raise at the call site, so a script can recover in place."""
+    runtime = ProgrammaticToolRuntime(
+        ProgrammaticToolCallingSettings(enabled=True, type_check=type_check)
+    )
+    kept = Tool(name="kept", input_schema={"type": "object"})
+    runtime.model_tools([kept, Tool(name="gone", input_schema={"type": "object"})])
+    runtime.model_tools([kept])
+    programmatic = runtime.surface([]).programmatic
+    assert programmatic is not None and programmatic.retired == {"gone"}
+    try:
+        result = await runtime.execute({"code": "await gone()"}, RecordingDispatcher())
+        assert result.is_error
+        assert "RuntimeError: `gone` is no longer available" in _text(result)
+        dispatch = RecordingDispatcher()
+        recovered = await runtime.execute(
+            {"code": "try:\n    await gone(old_arg=42)\nexcept RuntimeError:\n    await kept()"},
+            dispatch,
+        )
+        assert not recovered.is_error, _text(recovered)
+        assert dispatch.calls == [("kept", {})]
+        runtime.reset_conversation()
+        assert runtime.catalog.retired == frozenset()
     finally:
         await runtime.close()
 
@@ -1000,6 +1032,164 @@ def test_return_shape_documents_fields_compactly() -> None:
     assert "JSON schema" not in description
 
 
+_RANGE = {
+    "type": "object",
+    "properties": {"gte": {"type": "string"}, "lte": {"type": "string"}},
+    "additionalProperties": False,
+}
+_OBJECT_ARGUMENTS = {
+    "type": "object",
+    "properties": {
+        "created": _RANGE,
+        "filters": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"from": {"type": "string"}, "window": _RANGE},
+                "required": ["from"],
+            },
+        },
+        "labels": {
+            "type": "object",
+            "properties": {"team": {"type": "string"}},
+            "additionalProperties": True,
+        },
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_closed_object_arguments_show_their_keys_and_reject_unknown_ones(runtime) -> None:
+    runtime.model_tools([Tool(name="find", input_schema=_OBJECT_ARGUMENTS)])
+    dispatch = RecordingDispatcher()
+
+    description = runtime.tool().description or ""
+    unknown = await runtime.execute({"code": "await find(created={'from': '2026'})"}, dispatch)
+    nested = await runtime.execute(
+        {"code": "await find(filters=[{'from': 'a', 'window': {'after': 'x'}}])"}, dispatch
+    )
+    missing = await runtime.execute({"code": "await find(filters=[{'window': {}}])"}, dispatch)
+    valid = await runtime.execute(
+        {
+            "code": "await find(created={'gte': '2026'}, "
+            "filters=[{'from': 'a', 'window': {'lte': 'b'}}], labels={'any': 1})"
+        },
+        dispatch,
+    )
+
+    assert "created: {gte?: str, lte?: str} = ..." in description
+    assert "filters: list[{from: str, window?: {gte?: str, lte?: str}}] = ..." in description
+    assert "labels: dict[str, Any] = ..." in description
+    for rejected in (unknown, nested, missing):
+        assert rejected.is_error and "NOT executed" in _text(rejected)
+    assert "Hint: `created` of `find` takes {gte?: str, lte?: str}." in _text(unknown)
+    assert "Hint: `filters[].window` of `find` takes {gte?: str, lte?: str}." in _text(nested)
+    assert not valid.is_error, _text(valid)
+    assert dispatch.calls == [
+        (
+            "find",
+            {
+                "created": {"gte": "2026"},
+                "filters": [{"from": "a", "window": {"lte": "b"}}],
+                "labels": {"any": 1},
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code",
+    [
+        "statuses = ['open']\nfor status in statuses:\n    await orders__get_orders(customer_id='c', status=status)",
+        "created = {'gte': '2026'}\nawait find(created=created)",
+        "kwargs = {'created': {'gte': '2026'}, 'filters': []}\nawait find(**kwargs)",
+    ],
+)
+async def test_typed_arguments_built_outside_the_call_get_a_hint(runtime, code) -> None:
+    runtime.model_tools([*TOOLS, Tool(name="find", input_schema=_OBJECT_ARGUMENTS)])
+    dispatch = RecordingDispatcher()
+
+    result = await runtime.execute({"code": code}, dispatch)
+    annotated = await runtime.execute(
+        {"code": "from typing import Any\n" + re.sub(r"^(\w+) =", r"\1: Any =", code)}, dispatch
+    )
+
+    assert result.is_error and "NOT executed" in _text(result)
+    assert "Hint: write Literal and dict arguments inline in the call" in _text(result)
+    # The hint's way out: a variable annotated `Any` is accepted.
+    assert not annotated.is_error, _text(annotated)
+    assert len(dispatch.calls) == 1
+
+
+def _member_schema(*, handle_note: str, profile_fields: int) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "description": handle_note},
+            "orgs": {
+                "type": "array",
+                "description": "Organizations the member belongs to (first 100).",
+                "items": {"type": "object", "properties": {"name": {"type": "string"}}},
+            },
+            "profile": {
+                "type": "object",
+                "properties": {f"attr_{n}": {"type": "string"} for n in range(profile_fields)},
+            },
+        },
+        "required": ["id"],
+    }
+
+
+def test_return_shapes_keep_nested_descriptions_and_degrade_at_field_boundaries() -> None:
+    # Fixtures scale with the safety net so every degradation level is exercised.
+    over = _MAX_RETURNS_CHARS // 10
+    long_note = "Member handle. " + "Background detail. " * over
+    schemas = {
+        "small": _member_schema(handle_note="Member handle.", profile_fields=1),
+        "verbose": _member_schema(handle_note=long_note, profile_fields=1),
+        "deep": _member_schema(handle_note=long_note, profile_fields=over),
+        "flat": {
+            "type": "object",
+            "properties": {f"f_{n}": {"type": "string"} for n in range(over)},
+        },
+    }
+    tools = [
+        Tool(
+            name=name,
+            input_schema={"type": "object"},
+            output_schema={
+                "type": "object",
+                "properties": {"members": {"type": "array", "items": schema}},
+            }
+            if name != "flat"
+            else schema,
+        )
+        for name, schema in schemas.items()
+    ]
+
+    functions = build_functions(tools)
+    shapes = {name: functions[name].returns_shape or "" for name in schemas}
+
+    assert shapes["small"] == (
+        "{\n"
+        "    members?: list[{\n"
+        "        id: str,  # Member handle.\n"
+        "        orgs?: list[{name?: str}],  # Organizations the member belongs to (first 100).\n"
+        "        profile?: {attr_0?: str},\n"
+        "    }],\n"
+        "}"
+    )
+    # Over budget, nested descriptions with a number (usually a limit) are kept longest...
+    assert "# Organizations the member belongs to (first 100)." in shapes["verbose"]
+    assert "Background detail" not in shapes["verbose"]
+    # ...then the deepest objects collapse, keeping the fields around them...
+    assert "{members?: list[{id: str, orgs?: list[{...}], profile?: {...}}]}" == shapes["deep"]
+    # ...and a shape that still cannot fit is cut after a whole field.
+    assert re.search(r", f_\d+\?: str, …$", shapes["flat"])
+    assert all(len(shape) <= _MAX_RETURNS_CHARS for shape in shapes.values())
+
+
 def test_tools_declare_their_exposure_and_program_return_type() -> None:
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
     control = Tool(
@@ -1414,7 +1604,15 @@ async def test_documented_sandbox_modules_match_the_installed_monty() -> None:
     async with AsyncMonty(min_processes=1, max_processes=1) as pool:
         missing = [name for name in available if not await imports(pool, name)]
         present = [name for name in unavailable if await imports(pool, name)]
+        async with pool.checkout(script_name="fnmatch_probe.py") as session:
+            matches = await session.feed_run(
+                "import fnmatch\n"
+                '(fnmatch.filter(["agent.py", "README.md", "AGENT.PY"], "*.py"), '
+                'fnmatch.fnmatchcase("AGENT.PY", "*.py"), '
+                'fnmatch.fnmatchcase("AGENT.PY", "*.PY"))'
+            )
 
+    assert matches == (["agent.py"], False, True)
     assert missing == [] and present == []
     assert {name.split(".")[0] for name in available} <= SANDBOX_MODULES
 

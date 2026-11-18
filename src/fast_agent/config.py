@@ -1408,7 +1408,7 @@ class OpenAIWebSearchSettings(BaseModel):
 class XAIWebSearchSettings(OpenAIWebSearchSettings):
     """xAI Responses web_search tool settings."""
 
-    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[invalid-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
+    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[incompatible-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
     excluded_domains: list[str] | None = Field(
         default=None,
         description="Domains to exclude from xAI web search results (maximum 5).",
@@ -1683,7 +1683,7 @@ class XAISettings(BaseModel):
 class MetaAIWebSearchSettings(OpenAIWebSearchSettings):
     """MetaAI Responses web_search (search grounding) settings."""
 
-    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[invalid-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
+    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[incompatible-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
 
 
 class MetaAISettings(BaseModel):
@@ -2002,6 +2002,10 @@ class ProgrammaticToolCallingSettings(BaseModel):
     enabled: bool | None = None
     """Expose tools through the Python code tool; null uses the model default.
     Override with `--ptc` / `--no-ptc` or the `ptc` model query. Local POSIX only."""
+
+    search: bool = True
+    """Defer non-built-in sandbox function stubs behind `search_tools()` when more than three
+    extra functions are present. `--ptc-all` disables this and includes all function stubs upfront."""
 
     # ptc-vocab-v0: remove the temporary comparison setting after matched rollout.
     function_names: Literal["canonical", "profile"] = "canonical"

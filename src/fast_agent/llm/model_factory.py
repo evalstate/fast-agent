@@ -1286,7 +1286,15 @@ class ModelFactory:
         Returns:
             A callable that takes an agent parameter and returns an LLM instance
         """
-        resolved_model = cls.resolve_model_spec(model_string, presets=presets)
+        return cls.create_factory_for_resolved_model(
+            cls.resolve_model_spec(model_string, presets=presets)
+        )
+
+    @classmethod
+    def create_factory_for_resolved_model(
+        cls, resolved_model: ResolvedModelSpec
+    ) -> LLMFactoryProtocol:
+        """Build an attachment factory using an already validated model selection."""
         config = resolved_model.model_config
 
         if config.provider == Provider.COPILOT:

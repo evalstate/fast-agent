@@ -60,7 +60,7 @@ rather than sending every result back into its context.
 
 Enablement precedence (highest first):
 
-1. CLI `--ptc` or `--no-ptc`.
+1. CLI `--ptc` / `--ptc-all` to enable, or `--no-ptc` to disable.
 2. Model query `ptc=on|true|off|false`, for example `glm53flash?ptc=off`.
 3. YAML `ptc.enabled: true` or `false`.
 4. Model database default (see [PTC model defaults](#ptc-model-defaults)).
@@ -69,6 +69,31 @@ Omit `ptc.enabled` or set it to `null` to use model defaults. Limits and tool
 exposure settings are independent of enablement:
 
 --8<-- "_generated/ptc_config_snippet.md"
+
+By default, when there are more than three non-built-in sandbox functions, their stubs
+are deferred and the model can find them with `search_tools()`. Set `ptc.search: false`
+to include all function stubs upfront without changing whether PTC is enabled.
+`--ptc-all` both enables PTC and disables search for the run.
+
+Deferred functions remain callable: built-in functions (shell, files, `subagent`, ...) and
+tools also exposed directly stay listed in `exec_sandbox`, and the model is told which
+sources are searchable (for example `github: 91 functions`) in the conversation rather than
+in the tool description, so connecting a server with `/mcp connect` does not rewrite it.
+`/tools` shows upfront and searchable functions. To give the model a definition yourself,
+mention it in a prompt as `^tool:<name>`, use `/tools add <name>...`, or browse and pick
+functions with `/tools select`. Mentions work in interactive prompts (including
+`#agent` messages, resolved against that agent), ACP clients, and `go --message` /
+`--prompt-file`. A mention inside a sentence is sent as the function name in backticks;
+mentions at the end of the prompt are removed from the text. Either way the definitions
+are added to the message, and an unknown name stops the prompt from being sent. Agents
+without PTC treat `^tool:` as ordinary text (or as a resource of an MCP server named `tool`).
+
+Canonical PTC function names are saved with the session. If a tool disconnects or a
+built-in is disabled, calling its old function raises a catchable `RuntimeError`.
+The same tool can use its name again when it returns. Resume reports unresolved names.
+In the Python API, `agent.ptc_bindings.functions` maps each saved Python name to its
+origin and tool name. `(await agent.tool_surface()).programmatic.retired` lists the
+currently unavailable names when PTC is enabled.
 
 `direct_tools` keeps matching tools callable directly; `nested_tools` makes
 matching tools code-only, with `direct_tools` taking precedence. The engine
@@ -141,7 +166,7 @@ once for `shell`; hooks still see the outer code tool. MCP tools merely named
 !!! warning "Local POSIX only"
     PTC does not yet support Docker, remote, ACP-owned terminal/filesystem, custom
     execution environments or non-POSIX hosts. A model default (such as GLM-5.3-Flash)
-    falls back to direct tools there; an explicit `--ptc`, `ptc=on` or
+    falls back to direct tools there; an explicit `--ptc`, `--ptc-all`, `ptc=on` or
     `ptc.enabled: true` is rejected. With local shell/filesystem access
     enabled, sandbox file operations access the host working directory directly,
     without tool permission prompts; this is not a filesystem sandbox.

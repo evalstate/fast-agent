@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Protocol
 
 import pytest
-from acp.helpers import text_block
 from acp.schema import (
     ClientCapabilities,
     FileSystemCapabilities,
     Implementation,
     PromptResponse,
     StopReason,
+    TextContentBlock,
 )
 
 TEST_DIR = Path(__file__).parent
@@ -91,7 +91,7 @@ async def test_acp_filesystem_support_enabled() -> None:
         # Send prompt that should trigger filesystem operations
         prompt_text = "use the read_text_file tool to read: /test/file.txt"
         prompt_response = await connection.prompt(
-            session_id=session_id, prompt=[text_block(prompt_text)]
+            session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
         )
         assert _get_stop_reason(prompt_response) == END_TURN
 
@@ -134,7 +134,9 @@ async def test_acp_filesystem_read_only() -> None:
         client.queue_permission_selected("allow_once")
         read_response = await connection.prompt(
             session_id=session_id,
-            prompt=[text_block(f'***CALL_TOOL read_text_file {{"path": "{read_path}"}}')],
+            prompt=[
+                TextContentBlock(text=f'***CALL_TOOL read_text_file {{"path": "{read_path}"}}')
+            ],
         )
 
         assert _get_stop_reason(read_response) == END_TURN
@@ -144,8 +146,8 @@ async def test_acp_filesystem_read_only() -> None:
         write_response = await connection.prompt(
             session_id=session_id,
             prompt=[
-                text_block(
-                    f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "nope"}}'
+                TextContentBlock(
+                    text=f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "nope"}}'
                 )
             ],
         )
@@ -187,8 +189,8 @@ async def test_acp_filesystem_write_only() -> None:
         write_response = await connection.prompt(
             session_id=session_id,
             prompt=[
-                text_block(
-                    f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "ok"}}'
+                TextContentBlock(
+                    text=f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "ok"}}'
                 )
             ],
         )
@@ -199,7 +201,9 @@ async def test_acp_filesystem_write_only() -> None:
 
         read_response = await connection.prompt(
             session_id=session_id,
-            prompt=[text_block(f'***CALL_TOOL read_text_file {{"path": "{write_path}"}}')],
+            prompt=[
+                TextContentBlock(text=f'***CALL_TOOL read_text_file {{"path": "{write_path}"}}')
+            ],
         )
 
         assert _get_stop_reason(read_response) == "refusal"

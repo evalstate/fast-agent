@@ -19,6 +19,7 @@ from fast_agent.ui.model_reference_picker import (
     ModelReferencePickerItem,
     run_model_reference_picker_async,
 )
+from fast_agent.ui.tool_picker import run_tool_picker_async
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from fast_agent.config import Settings
     from fast_agent.llm.model_reference_diagnostics import ModelReferenceSetupItem
     from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.tools.tool_surface import ToolSurface
     from fast_agent.types import PromptMessageExtended
     from fast_agent.ui.model_picker_common import ProviderActivation
 
@@ -420,6 +422,9 @@ class TuiCommandIO(CommandIO):
                 )
             )
         return result.token
+
+    async def pick_tools(self, surface: "ToolSurface") -> tuple[str, ...] | None:
+        return await run_tool_picker_async(surface)
 
     async def prompt_argument(
         self,

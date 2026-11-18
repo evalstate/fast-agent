@@ -6,8 +6,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation, StopReason
+from acp.schema import (
+    ClientCapabilities,
+    FileSystemCapabilities,
+    Implementation,
+    StopReason,
+    TextContentBlock,
+)
 from acp.stdio import spawn_agent_process
 
 TEST_DIR = Path(__file__).parent
@@ -69,7 +74,7 @@ async def test_acp_watch_allows_prompt_reload(tmp_path: Path) -> None:
         assert session_id
 
         prompt_response = await connection.prompt(
-            session_id=session_id, prompt=[text_block("watch test")]
+            session_id=session_id, prompt=[TextContentBlock(text="watch test")]
         )
         assert prompt_response.stop_reason == END_TURN
 
@@ -80,6 +85,6 @@ async def test_acp_watch_allows_prompt_reload(tmp_path: Path) -> None:
         await asyncio.sleep(0.25)
 
         prompt_response = await connection.prompt(
-            session_id=session_id, prompt=[text_block("watch test 2")]
+            session_id=session_id, prompt=[TextContentBlock(text="watch test 2")]
         )
         assert prompt_response.stop_reason == END_TURN

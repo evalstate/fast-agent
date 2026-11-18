@@ -1021,13 +1021,27 @@ class InteractivePrompt:
         runtime_state: PromptLoopRuntimeState,
     ) -> PendingExecutionResult:
         if pending.hash_send_target is not None and pending.hash_send_message is not None:
+            message = await self._resolve_prompt_payload(
+                prompt_provider=prompt_provider,
+                agent_name=pending.hash_send_target,
+                user_input=pending.hash_send_message,
+            )
+            if message is None:
+                prefix = "##" if pending.hash_send_quiet else "#"
+                return PendingExecutionResult(
+                    result=current_result,
+                    buffer_prefill=(
+                        f"{prefix}{pending.hash_send_target} {pending.hash_send_message}"
+                    ),
+                    handled=True,
+                )
             active_send_func = (
                 quiet_send_func if pending.hash_send_quiet and quiet_send_func else send_func
             )
             hash_send_execution = await self._execute_hash_send(
                 send_func=active_send_func,
                 target_agent=pending.hash_send_target,
-                message=pending.hash_send_message,
+                message=message,
                 quiet=pending.hash_send_quiet,
                 clear_progress_for_agent=self._clear_progress_for_agent,
                 clear_ctrl_c_interrupt=lambda: self._clear_ctrl_c_interrupt(
@@ -1192,6 +1206,11 @@ class InteractivePrompt:
         agent_name: str,
         user_input: str,
     ) -> str | PromptMessageExtended | None:
+        """Resolve inline mentions against ``agent_name``.
+
+        Returns None, after printing the error, when a mention cannot be resolved: the
+        caller must not send the prompt.
+        """
         from fast_agent.ui.prompt.input import resolve_shell_working_dir
 
         prompt_payload: str | PromptMessageExtended = user_input
@@ -1212,7 +1231,7 @@ class InteractivePrompt:
             message.append(agent_name)
             message.append("' unavailable", style="red")
             rich_print(message)
-            return user_input
+            return None
 
         try:
             resolved_mentions = await resolve_mentions(agent_for_mentions, parsed_mentions)
@@ -1221,7 +1240,7 @@ class InteractivePrompt:
             message = Text("Failed to resolve resource mentions: ", style="red")
             message.append(str(exc))
             rich_print(message)
-            return user_input
+            return None
 
     async def _send_regular_message(
         self,
@@ -1326,30 +1345,6 @@ class InteractivePrompt:
             if pending_result.buffer_prefill is not None
             else buffer_prefill,
             True,
-        )
-
-    async def _send_user_input_if_prompt_payload(
-        self,
-        *,
-        send_func: SendFunc,
-        prompt_provider: "AgentApp",
-        agent_name: str,
-        user_input: str,
-        runtime_state: PromptLoopRuntimeState,
-    ) -> PromptLoopResult | None:
-        prompt_payload = await self._resolve_prompt_payload(
-            prompt_provider=prompt_provider,
-            agent_name=agent_name,
-            user_input=user_input,
-        )
-        if prompt_payload is None:
-            return None
-        return await self._send_regular_message(
-            send_func=send_func,
-            prompt_payload=prompt_payload,
-            prompt_provider=prompt_provider,
-            agent_name=agent_name,
-            runtime_state=runtime_state,
         )
 
     async def prompt_loop(
@@ -1486,11 +1481,19 @@ class InteractivePrompt:
             # Send the message to the agent
             # Type narrowing: by this point user_input is str (non-str inputs continue above)
             assert isinstance(user_input, str)
-            send_result = await self._send_user_input_if_prompt_payload(
-                send_func=send_func,
+            prompt_payload = await self._resolve_prompt_payload(
                 prompt_provider=prompt_provider,
                 agent_name=agent_state.current_agent,
                 user_input=user_input,
+            )
+            if prompt_payload is None:
+                buffer_prefill = user_input
+                continue
+            send_result = await self._send_regular_message(
+                send_func=send_func,
+                prompt_payload=prompt_payload,
+                prompt_provider=prompt_provider,
+                agent_name=agent_state.current_agent,
                 runtime_state=runtime_state,
             )
             if send_result is not None:
@@ -1501,7 +1504,7 @@ class InteractivePrompt:
         *,
         send_func: SendFunc,
         target_agent: str,
-        message: str,
+        message: str | PromptMessageExtended,
         quiet: bool,
         clear_progress_for_agent: Callable[[str | None], None],
         clear_ctrl_c_interrupt: Callable[[], None],

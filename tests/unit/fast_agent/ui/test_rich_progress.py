@@ -2093,7 +2093,7 @@ def test_queued_input_line_is_shown_only_beside_visible_rows(monkeypatch) -> Non
         console = Console(file=io.StringIO(), width=100)
         for renderable in display._progress.get_renderables():
             console.print(renderable)
-        return console.file.getvalue()  # ty: ignore[unresolved-attribute]
+        return console.file.getvalue()  # ty: ignore[missing-attribute]
 
     assert "queued" not in rendered()  # no rows yet
     display.update(_make_event())

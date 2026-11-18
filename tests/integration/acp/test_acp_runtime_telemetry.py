@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 import pytest
-from acp.helpers import text_block
+from acp.schema import TextContentBlock
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -80,7 +80,7 @@ async def test_acp_terminal_runtime_telemetry(
     # Call the execute tool via passthrough model
     prompt_text = '***CALL_TOOL execute {"command": "echo test"}'
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
     assert _get_stop_reason(prompt_response) == END_TURN
 
@@ -137,7 +137,7 @@ async def test_acp_filesystem_read_runtime_telemetry(
     # Call the read_text_file tool via passthrough model
     prompt_text = f'***CALL_TOOL read_text_file {{"path": "{test_path}"}}'
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
     assert _get_stop_reason(prompt_response) == END_TURN
 
@@ -188,7 +188,7 @@ async def test_acp_filesystem_write_runtime_telemetry(
         f'***CALL_TOOL write_text_file {{"path": "{test_path}", "content": "{test_content}"}}'
     )
     prompt_response = await connection.prompt(
-        session_id=session_id, prompt=[text_block(prompt_text)]
+        session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
     )
     assert _get_stop_reason(prompt_response) == END_TURN
 

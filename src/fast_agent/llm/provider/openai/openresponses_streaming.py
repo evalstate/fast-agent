@@ -46,7 +46,7 @@ from fast_agent.utils.reasoning_chunk_join import (
 
 if TYPE_CHECKING:
     from openai.types.responses import (
-        ResponseReasoningDeltaStreamingEvent,  # ty: ignore[unresolved-import]
+        ResponseReasoningDeltaStreamingEvent,  # ty: ignore[import-not-found]
     )
 else:
     try:  # OpenAI SDK versions may not include reasoning delta events yet.
@@ -87,7 +87,7 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
         from fast_agent.core.logging.logger import Logger
 
         logger: Logger
-        name: str | None
+        name: str
 
         def _notify_stream_listeners(self, chunk: StreamChunk) -> None: ...
 

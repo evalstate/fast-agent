@@ -16,8 +16,10 @@ from fast_agent.mcp.prompts.prompt_load import (
     load_transcript_into_agent,
     rehydrate_usage_from_history,
 )
+from fast_agent.ptc.catalog import PtcBindings
 
 from .snapshot import (
+    PtcBindingsRestorer,
     PtcSessionAgent,
     PtcStoreProvider,
     SessionAgentSnapshot,
@@ -270,6 +272,9 @@ class SessionHydrator:
             await self._restore_agent_transcript(
                 session, agent_name, agent, agent_snapshot, policy, state
             )
+        # History refresh also clears name reservations when it replaces the transcript.
+        if policy.restore_runtime_state or agent_name in state.loaded_agents:
+            await self._restore_ptc_bindings(agent, agent_name, agent_snapshot, state.warnings)
         if policy.restore_runtime_state:
             # After the transcript: loading history as a new conversation clears the store.
             self._restore_agent_ptc_store(
@@ -333,6 +338,56 @@ class SessionHydrator:
                 agent_name=agent_name,
             )
         )
+
+    @staticmethod
+    async def _restore_ptc_bindings(
+        agent: AgentProtocol,
+        agent_name: str,
+        snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+    ) -> None:
+        if not isinstance(agent, PtcBindingsRestorer):
+            return
+        if snapshot.ptc_bindings is None:
+            if snapshot.ptc_enabled:
+                warnings.append(
+                    SessionHydrationWarning(
+                        code="ptc-bindings-missing",
+                        message=(
+                            f"The session has no saved PTC bindings for {agent_name!r}. "
+                            "Check current tool names before reusing old calls."
+                        ),
+                        agent_name=agent_name,
+                    )
+                )
+            return
+        try:
+            unresolved = await agent.restore_ptc_bindings(snapshot.ptc_bindings)
+        except ValueError:
+            # Drop any earlier names too: runtime-only hydration keeps the agent's ledger.
+            await agent.restore_ptc_bindings(PtcBindings({}, {}))
+            warnings.append(
+                SessionHydrationWarning(
+                    code="ptc-bindings-invalid",
+                    message=(
+                        f"The session's saved PTC bindings for {agent_name!r} are invalid. "
+                        "Check current tool names before reusing old calls."
+                    ),
+                    agent_name=agent_name,
+                )
+            )
+            return
+        if unresolved:
+            examples = ", ".join(sorted(unresolved)[:5])
+            if len(unresolved) > 5:
+                examples += f", and {len(unresolved) - 5} more"
+            warnings.append(
+                SessionHydrationWarning(
+                    code="ptc-bindings-unresolved",
+                    message=f"Unavailable PTC bindings for {agent_name!r} ({examples}).",
+                    agent_name=agent_name,
+                )
+            )
 
     @staticmethod
     def _restore_agent_ptc_store(
@@ -782,18 +837,15 @@ class SessionHydrator:
         params.service_tier = request_settings.service_tier
         params.system_prompt = agent.instruction
 
-        agent.config.use_history = params.use_history
-        agent.config.default_request_params = params.model_copy(deep=True)
-        llm = agent.llm
-        if llm is not None:
-            llm.default_request_params = params.model_copy(deep=True)
-
         from fast_agent.agents.llm_decorator import LlmDecorator
 
         if isinstance(agent, LlmDecorator):
-            agent.restore_streaming_timeout(
-                params.streaming_timeout, configured="streaming_timeout" in params.model_fields_set
-            )
+            agent.restore_request_params(params)
+        else:
+            agent.config.use_history = params.use_history
+            agent.config.default_request_params = params.model_copy(deep=True)
+            if agent.llm is not None:
+                agent.llm.default_request_params = params.model_copy(deep=True)
 
     def _base_request_params(self, agent: AgentProtocol) -> RequestParams:
         llm = agent.llm

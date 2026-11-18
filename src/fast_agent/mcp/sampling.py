@@ -32,6 +32,8 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
+    from fast_agent.llm.resolved_model import ResolvedModelSpec
+    from fast_agent.mcp.common import AgentSamplingTarget
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
@@ -42,23 +44,26 @@ _SAMPLING_STOP_REASONS = (LlmStopReason.STOP_SEQUENCE, LlmStopReason.MAX_TOKENS)
 
 @dataclass(frozen=True, slots=True)
 class _SamplingModelSelection:
-    model: str
+    model: "ResolvedModelSpec"
     api_key: str | None
     app_context: "Context | None"
+
+    @property
+    def model_name(self) -> str:
+        return self.model.wire_model_name or self.model.selected_model_name
 
 
 def create_sampling_llm(
     params: CreateMessageRequestParams,
-    model_string: str,
+    model: "ResolvedModelSpec",
     api_key: str | None,
     app_context: "Context | None",
 ) -> FastAgentLLMProtocol:
     """
     Create an LLM instance for sampling without tools support.
-    This utility function creates a minimal LLM instance based on the model string.
 
     Args:
-        model_string: The model to use (e.g. "passthrough", "claude-3-5-sonnet-latest")
+        model: The resolved model selection to sample with
 
     Returns:
         An initialized LLM instance ready to use
@@ -71,7 +76,7 @@ def create_sampling_llm(
     )
 
     # Create the LLM using the factory
-    factory = ModelFactory.create_factory(model_string)
+    factory = ModelFactory.create_factory_for_resolved_model(model)
     llm = factory(agent=agent, api_key=api_key)
 
     # Attach the LLM to the agent
@@ -149,10 +154,17 @@ def _select_sampling_model(
     agent_model: str | None,
     api_key: str | None,
     app_context: "Context | None",
+    agent_target: "AgentSamplingTarget | None" = None,
 ) -> _SamplingModelSelection:
+    from fast_agent.llm.model_factory import ModelFactory
+
     model = _configured_sampling_model(server_config)
 
     if model is None and resolve_auto_sampling_enabled(app_context):
+        if agent_target is not None:
+            # Replay the attachment's resolved selection: its key belongs to this destination.
+            logger.debug(f"Using agent's model for sampling: {agent_target.model.display_name}")
+            return _SamplingModelSelection(agent_target.model, agent_target.api_key, app_context)
         model, api_key = _agent_sampling_overrides(agent_model, api_key)
         if model is None:
             model = _default_sampling_model(app_context)
@@ -165,7 +177,9 @@ def _select_sampling_model(
         )
 
     resolved = resolve_model_reference(model, get_context_model_references(app_context))
-    return _SamplingModelSelection(model=resolved, api_key=api_key, app_context=app_context)
+    return _SamplingModelSelection(
+        model=ModelFactory.resolve_model_spec(resolved), api_key=api_key, app_context=app_context
+    )
 
 
 def _sampling_response(
@@ -202,6 +216,7 @@ async def sample(
     agent_model: str | None,
     api_key: str | None,
     app_context: "Context | None",
+    agent_target: "AgentSamplingTarget | None" = None,
 ) -> CreateMessageResult | CreateMessageResultWithTools | ErrorData:
     """
     Handle sampling requests from the MCP protocol using SamplingConverter.
@@ -227,20 +242,19 @@ async def sample(
     # Get server name for notification tracking
     _start_sampling_notification(server_name)
 
-    model: str | None = None
     try:
         selection = _select_sampling_model(
             server_config=server_config,
             agent_model=agent_model,
             api_key=api_key,
             app_context=app_context,
+            agent_target=agent_target,
         )
-        model = selection.model
 
         # Create an LLM instance
         llm = create_sampling_llm(
             params,
-            model,
+            selection.model,
             selection.api_key,
             selection.app_context,
         )
@@ -269,7 +283,7 @@ async def sample(
         log_text = response_text[:50] if response_text else "<no text>"
         logger.info(f"Complete sampling request: {log_text}...")
 
-        return _sampling_response(llm_response, model=model, has_tools=has_tools)
+        return _sampling_response(llm_response, model=selection.model_name, has_tools=has_tools)
     except Exception as e:
         logger.error(f"Error in sampling: {e!s}")
         return ErrorData(

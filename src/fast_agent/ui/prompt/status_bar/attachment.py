@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import resource_link
 from fast_agent.mcp.mime_utils import guess_mime_type
+from fast_agent.ptc.mentions import TOOL_MENTION_SERVER, tool_mention_names
 from fast_agent.ui.binary_indicator import render_glyph_indicator
 
 if TYPE_CHECKING:
@@ -75,7 +76,9 @@ def summarize_draft_attachments(
     model_name: str | None,
     provider: Provider | None = None,
     cwd: Path | None = None,
+    tool_names: frozenset[str] | None = None,
 ) -> DraftAttachmentSummary | None:
+    """Summarize attachment mentions; ``tool_names`` are the known ``^tool:`` names, if any."""
     from fast_agent.ui.prompt.attachment_tokens import FILE_MENTION_SERVER, URL_MENTION_SERVER
     from fast_agent.ui.prompt.resource_mentions import parse_mentions
 
@@ -83,7 +86,7 @@ def summarize_draft_attachments(
     attachment_mentions = [
         mention
         for mention in parsed.mentions
-        if mention.server_name in {FILE_MENTION_SERVER, URL_MENTION_SERVER}
+        if mention.server_name in {FILE_MENTION_SERVER, URL_MENTION_SERVER, TOOL_MENTION_SERVER}
     ]
     if not attachment_mentions:
         return None
@@ -92,6 +95,15 @@ def summarize_draft_attachments(
     mime_types: list[str] = []
     any_questionable = False
     for mention in attachment_mentions:
+        if mention.server_name == TOOL_MENTION_SERVER:
+            # A definition is plain text. A token that cannot be a function name, or names
+            # no known function, is flagged; sending reports the error.
+            mime_types.append("text/plain")
+            if tool_mention_names(mention.raw) != [mention.resource_uri] or (
+                tool_names is not None and mention.resource_uri not in tool_names
+            ):
+                any_questionable = True
+            continue
         resource = _attachment_resource(
             mention.server_name,
             mention.resource_uri,

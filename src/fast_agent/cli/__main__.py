@@ -27,6 +27,9 @@ _OPTIONS_WITHOUT_VALUES = {
     "--reload",
     "--a2a-oauth",
     "--no-a2a-oauth",
+    "--ptc",
+    "--no-ptc",
+    "--ptc-all",
     "-x",
 }
 

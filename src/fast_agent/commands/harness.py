@@ -493,9 +493,14 @@ def _execute_commands_command(arguments: str) -> str:
 def _parse_tools_argument(arguments: str) -> str | None:
     try:
         argument = " ".join(split_commandline(arguments, syntax="posix"))
-        tools_handlers.parse_tools_query(argument)
+        query = tools_handlers.parse_tools_query(argument)
     except ValueError as exc:
         raise AgentConfigError("Invalid /tools arguments", str(exc)) from exc
+    if not isinstance(query, tools_handlers.ToolsQuery):
+        raise AgentConfigError(
+            "Unsupported /tools arguments",
+            "`/tools add` and `/tools select` edit the user's input and are not model-facing.",
+        )
     return argument or None
 
 

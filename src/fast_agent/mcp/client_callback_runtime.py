@@ -49,6 +49,7 @@ if TYPE_CHECKING:
 
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
+    from fast_agent.mcp.common import AgentSamplingTarget
     from fast_agent.mcp.mcp_aggregator import MCPAggregator
     from fast_agent.mcp.url_elicitation_required import URLElicitationDisplayItem
 
@@ -71,6 +72,7 @@ _ACTIVE_URL_ELICITATION_SCOPE: ContextVar[URLElicitationScope | None] = ContextV
 type ToolListChangedCallback = Callable[[str], Awaitable[None]]
 type TransportNotificationHandler = Callable[[str], None]
 type AgentModelResolver = Callable[[], str | None]
+type AgentSamplingTargetResolver = Callable[[], AgentSamplingTarget | None]
 
 
 @dataclass(slots=True)
@@ -88,6 +90,8 @@ class MCPClientCallbackRuntime:
     agent_model_resolver: AgentModelResolver | None = None
     agent_name: str | None = None
     api_key: str | None = None
+    agent_sampling_target_resolver: AgentSamplingTargetResolver | None = None
+    """The agent's committed model and key, used together; without one, no key is inherited."""
     custom_elicitation_handler: ElicitationFnT | None = None
     aggregator: MCPAggregator | None = None
     context: Context | None = None
@@ -166,13 +170,16 @@ class MCPClientCallbackRuntime:
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult | CreateMessageResultWithTools | ErrorData:
         del context
+        # With an agent, its attachment key travels only with the attachment's model.
+        resolve_target = self.agent_sampling_target_resolver
         return await sample(
             params,
             server_name=self.display_server_name,
             server_config=self.server_config,
             agent_model=self._current_agent_model(),
-            api_key=self.api_key,
+            api_key=self.api_key if resolve_target is None else None,
             app_context=self._app_context(),
+            agent_target=resolve_target() if resolve_target is not None else None,
         )
 
     def _make_sampling_capabilities(self) -> SamplingCapability | None:

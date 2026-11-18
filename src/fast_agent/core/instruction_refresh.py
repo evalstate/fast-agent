@@ -108,6 +108,19 @@ class ConfiguredMcpInstructionCapable(McpInstructionCapable, Protocol):
 
 
 @runtime_checkable
+class PtcSearchAware(Protocol):
+    """Agent whose PTC tool search may defer function definitions."""
+
+    @property
+    def ptc_search_enabled(self) -> bool: ...
+
+
+def lists_server_tools(agent: object) -> bool:
+    """Whether ``{{serverInstructions}}`` lists each server's tools for ``agent``."""
+    return not (isinstance(agent, PtcSearchAware) and agent.ptc_search_enabled)
+
+
+@runtime_checkable
 class ToolUpdateNotifyingAgent(Protocol):
     """Instruction-capable agent whose display can emit tool update notices."""
 
@@ -154,6 +167,8 @@ def resolve_instruction_skill_manifests(
 def format_server_instructions(
     instructions_data: dict[str, tuple[str | None, list[str]]],
     tool_filters: Mapping[str, Sequence[str]] | None = None,
+    *,
+    include_tool_names: bool = True,
 ) -> str:
     """
     Format server instructions with XML tags and tool lists.
@@ -161,6 +176,8 @@ def format_server_instructions(
     Args:
         instructions_data: Dict mapping server name to (instructions, tool_names)
         tool_filters: The agent's tools: filter; excluded tool names are not rendered
+        include_tool_names: Render each server's tool list. PTC tool search omits it: the
+            tools are discoverable on demand, and a list would change with the server's tools.
 
     Returns:
         Formatted string with server instructions
@@ -173,16 +190,19 @@ def format_server_instructions(
         if instructions is None:
             continue
 
-        prefixed_tools = [
-            create_namespaced_name(server_name, tool)
-            for tool in tool_names
-            if matches_server_filter(tool_filters, server_name, tool)
-        ]
-        tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
+        tools_line = ""
+        if include_tool_names:
+            prefixed_tools = [
+                create_namespaced_name(server_name, tool)
+                for tool in tool_names
+                if matches_server_filter(tool_filters, server_name, tool)
+            ]
+            tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
+            tools_line = f"<tools>{tools_list}</tools>\n"
 
         formatted_parts.append(
             f'<fastagent:mcp-server name="{server_name}">\n'
-            f"<tools>{tools_list}</tools>\n"
+            f"{tools_line}"
             f"<instructions>\n{instructions}\n</instructions>\n"
             f"</fastagent:mcp-server>"
         )
@@ -218,6 +238,7 @@ async def build_instruction(
     skill_read_access: FileReadAccess = SKILL_READER_FILE_READS,
     context: Mapping[str, str] | None = None,
     source: str | None = None,
+    include_tool_names: bool = True,
 ) -> str:
     """
     Build an instruction string from a template with all placeholders resolved.
@@ -236,6 +257,7 @@ async def build_instruction(
         skill_read_access: How the model reads skill files, reported by the agent
         context: Additional context values (env, workspaceRoot, etc.)
         source: Optional label for diagnostics (agent name, card, etc.)
+        include_tool_names: Render server tool lists in {{serverInstructions}}
 
     Returns:
         The fully resolved instruction string
@@ -250,7 +272,9 @@ async def build_instruction(
         async def resolve_server_instructions() -> str:
             try:
                 instructions_data = await aggregator.get_server_instructions()
-                return format_server_instructions(instructions_data, tool_filters)
+                return format_server_instructions(
+                    instructions_data, tool_filters, include_tool_names=include_tool_names
+                )
             except Exception as e:
                 logger.warning(f"Failed to get server instructions: {e}")
                 return ""
@@ -385,6 +409,7 @@ async def rebuild_agent_instruction(
             skill_read_access=configured_agent.skill_read_access,
             context=build_context,
             source=configured_agent.name,
+            include_tool_names=lists_server_tools(agent),
         )
         if isinstance(agent, RenderedInstructionProcessor):
             new_instruction = agent.process_rendered_instruction(new_instruction)

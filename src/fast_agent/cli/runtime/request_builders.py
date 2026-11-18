@@ -533,8 +533,12 @@ def build_agent_run_request(
     subagent_model: str | None = None,
     model_base_url: str | None = None,
     ptc: bool | None = None,
+    ptc_all: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
+    if ptc is False and ptc_all:
+        raise typer.BadParameter("Cannot combine --ptc-all with --no-ptc.", param_hint="--ptc-all")
+
     validate_no_home_conflicts(
         no_home=no_home,
         home=home,
@@ -642,7 +646,8 @@ def build_agent_run_request(
         subagents=True if subagent_model is not None else subagents,
         subagent_model=subagent_model,
         model_base_url=model_base_url,
-        ptc=ptc,
+        ptc=True if ptc_all else ptc,
+        ptc_search=False if ptc_all else None,
     )
 
 
@@ -710,6 +715,7 @@ def build_command_run_request(
     subagent_model: str | None = None,
     model_base_url: str | None = None,
     ptc: bool | None = None,
+    ptc_all: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(
@@ -778,4 +784,5 @@ def build_command_run_request(
         subagent_model=subagent_model,
         model_base_url=model_base_url,
         ptc=ptc,
+        ptc_all=ptc_all,
     )

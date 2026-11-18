@@ -227,6 +227,30 @@ class TestClient(Client):
             self.terminals[terminal_id]["completed"] = True
         return KillTerminalResponse()
 
+    async def connect_mcp(self, server_id: str, **kwargs: Any) -> Never:
+        raise RequestError.method_not_found("mcp/connect")
+
+    async def disconnect_mcp(self, connection_id: str, **kwargs: Any) -> Never:
+        raise RequestError.method_not_found("mcp/disconnect")
+
+    async def mcp_message(
+        self,
+        connection_id: str,
+        method: str,
+        params: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> Never:
+        raise RequestError.method_not_found("mcp/message")
+
+    async def notify_mcp(
+        self,
+        connection_id: str,
+        method: str,
+        params: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """No MCP connections are created by this client."""
+
     async def create_elicitation(self, message: str, mode: ElicitationMode, **kwargs: Any) -> Never:
         raise RequestError.method_not_found("elicitation/create")
 

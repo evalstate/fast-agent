@@ -10,6 +10,7 @@ from fast_agent.core.instruction_refresh import (
     McpInstructionCapable,
     RenderedInstructionProcessor,
     build_instruction,
+    lists_server_tools,
     resolve_instruction_skill_manifests,
 )
 from fast_agent.llm.model_database import ModelDatabase
@@ -192,6 +193,7 @@ async def apply_instruction_context(
             skill_read_access=skill_read_access,
             context=dict(resolved_context),
             source=agent.name,
+            include_tool_names=lists_server_tools(agent),
         )
         if isinstance(agent, RenderedInstructionProcessor):
             resolved = agent.process_rendered_instruction(resolved)

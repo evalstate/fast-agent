@@ -7,25 +7,22 @@ to Model Context Protocol (MCP) format for processing by fast-agent.
 
 import re
 from dataclasses import dataclass
-from typing import cast
 from urllib.parse import urlparse
 
 import acp.schema as acp_schema
 import mcp_types as mcp_types
-from acp.helpers import (
-    ContentBlock as ACPContentBlock,
-)
-from acp.helpers import (
-    audio_block,
-    embedded_blob_resource,
-    embedded_text_resource,
-    image_block,
-    resource_block,
-    resource_link_block,
-    text_block,
+from acp.schema import (
+    AudioContentBlock,
+    BlobResourceContents,
+    EmbeddedResourceContentBlock,
+    ImageContentBlock,
+    ResourceContentBlock,
+    TextContentBlock,
+    TextResourceContents,
 )
 from mcp_types import ContentBlock as MCPContentBlock
 
+from fast_agent.acp.types import ACPContentBlock
 from fast_agent.io.path_uri import file_uri_to_path
 from fast_agent.utils.commandline import quote_commandline_token
 
@@ -152,11 +149,7 @@ def _convert_annotations(
     if not acp_annotations:
         return None
 
-    audience = (
-        cast("list[mcp_types.Role]", list(acp_annotations.audience))
-        if acp_annotations.audience
-        else None
-    )
+    audience = list(acp_annotations.audience) if acp_annotations.audience else None
     return mcp_types.Annotations(
         audience=audience,
         priority=acp_annotations.priority,
@@ -382,13 +375,13 @@ def convert_mcp_content_to_acp(mcp_content: MCPContentBlock) -> ACPContentBlock 
     """
     match mcp_content:
         case mcp_types.TextContent():
-            return text_block(mcp_content.text)
+            return TextContentBlock(text=mcp_content.text)
         case mcp_types.ImageContent():
-            return image_block(mcp_content.data, mcp_content.mime_type)
+            return ImageContentBlock(data=mcp_content.data, mime_type=mcp_content.mime_type)
         case mcp_types.AudioContent():
-            return audio_block(mcp_content.data, mcp_content.mime_type)
+            return AudioContentBlock(data=mcp_content.data, mime_type=mcp_content.mime_type)
         case mcp_types.ResourceLink():
-            return resource_link_block(
+            return ResourceContentBlock(
                 name=mcp_content.name,
                 uri=str(mcp_content.uri),
                 mime_type=mcp_content.mime_type,
@@ -407,17 +400,17 @@ def _convert_mcp_embedded_resource_to_acp(
 ) -> ACPContentBlock | None:
     match mcp_content.resource:
         case mcp_types.TextResourceContents():
-            embedded = embedded_text_resource(
+            embedded = TextResourceContents(
                 uri=str(mcp_content.resource.uri),
                 text=mcp_content.resource.text,
                 mime_type=mcp_content.resource.mime_type,
             )
         case mcp_types.BlobResourceContents():
-            embedded = embedded_blob_resource(
+            embedded = BlobResourceContents(
                 uri=str(mcp_content.resource.uri),
                 blob=mcp_content.resource.blob,
                 mime_type=mcp_content.resource.mime_type,
             )
         case _:
             return None
-    return resource_block(embedded)
+    return EmbeddedResourceContentBlock(resource=embedded)

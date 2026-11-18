@@ -25,14 +25,12 @@ from acp import (
     run_agent,
 )
 from acp.exceptions import RequestError
-from acp.helpers import ContentBlock as ACPContentBlock
 from acp.schema import (
     AcpMcpServer,
     AgentCapabilities,
     AuthenticateResponse,
     AuthMethodAgent,
     AvailableCommandsUpdate,
-    EnvVarAuthMethod,
     HttpMcpServer,
     Implementation,
     ListSessionsResponse,
@@ -62,6 +60,8 @@ from fast_agent.acp.server.prompt_flow import ACPPromptFlow, PromptFlowHost
 from fast_agent.acp.server.session_runtime import ACPServerSessionRuntime, SessionRuntimeHost
 from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost
 from fast_agent.acp.server.slash_runtime import ACPServerSlashRuntime, SlashRuntimeHost
+from fast_agent.acp.server.unsupported_methods import UnsupportedACPMethods
+from fast_agent.acp.types import ACPContentBlock
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.config import MCPServerSettings, get_settings
 from fast_agent.constants import DEFAULT_HOME_DIR
@@ -91,7 +91,7 @@ ACP_AUTH_RECOMMENDED_COMMANDS: tuple[str, ...] = (
 )
 
 
-class AgentACPServer(ACPAgent):
+class AgentACPServer(UnsupportedACPMethods, ACPAgent):
     """
     Exposes FastAgent agents as an ACP agent through stdio.
 
@@ -349,7 +349,7 @@ class AgentACPServer(ACPAgent):
             #
             # In ACP 0.9.x this uses the explicit agent auth schema, but we still
             # keep it to the minimal id/name/description shape.
-            auth_methods: list[EnvVarAuthMethod | TerminalAuthMethod | AuthMethodAgent] = [
+            auth_methods: list[TerminalAuthMethod | AuthMethodAgent] = [
                 AuthMethodAgent(
                     id=ACP_AUTH_METHOD_ID,
                     name="Configure fast-agent",

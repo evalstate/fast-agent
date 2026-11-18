@@ -61,6 +61,8 @@ class Context(BaseModel):
     no_shell: bool = False
     ptc_enabled: bool | None = None
     """CLI override for PTC, ahead of model-string and configuration settings."""
+    ptc_search: bool | None = None
+    """CLI override for PTC tool search (`--ptc-all` sets False)."""
 
     tracer: trace.Tracer | None = None
     _connection_manager: "MCPConnectionManager | None" = None

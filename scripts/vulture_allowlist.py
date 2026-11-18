@@ -3,8 +3,18 @@
 
 These names are not dead implementation variables. They are retained because
 they are part of public call signatures, Protocol definitions, or third-party
-callback contracts where keyword names matter.
+callback contracts where keyword names matter. Run via scripts/deadcode.py;
+its CI gate covers shipped source at 100% confidence, not this broader advisory
+allowlist's historical test/example coverage. Entries suppress names globally,
+so add only reviewed public/framework contracts, not implementation leftovers.
 """
+
+# ACP Agent.set_config_option keyword, even when this optional method is unsupported.
+config_id
+# Monty AbstractOS.__call__ callback keyword (dispatch is always async here).
+is_async
+# ToolResultWarningLogger Protocol's structured logging keyword.
+text_block_count
 
 call_index
 current_total

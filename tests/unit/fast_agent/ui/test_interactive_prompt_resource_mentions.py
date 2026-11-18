@@ -203,7 +203,7 @@ async def test_prompt_loop_resolves_attach_paths_from_shell_working_dir(
 
 
 @pytest.mark.asyncio
-async def test_resolve_prompt_payload_falls_back_to_plain_text_on_resolution_error(
+async def test_resolve_prompt_payload_returns_none_on_resolution_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -220,7 +220,7 @@ async def test_resolve_prompt_payload_falls_back_to_plain_text_on_resolution_err
         user_input=f"can you see ^file:{missing}",
     )
 
-    assert payload == f"can you see ^file:{missing}"
+    assert payload is None
     assert len(printed) == 1
     message = str(getattr(printed[0], "plain", printed[0]))
     assert message.startswith("Failed to resolve resource mentions: ")
@@ -242,7 +242,7 @@ async def test_resolve_prompt_payload_prints_unavailable_agent_literally(
         user_input="Read ^demo:file:///tmp/report.md",
     )
 
-    assert payload == "Read ^demo:file:///tmp/report.md"
+    assert payload is None
     assert [getattr(item, "plain", item) for item in printed] == [
         "Unable to resolve resource mentions: agent '[draft]' unavailable"
     ]

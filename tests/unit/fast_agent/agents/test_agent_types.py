@@ -10,6 +10,7 @@ from fast_agent.config import MCPServerSettings, MCPSettings, Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.types import RequestParams
@@ -166,7 +167,8 @@ def test_provider_managed_servers_attach_state_to_supported_llm() -> None:
     assert llm.provider_managed_mcp_state.server_names == ("stripe",)
 
 
-def test_provider_managed_servers_reject_codexresponses_llm() -> None:
+@pytest.mark.asyncio
+async def test_provider_managed_servers_reject_codexresponses_llm() -> None:
     context = Context(
         config=Settings(
             mcp=MCPSettings(
@@ -185,10 +187,12 @@ def test_provider_managed_servers_reject_codexresponses_llm() -> None:
         config=AgentConfig(name="billing", servers=["stripe"]),
         context=context,
     )
-    llm = _StubProviderManagedLLM(provider=Provider.CODEX_RESPONSES)
-
-    with pytest.raises(AgentConfigError, match="OpenAI Responses provider"):
-        agent._on_llm_attached(llm)
+    try:
+        with pytest.raises(AgentConfigError, match="OpenAI Responses provider"):
+            await agent.attach_llm(ModelFactory.create_factory("codexresponses.gpt-6.2-astra"))
+        assert agent.llm is None
+    finally:
+        await agent.shutdown()
 
 
 def test_instruction_takes_precedence_over_systemPrompt():

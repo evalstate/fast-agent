@@ -5,7 +5,7 @@ Decorator for LlmAgent, normalizes PromptMessageExtended, allows easy extension 
 import inspect
 import json
 from collections import Counter, defaultdict
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
+    Literal,
     Self,
     TypeVar,
 )
@@ -69,6 +70,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
+from fast_agent.mcp.common import AgentSamplingTarget
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
 from fast_agent.mcp.prompt_metadata import prompt_display_name
@@ -165,6 +167,24 @@ class _CallContext:
     persist_history: bool
     sanitized_messages: list[PromptMessageExtended]
     summary: RemovedContentSummary | None
+
+
+_AttachmentScope = Literal["same_model", "same_connection", "new_connection"]
+_PORTABLE_ATTACHMENT_KWARGS = frozenset({"verb"})
+_CONNECTION_ATTACHMENT_KWARGS = frozenset({"api_key", "base_url", "default_headers"})
+_PROVIDER_CONNECTION_KWARGS = {Provider.BEDROCK: frozenset({"profile", "region"})}
+
+
+def _handoff_attachment_kwargs(
+    kwargs: Mapping[str, Any], scope: _AttachmentScope, provider: Provider
+) -> dict[str, Any]:
+    if scope == "same_model":
+        return dict(kwargs)
+    allowed = _PORTABLE_ATTACHMENT_KWARGS
+    if scope == "same_connection":
+        allowed |= _CONNECTION_ATTACHMENT_KWARGS
+        allowed |= _PROVIDER_CONNECTION_KWARGS.get(provider, frozenset())
+    return {key: value for key, value in kwargs.items() if key in allowed}
 
 
 class LlmDecorator(StreamingAgentMixin, AgentProtocol):
@@ -353,19 +373,21 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             self._llm.instruction = instruction
             self._llm.default_request_params.system_prompt = instruction
 
-    def restore_streaming_timeout(self, timeout: float | None, *, configured: bool) -> None:
-        """Keep a restored timeout policy in the caches used by reattachment and cloning."""
-        if self._default_request_params is None:
-            self._default_request_params = RequestParams()
-        cached = [self._default_request_params]
+    def restore_request_params(self, params: RequestParams) -> None:
+        """Restore session settings as the source for later switches and clones."""
+        self.config.use_history = params.use_history
+        self._default_request_params = self.config.default_request_params = params.model_copy(
+            deep=True
+        )
+        if self._llm is not None:
+            self._llm.default_request_params = params.model_copy(deep=True)
         if self._llm_attach_kwargs is not None:
             overrides = self._llm_attach_kwargs.get("request_params")
             if isinstance(overrides, RequestParams):
-                cached.append(overrides)
-        for params in cached:
-            params.streaming_timeout = timeout
-            if not configured:
-                params.model_fields_set.discard("streaming_timeout")
+                overrides.model_fields_set.difference_update(
+                    params.for_model_handoff().model_fields_set
+                )
+                overrides.model_fields_set.discard("streaming_timeout")
 
     async def set_model(self, model: str | None) -> None:
         """Set the default model for this agent and reattach the LLM if needed."""
@@ -375,41 +397,78 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                 self._default_request_params.model = None
             return
 
-        from fast_agent.llm.model_factory import ModelFactory, with_run_model_endpoint
+        await self._reattach_llm(self, model)
 
-        model_with_aliases = resolve_model_reference(
-            model,
-            get_context_model_references(self._context),
-        )
-        resolved_model = ModelFactory.resolve_model_spec(model_with_aliases)
-        wire_model = resolved_model.wire_model_name
+    async def set_model_for_new_session(
+        self, model: str, *, start_session: Callable[[], Awaitable[None]]
+    ) -> None:
+        """Validate the candidate for a fresh session before starting that session."""
+        await self._reattach_llm(self, model, start_session=start_session)
 
-        if self._llm_attach_kwargs is None:
+    async def _reattach_llm(
+        self,
+        target: "LlmDecorator",
+        model: str | None,
+        *,
+        start_session: Callable[[], Awaitable[None]] | None = None,
+    ) -> None:
+        """Attach a clone or a new model using the same inheritance rules."""
+        factory = self._llm_factory_ref
+        if factory is None or self._llm_attach_kwargs is None:
             raise RuntimeError("LLM attachment parameters missing despite factory being available")
 
         attach_kwargs = dict(self._llm_attach_kwargs)
-        request_params = attach_kwargs.pop("request_params", None)
-        if request_params is not None:
-            request_params = deepcopy(request_params)
-            request_params.model = wire_model
+        request_params: RequestParams | None = attach_kwargs.pop("request_params", None)
+        source_llm = self._require_llm()
+        source = source_llm.resolved_model
+        run_url = source_llm.run_model_base_url
+        leaves_run_endpoint = run_url is not None and target.name != self.name
+        if model is None:
+            if leaves_run_endpoint:
+                await target.attach_llm(
+                    factory,
+                    request_params=request_params,
+                    _attachment_scope="new_connection",
+                    **_handoff_attachment_kwargs(attach_kwargs, "new_connection", source.provider),
+                )
+            else:
+                await target.attach_llm(
+                    factory, request_params=deepcopy(request_params), **attach_kwargs
+                )
+            return
 
-        llm_factory = ModelFactory.create_factory(model_with_aliases)
-        if self._llm is not None and self._llm.run_model_base_url is not None:
-            llm_factory = with_run_model_endpoint(
-                llm_factory,
-                agent_name=self.name,
-                base_url=self._llm.run_model_base_url,
-            )
+        from fast_agent.llm.model_factory import ModelFactory, with_run_model_endpoint
 
-        await self.attach_llm(
-            llm_factory,
-            model=wire_model,
-            request_params=request_params,
-            **attach_kwargs,
+        resolved = ModelFactory.resolve_model_spec(
+            resolve_model_reference(model, get_context_model_references(self._context))
         )
-        self.config.model = model
-        if self._default_request_params:
-            self._default_request_params.model = wire_model
+        if (
+            leaves_run_endpoint
+            or source.provider != resolved.provider
+            or source.overlay != resolved.overlay
+        ):
+            scope: _AttachmentScope = "new_connection"
+        elif source.wire_model_name == resolved.wire_model_name or (
+            not source.model_config.model_name and not resolved.model_config.model_name
+        ):
+            # Provider-only selections fill in the wire name at construction.
+            scope = "same_model"
+        else:
+            scope = "same_connection"
+
+        factory = ModelFactory.create_factory_for_resolved_model(resolved)
+        if scope != "new_connection" and run_url is not None:
+            factory = with_run_model_endpoint(factory, agent_name=self.name, base_url=run_url)
+
+        await target.attach_llm(
+            factory,
+            model=resolved.wire_model_name or None,
+            request_params=request_params,
+            _attachment_scope=scope,
+            _selected_model=model,
+            _start_session=start_session,
+            **_handoff_attachment_kwargs(attach_kwargs, scope, resolved.provider),
+        )
 
     @property
     def agent_type(self) -> AgentType:
@@ -445,6 +504,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         llm_factory: LLMFactoryProtocol,
         model: str | None = None,
         request_params: RequestParams | None = None,
+        *,
+        _attachment_scope: _AttachmentScope | None = None,
+        _selected_model: str | None = None,
+        _start_session: Callable[[], Awaitable[None]] | None = None,
         **additional_kwargs,
     ) -> FastAgentLLMProtocol:
         """
@@ -464,26 +527,37 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Returns:
             The created LLM instance
         """
-        # Merge parameters with proper precedence
-        effective_params = self._merge_request_params(
-            self._default_request_params, request_params, model
-        )
+        default_params = self._default_request_params
+        new_model = _attachment_scope in ("same_connection", "new_connection")
+        if new_model:
+            if default_params is not None:
+                default_params = default_params.for_model_handoff()
+            if request_params is not None:
+                request_params = request_params.for_model_handoff()
+        if _attachment_scope is not None and request_params is not None:
+            request_params = request_params.model_copy(update={"model": model}, deep=True)
+        effective_params = self._merge_request_params(default_params, request_params, model)
 
         # Create and validate the LLM before replacing the active attachment.
         llm = llm_factory(
             agent=self, request_params=effective_params, context=self._context, **additional_kwargs
         )
-        self._validate_llm_attachment(llm)
-        self._llm = llm
+        self._validate_llm_attachment(llm, for_new_session=_start_session is not None)
 
-        # Store attachment details for future cloning
-        self._llm_factory_ref = llm_factory
+        # Keep only caller-provided overrides so reattachment can recompute model defaults.
         attach_kwargs: dict[str, Any] = dict(additional_kwargs)
-        # Keep only caller-provided overrides so reattachment can recompute
-        # model-specific defaults (e.g. overlay maxTokens) for the new model.
-        attach_kwargs["request_params"] = (
-            deepcopy(request_params) if request_params is not None else None
-        )
+        attach_kwargs["request_params"] = deepcopy(request_params)
+        if _start_session is not None:
+            await _start_session()
+
+        self._llm = llm
+        if new_model:
+            self._default_request_params = self.config.default_request_params = default_params
+        if _selected_model is not None:
+            self.config.model = _selected_model
+            if self._default_request_params is not None:
+                self._default_request_params.model = llm.model_name
+        self._llm_factory_ref = llm_factory
         self._llm_attach_kwargs = attach_kwargs
         self._on_llm_attached(self._llm)
 
@@ -495,11 +569,29 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         return self._llm
 
-    def _validate_llm_attachment(self, llm: FastAgentLLMProtocol) -> None:
+    def _validate_llm_attachment(
+        self, llm: FastAgentLLMProtocol, *, for_new_session: bool = False
+    ) -> None:
         """Hook for subclasses to reject an LLM before it becomes active."""
 
     def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
         """Hook for subclasses that need to react when an LLM is attached."""
+
+    def _active_attachment_api_key(self) -> str | None:
+        """Return the override paired with the committed model, not the card itself."""
+        if self._llm is None or self._llm_attach_kwargs is None:
+            return None
+        # Sampling constructs a separate client, without attachment-specific URLs.
+        if self._llm.run_model_base_url is not None or self._llm_attach_kwargs.get("base_url"):
+            return None
+        key = self._llm_attach_kwargs.get("api_key")
+        return key if isinstance(key, str) else None
+
+    def _active_sampling_target(self) -> AgentSamplingTarget | None:
+        """The committed model selection with its override, for automatic MCP sampling."""
+        if self._llm is None:
+            return None
+        return AgentSamplingTarget(self._llm.resolved_model, self._active_attachment_api_key())
 
     def _clone_constructor_kwargs(self) -> dict[str, Any]:
         """Hook for subclasses/mixins to supply constructor kwargs when cloning."""
@@ -574,37 +666,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                     clone.tool_runner_hooks = hooks
 
             if self._llm_factory_ref is not None:
-                if self._llm_attach_kwargs is None:
-                    raise RuntimeError(
-                        "LLM attachment parameters missing despite factory being available"
-                    )
-
-                attach_kwargs = dict(self._llm_attach_kwargs)
-                request_params = attach_kwargs.pop("request_params", None)
-                if request_params is not None:
-                    request_params = deepcopy(request_params)
-
-                llm_factory = self._llm_factory_ref
-                wire_model = None
-                if model is not None:
-                    from fast_agent.llm.model_factory import ModelFactory
-
-                    model_with_aliases = resolve_model_reference(
-                        model,
-                        get_context_model_references(self._context),
-                    )
-                    resolved_model = ModelFactory.resolve_model_spec(model_with_aliases)
-                    llm_factory = ModelFactory.create_factory(model_with_aliases)
-                    wire_model = resolved_model.wire_model_name
-                    if request_params is not None:
-                        request_params.model = wire_model
-
-                await clone.attach_llm(
-                    llm_factory,
-                    model=wire_model,
-                    request_params=request_params,
-                    **attach_kwargs,
-                )
+                await self._reattach_llm(clone, model)
 
             from fast_agent.core.instruction_refresh import McpInstructionCapable
             from fast_agent.core.instruction_utils import apply_instruction_context

@@ -263,23 +263,37 @@ async def _resolve_cli_attachment_blocks(
     return resolved.resources
 
 
+async def _expand_cli_tool_mentions(
+    agent_obj: Any,
+    messages: list["PromptMessageExtended"],
+) -> None:
+    from fast_agent.ptc.mentions import ToolMentionError, expand_agent_tool_mentions
+
+    try:
+        for message in messages:
+            if message.role == "user":
+                await expand_agent_tool_mentions(agent_obj, message)
+    except ToolMentionError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
 async def _build_cli_message_payload(
     agent_obj: Any,
     message: str,
     attachments: list[str] | None,
 ) -> str | "PromptMessageExtended":
-    blocks = await _resolve_cli_attachment_blocks(agent_obj, attachments)
-    if not blocks:
-        return message
-
     from mcp_types import TextContent
 
     from fast_agent.types import PromptMessageExtended
 
-    return PromptMessageExtended(
+    blocks = await _resolve_cli_attachment_blocks(agent_obj, attachments)
+    payload = PromptMessageExtended(
         role="user",
         content=[TextContent(type="text", text=message), *blocks],
     )
+    await _expand_cli_tool_mentions(agent_obj, [payload])
+    return payload if len(payload.content) > 1 else message
 
 
 async def _build_cli_prompt_file_payload(
@@ -288,10 +302,11 @@ async def _build_cli_prompt_file_payload(
     attachments: list[str] | None,
 ) -> list["PromptMessageExtended"]:
     blocks = await _resolve_cli_attachment_blocks(agent_obj, attachments)
-    if not blocks:
-        return prompt
-
     prompt_with_attachments = [message.model_copy(deep=True) for message in prompt]
+    await _expand_cli_tool_mentions(agent_obj, prompt_with_attachments)
+    if not blocks:
+        return prompt_with_attachments
+
     for message in reversed(prompt_with_attachments):
         if message.role == "user":
             message.content.extend(blocks)
@@ -347,6 +362,9 @@ async def _save_result_history(
                     PTC_VOCABULARY_META: surface.programmatic.vocabulary,
                     "ptc_functions": [
                         tool.python_name for tool in surface.exposed(ToolExposure.PROGRAMMATIC)
+                    ],
+                    "ptc_deferred_functions": [
+                        tool.python_name for tool in surface.programmatic_functions(deferred=True)
                     ],
                 },
             )
@@ -1087,6 +1105,7 @@ async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) 
         or request.no_shell
         or request.prefer_local_shell
         or request.ptc is not None
+        or request.ptc_search is not None
     ):
         return
 
@@ -1103,6 +1122,8 @@ async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) 
         config.shell_execution.prefer_local_shell = True
     if request.ptc is not None:
         context.ptc_enabled = request.ptc
+    if request.ptc_search is not None:
+        context.ptc_search = request.ptc_search
 
 
 async def _add_cli_servers(fast: Any, request: AgentRunRequest) -> None:

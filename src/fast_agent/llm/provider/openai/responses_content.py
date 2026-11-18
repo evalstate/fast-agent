@@ -51,6 +51,15 @@ class _ToolCallProvenance(TypedDict):
     id: NotRequired[str]
 
 
+def developer_message_item(text: str) -> dict[str, Any]:
+    """A ``developer`` input message, the stable home for the system prompt."""
+    return {
+        "type": "message",
+        "role": "developer",
+        "content": [{"type": "input_text", "text": text}],
+    }
+
+
 class ResponsesContentMixin:
     if TYPE_CHECKING:
         logger: Logger

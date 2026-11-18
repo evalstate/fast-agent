@@ -23,6 +23,16 @@ ResponseMode: TypeAlias = Literal["inherit", "postprocess", "passthrough"]
 ToolResultMode: TypeAlias = Literal["postprocess", "passthrough", "selectable"]
 StructuredToolPolicy: TypeAlias = Literal["auto", "always", "defer", "no_tools"]
 SamplingToolChoicePolicy: TypeAlias = Literal["auto", "required", "none"]
+_PORTABLE_REQUEST_FIELDS = frozenset(
+    {
+        "system_prompt",
+        "use_history",
+        "max_iterations",
+        "parallel_tool_calls",
+        "tool_result_mode",
+        "streaming_timeout",
+    }
+)
 _RESPONSE_MODE_TOOL_RESULT_MODES: dict[ResponseMode, ToolResultMode | None] = {
     "inherit": None,
     "postprocess": "postprocess",
@@ -75,7 +85,7 @@ class RequestParams(CreateMessageRequestParams):
     to avoid confusion with the 'message' parameter on 'generate' method.
     """
 
-    max_tokens: int | None = None  # ty: ignore[invalid-attribute-override] -- MCP SDK base requires int; fast-agent treats None as "use model default"
+    max_tokens: int | None = None  # ty: ignore[incompatible-attribute-override] -- MCP SDK base requires int; fast-agent treats None as "use model default"
     """The maximum number of tokens to sample, as requested by the server."""
 
     model: str | None = None
@@ -220,6 +230,12 @@ class RequestParams(CreateMessageRequestParams):
 
     service_tier: Literal["fast", "flex"] | None = None
     """Provider service tier override: fast/priority or flex where supported."""
+
+    def for_model_handoff(self) -> "RequestParams":
+        """Keep explicitly set harness controls, not options for the old model."""
+        return RequestParams.model_validate(
+            self.model_dump(include=set(_PORTABLE_REQUEST_FIELDS), exclude_unset=True)
+        )
 
     @field_validator(
         "max_tokens",

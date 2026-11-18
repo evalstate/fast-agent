@@ -1,7 +1,16 @@
 import pytest
-from mcp_types import CallToolRequest, CallToolRequestParams, ImageContent, TextContent
+from mcp_types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    EmbeddedResource,
+    ImageContent,
+    TextContent,
+    TextResourceContents,
+)
 
 from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS
+from fast_agent.ptc.catalog import TOOL_SOURCES_FINGERPRINT_META
+from fast_agent.ptc.mentions import TOOL_DEFINITIONS_META
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.message_display_helpers import (
@@ -308,6 +317,38 @@ def test_build_user_message_display_prefers_original_text_metadata() -> None:
 
     assert message_text == "can you see ^file:/tmp/photo.png"
     assert attachments == ["image (file:///tmp/photo.png)"]
+
+
+_ROSTER = TextContent(
+    type="text", text="<fastagent:tool-sources>", meta={TOOL_SOURCES_FINGERPRINT_META: "abc"}
+)
+_DEFINITIONS = TextContent(
+    type="text", text="async def fetch(): ...", meta={TOOL_DEFINITIONS_META: ["fetch"]}
+)
+
+
+@pytest.mark.parametrize("generated", [[], [_ROSTER], [_DEFINITIONS, _ROSTER]])
+def test_build_user_message_display_shows_embedded_text_but_not_generated_blocks(
+    generated: list[TextContent],
+) -> None:
+    resource = EmbeddedResource(
+        type="resource",
+        resource=TextResourceContents(uri="file:///tmp/notes.txt", text="my notes"),
+    )
+    message = PromptMessageExtended(role="user", content=[resource, *generated])
+
+    message_text, attachments = build_user_message_display([message])
+    assert message_text == "my notes"
+    assert attachments is not None and any("file:///tmp/notes.txt" in a for a in attachments)
+
+    grouped, _ = build_user_message_display([message, message])
+    assert grouped.count("my notes") == 2
+    assert "fastagent:tool-sources" not in grouped and "async def" not in grouped
+
+
+def test_build_user_message_display_hides_generated_only_messages() -> None:
+    message = PromptMessageExtended(role="user", content=[_DEFINITIONS, _ROSTER])
+    assert build_user_message_display([message])[0] == ""
 
 
 def test_content_metadata_returns_none_without_metadata_protocol() -> None:

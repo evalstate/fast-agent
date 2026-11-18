@@ -34,6 +34,7 @@ class EmptyCompletionDiagnostics:
     reasoning_tokens: int | None = None
     reasoning_chars: int | None = None
     streamed: bool | None = None
+    unusable_output: str | None = None
 
 
 def attach_empty_completion_diagnostics(
@@ -66,7 +67,13 @@ class EmptyCompletionError(RuntimeError):
     """The model ended its turn with no content and no tool call, again after a retry."""
 
     def __init__(self, attempts: tuple[EmptyCompletionDiagnostics, ...] = ()) -> None:
-        super().__init__("Completion returned no assistant content or tool calls after one retry.")
+        discarded = next(
+            (attempt.unusable_output for attempt in attempts if attempt.unusable_output), None
+        )
+        detail = "Completion returned no assistant content or tool calls after one retry."
+        if discarded:
+            detail += f" Discarded provider output: {discarded}."
+        super().__init__(detail)
         self.attempts = attempts
 
 

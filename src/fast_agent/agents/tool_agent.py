@@ -479,10 +479,16 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
+        *,
+        refresh_tools: bool = False,
     ) -> PromptMessageExtended:
         """
         Generate a response using the LLM, and handle tool calls if necessary.
         Messages are already normalized to list[PromptMessageExtended].
+
+        Tools the caller does not supply (or marks with ``refresh_tools`` as listed from the
+        agent) are listed again before each follow-up LLM call, so a tool source connected
+        or disconnected mid-turn reaches the next request.
         """
         current_user_token = set_current_user_message(snapshot_current_user_message(messages))
         try:
@@ -508,6 +514,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     )
 
             if tools is None:
+                refresh_tools = True
                 tools = (await self.list_tools()).tools
 
             runner = ToolRunner(
@@ -515,6 +522,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 messages=messages,
                 request_params=request_params,
                 tools=tools,
+                refresh_tools=refresh_tools,
                 hooks=self._build_tool_runner_hooks(request_params),
             )
             try:

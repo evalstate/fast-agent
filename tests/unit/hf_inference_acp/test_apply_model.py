@@ -21,8 +21,8 @@ async def test_apply_model_does_not_override_request_params_model(monkeypatch) -
     pytest.importorskip("ruamel.yaml")
     _ensure_hf_inference_acp_on_path()
 
-    import hf_inference_acp.agents as agents_mod  # ty: ignore[unresolved-import]
-    from hf_inference_acp.agents import HuggingFaceAgent  # ty: ignore[unresolved-import]
+    import hf_inference_acp.agents as agents_mod  # ty: ignore[import-not-found]
+    from hf_inference_acp.agents import HuggingFaceAgent  # ty: ignore[import-not-found]
 
     calls: list[dict] = []
 
@@ -59,7 +59,7 @@ def test_alias_display_preserves_query_when_overriding_provider_suffix() -> None
     pytest.importorskip("ruamel.yaml")
     _ensure_hf_inference_acp_on_path()
 
-    from hf_inference_acp.agents import _resolve_alias_display  # ty: ignore[unresolved-import]
+    from hf_inference_acp.agents import _resolve_alias_display  # ty: ignore[import-not-found]
 
     resolved = _resolve_alias_display("qwen35:groq")
     assert resolved is not None

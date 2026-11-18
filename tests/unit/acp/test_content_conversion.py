@@ -42,7 +42,7 @@ from fast_agent.acp.content_conversion import (
 )
 
 if TYPE_CHECKING:
-    from acp.helpers import ContentBlock as ACPContentBlock
+    from fast_agent.acp.types import ACPContentBlock
 
 
 def _acp_prompt(*blocks: ACPContentBlock) -> list[ACPContentBlock]:

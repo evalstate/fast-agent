@@ -14,6 +14,9 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_resource_content,
     is_resource_link,
 )
+from fast_agent.ptc.catalog import TOOL_SOURCES_FINGERPRINT_META
+from fast_agent.ptc.context_blocks import is_generated_ptc_context_block
+from fast_agent.ptc.mentions import TOOL_DEFINITIONS_META, TOOL_MENTION_SERVER
 from fast_agent.types import LlmStopReason
 from fast_agent.utils.tool_names import (
     EXECUTE_TOOL_NAME,
@@ -52,6 +55,16 @@ def _content_metadata(content: object) -> "Mapping[str, object] | None":
 def extract_user_attachments(message: PromptMessageExtended) -> list[str]:
     attachments: list[str] = []
     for content in message.content:
+        meta = content.meta or {}
+        if TOOL_SOURCES_FINGERPRINT_META in meta:
+            continue
+        if TOOL_DEFINITIONS_META in meta:
+            names = meta[TOOL_DEFINITIONS_META]
+            if isinstance(names, list):
+                attachments.extend(
+                    f"{TOOL_MENTION_SERVER}:{name}" for name in names if isinstance(name, str)
+                )
+            continue
         if is_resource_link(content):
             # ResourceLink: show name or mime type
             from mcp_types import ResourceLink
@@ -111,15 +124,20 @@ def _message_display_text(message: PromptMessageExtended) -> str:
     from mcp_types import TextContent
 
     for content in message.content:
-        if not isinstance(content, TextContent):
+        if not isinstance(content, TextContent) or is_generated_ptc_context_block(content):
             continue
-        meta = _content_metadata(content)
-        if meta is not None:
-            original_text = meta.get("fast_agent_original_text")
-            if isinstance(original_text, str):
-                return original_text
+        meta = content.meta or {}
+        original_text = meta.get("fast_agent_original_text")
+        if isinstance(original_text, str):
+            return original_text
         return content.text
-    return message.last_text() or ""
+    for content in reversed(message.content):
+        if is_generated_ptc_context_block(content):
+            continue
+        text = get_text(content)
+        if text is not None:
+            return text
+    return ""
 
 
 def build_user_message_display(
