@@ -20,13 +20,13 @@ from fast_agent.constants import (
     HUMAN_INPUT_TOOL_NAME,
 )
 from fast_agent.context import Context
-from fast_agent.core.harness_tools import set_harness_tools
+from fast_agent.core.harness_tools import SLASH_COMMAND_TOOL_NAME, set_harness_tools
 from fast_agent.core.instruction_refresh import format_server_instructions
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.mcp.common import get_resource_name, get_server_name
 from fast_agent.mcp.helpers.content_helpers import get_text
-from fast_agent.mcp.mcp_aggregator import MCPAggregator, NamespacedTool
+from fast_agent.mcp.mcp_aggregator import MCPAggregator, MCPAttachResult, NamespacedTool
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp_server_registry import ServerRegistry
@@ -198,6 +198,50 @@ async def test_roster_needs_a_request_that_exposes_the_sandbox(harness: _Agent) 
 
     await harness.agent.generate("hi", RequestParams(max_iterations=1), tools=[*sandbox, other])
     assert len(harness.notices()) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("tool_count", "search_enabled"), [(2, True), (1, True), (2, False)])
+async def test_connect_reports_search_when_the_server_tools_are_deferred(
+    harness: _Agent,
+    monkeypatch: pytest.MonkeyPatch,
+    tool_count: int,
+    search_enabled: bool,
+) -> None:
+    agent = harness.agent
+    assert agent.context is not None
+    agent.context.ptc_search = search_enabled
+    harness.tools = _tools("github", 2)
+    set_harness_tools(agent, True)
+
+    async def attach_server(*, server_name, server_config, options) -> MCPAttachResult:
+        tools = _tools(server_name, tool_count)
+        harness.tools = [*harness.tools, *tools]
+        return MCPAttachResult(
+            server_name=server_name,
+            transport="stdio",
+            attached=True,
+            already_attached=False,
+            tools_added=[tool.name for tool in tools],
+            prompts_added=[],
+            warnings=[],
+        )
+
+    monkeypatch.setattr(agent.aggregator, "attach_server", attach_server)
+
+    before = await agent.tool_surface()
+    assert before.programmatic is not None and not before.programmatic.search_active
+    result = await agent.call_tool(
+        SLASH_COMMAND_TOOL_NAME, {"command": "/mcp connect --name hf https://example.com/mcp"}
+    )
+    assert not result.is_error
+    text = get_text(result.content[0]) or ""
+    assert "Connected MCP server 'hf'" in text
+    if tool_count == 2 and search_enabled:
+        assert "Tool search is available" in text
+        assert "await search_tools(server='hf')" in text
+    else:
+        assert "Tool search is available" not in text
 
 
 @pytest.mark.asyncio
