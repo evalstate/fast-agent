@@ -141,7 +141,7 @@ class LocalFilesystemRuntime(FilesystemRuntimeBase):
         resolved_path = self._resolve_path(parsed.path)
         try:
             resolved_path.parent.mkdir(parents=True, exist_ok=True)
-            resolved_path.write_text(parsed.content, encoding="utf-8", errors="replace")
+            resolved_path.write_text(parsed.content, encoding="utf-8", errors="replace", newline="")
         except OSError as exc:
             self._logger.exception("Error writing file")
             if is_permission_error(exc):
