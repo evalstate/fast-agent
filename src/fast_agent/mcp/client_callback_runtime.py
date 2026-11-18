@@ -88,6 +88,7 @@ class MCPClientCallbackRuntime:
     agent_model_resolver: AgentModelResolver | None = None
     agent_name: str | None = None
     api_key: str | None = None
+    agent_api_key_resolver: Callable[[], str | None] | None = None
     custom_elicitation_handler: ElicitationFnT | None = None
     aggregator: MCPAggregator | None = None
     context: Context | None = None
@@ -166,12 +167,17 @@ class MCPClientCallbackRuntime:
         params: CreateMessageRequestParams,
     ) -> CreateMessageResult | CreateMessageResultWithTools | ErrorData:
         del context
+        api_key = self.api_key
+        if self.agent_api_key_resolver is not None:
+            # The attachment key is only for the agent model, not a server-selected model.
+            sampling = self.server_config.sampling if self.server_config else None
+            api_key = self.agent_api_key_resolver() if not (sampling and sampling.model) else None
         return await sample(
             params,
             server_name=self.display_server_name,
             server_config=self.server_config,
             agent_model=self._current_agent_model(),
-            api_key=self.api_key,
+            api_key=api_key,
             app_context=self._app_context(),
         )
 

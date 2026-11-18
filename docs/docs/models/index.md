@@ -77,6 +77,11 @@ inspect model configuration:
 /model catalog anthropic --all
 ```
 
+`/model switch` starts a fresh conversation on the selected model without
+restarting the harness. In ACP, pass an explicit model name, for example
+`/model switch codex`. If model validation fails, the current conversation
+and model are left in place.
+
 ### Model Strings and Configuration
 
 Models in **fast-agent** are specified with a model string:

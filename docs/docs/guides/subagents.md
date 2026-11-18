@@ -55,9 +55,14 @@ harness_tools: true
   `-xx`. Enable these options only when those model-controlled changes are
   appropriate.
 
-When a child switches to Codex Responses, it drops inherited output-token
-limits because that route does not accept them. An explicit `max_tokens` on
-the child's Codex model string is still a configuration error.
+A child using a different model keeps harness settings such as the tool-loop
+limit and stream timeout, but uses the selected model's request defaults
+instead of inheriting sampling settings, output-token limits, or service
+tiers. Explicit settings on the child's model string are still validated.
+When the provider or model overlay changes, the child uses the destination's
+credentials and connection settings. `/model switch` validates the replacement
+before starting a new conversation in the running harness. A run-level
+`--base-url` stays in effect only while the provider and overlay are unchanged.
 
 ## 2. User defined
 

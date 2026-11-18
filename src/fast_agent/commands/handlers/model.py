@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
+from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.commands import model_capabilities as _model_capabilities
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.model_capabilities import (
@@ -484,9 +485,15 @@ async def _set_agent_model_for_switch(
     outcome: CommandOutcome,
     agent: "LlmAgentProtocol",
     selected_model: str,
+    *,
+    start_session: Callable[[], Awaitable[None]],
 ) -> bool:
     try:
-        await agent.set_model(selected_model)
+        if isinstance(agent, LlmDecorator):
+            await agent.set_model_for_new_session(selected_model, start_session=start_session)
+        else:
+            await agent.set_model(selected_model)
+            await start_session()
     except (AgentConfigError, ModelConfigError) as exc:
         outcome.add_message(
             format_fast_agent_error(exc),
@@ -582,9 +589,12 @@ async def handle_model_switch(
         )
         return outcome
 
-    await _start_model_switch_session(ctx, outcome)
+    async def start_session() -> None:
+        await _start_model_switch_session(ctx, outcome)
 
-    if not await _set_agent_model_for_switch(outcome, agent, selected_model):
+    if not await _set_agent_model_for_switch(
+        outcome, agent, selected_model, start_session=start_session
+    ):
         return outcome
 
     updated_llm = agent.llm

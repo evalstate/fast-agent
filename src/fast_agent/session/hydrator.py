@@ -782,18 +782,15 @@ class SessionHydrator:
         params.service_tier = request_settings.service_tier
         params.system_prompt = agent.instruction
 
-        agent.config.use_history = params.use_history
-        agent.config.default_request_params = params.model_copy(deep=True)
-        llm = agent.llm
-        if llm is not None:
-            llm.default_request_params = params.model_copy(deep=True)
-
         from fast_agent.agents.llm_decorator import LlmDecorator
 
         if isinstance(agent, LlmDecorator):
-            agent.restore_streaming_timeout(
-                params.streaming_timeout, configured="streaming_timeout" in params.model_fields_set
-            )
+            agent.restore_request_params(params)
+        else:
+            agent.config.use_history = params.use_history
+            agent.config.default_request_params = params.model_copy(deep=True)
+            if agent.llm is not None:
+                agent.llm.default_request_params = params.model_copy(deep=True)
 
     def _base_request_params(self, agent: AgentProtocol) -> RequestParams:
         llm = agent.llm

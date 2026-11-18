@@ -497,6 +497,7 @@ class MCPAggregator(ContextDependent):
         config: Any | None = None,  # Accept the agent config for elicitation_handler access
         tool_handler: ToolExecutionHandler | None = None,
         permission_handler: ToolPermissionHandler | None = None,
+        agent_api_key_resolver: Callable[[], str | None] | None = None,
         **kwargs,
     ) -> None:
         """
@@ -519,6 +520,7 @@ class MCPAggregator(ContextDependent):
         self.connection_persistence = connection_persistence
         self.agent_name = name
         self.config = config  # Agent-specific callback configuration.
+        self._agent_api_key_resolver = agent_api_key_resolver
         self._persistent_connection_manager: MCPConnectionManager | None = None
         self._owns_connection_manager = False
         self._lifecycle_lock = Lock()
@@ -748,7 +750,8 @@ class MCPAggregator(ContextDependent):
             agent_model=self._resolve_callback_agent_model(),
             agent_model_resolver=self._resolve_callback_agent_model,
             agent_name=agent_name,
-            api_key=api_key,
+            api_key=api_key if self._agent_api_key_resolver is None else None,
+            agent_api_key_resolver=self._agent_api_key_resolver,
             custom_elicitation_handler=elicitation_handler,
             aggregator=self,
             context=self.context,

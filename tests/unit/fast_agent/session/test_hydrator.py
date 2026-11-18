@@ -712,6 +712,60 @@ async def test_hydrate_session_restores_runtime_state_and_replaces_usage(
 
 
 @pytest.mark.asyncio
+async def test_hydrate_session_rebinds_codex_without_current_copilot_limit(tmp_path: Path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path, home_override=tmp_path / ".fast-agent", respect_env_override=False
+    )
+    session = manager.create_session()
+    source = "copilot.gemini-4-carbon"
+    target = "codexresponses.gpt-6.2-astra"
+    snapshot = SessionSnapshot(
+        session_id=session.info.name,
+        created_at=session.info.created_at,
+        last_activity=session.info.last_activity,
+        continuation=SessionContinuationSnapshot(
+            active_agent="foo",
+            agents={
+                "foo": SessionAgentSnapshot(
+                    model_spec=target,
+                    request_settings=SessionRequestSettingsSnapshot(max_iterations=7),
+                )
+            },
+        ),
+    )
+    _write_snapshot(session, snapshot)
+    persisted_session = manager.load_session(session.info.name)
+    assert persisted_session is not None
+
+    agent = LlmAgent(
+        AgentConfig("foo", model=source, default_request_params=RequestParams(max_tokens=64_000))
+    )
+    await agent.attach_llm(
+        ModelFactory.create_factory(source), request_params=RequestParams(max_iterations=99)
+    )
+    try:
+        result = await SessionHydrator().hydrate_session(
+            session=persisted_session, agents={"foo": agent}, fallback_agent_name="foo"
+        )
+        assert not any(warning.code == "model-restore-failed" for warning in result.warnings)
+        assert agent.provider is Provider.CODEX_RESPONSES
+        assert agent.llm is not None
+        assert agent.llm.default_request_params.max_tokens is None
+        assert agent.llm.default_request_params.max_iterations == 7
+        await agent.set_model("passthrough")
+        child = await agent.spawn_isolated_instance(model="playback", for_subagent=True)
+        try:
+            assert agent.llm is not None
+            assert agent.llm.get_request_params().max_iterations == 7
+            assert child.llm is not None
+            assert child.llm.get_request_params().max_iterations == 7
+        finally:
+            await child.shutdown()
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_hydrate_session_discards_persisted_codex_max_tokens(tmp_path: Path) -> None:
     manager = SessionManager(
         cwd=tmp_path,

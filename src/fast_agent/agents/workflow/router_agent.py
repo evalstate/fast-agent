@@ -192,9 +192,8 @@ class RouterAgent(LlmAgent):
         request_params: RequestParams | None = None,
         **additional_kwargs,
     ) -> FastAgentLLMProtocol:
-        return await super().attach_llm(
-            llm_factory, model, request_params, verb="Routing", **additional_kwargs
-        )
+        additional_kwargs["verb"] = "Routing"
+        return await super().attach_llm(llm_factory, model, request_params, **additional_kwargs)
 
     async def generate_impl(
         self,

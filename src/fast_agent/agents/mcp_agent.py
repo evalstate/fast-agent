@@ -295,6 +295,7 @@ class McpAgent(ABC, ToolAgent):
             context=context,
             config=self.config,  # Pass the full config for access to elicitation_handler
             **kwargs,
+            agent_api_key_resolver=self._active_attachment_api_key,
         )
         self._provider_managed_server_names = tuple(
             self._aggregator.server_display_name(name)
@@ -1262,10 +1263,24 @@ class McpAgent(ABC, ToolAgent):
         shell_config = self._context.config.shell_execution
         return shell_config.output_byte_limit_selection == "explicit"
 
-    def _validate_llm_attachment(self, llm: FastAgentLLMProtocol) -> None:
-        super()._validate_llm_attachment(llm)
-        # Reject an unservable PTC selection before the LLM replaces the active one.
-        self._decide_ptc(llm)
+    def _validate_llm_attachment(
+        self, llm: FastAgentLLMProtocol, *, for_new_session: bool = False
+    ) -> None:
+        super()._validate_llm_attachment(llm, for_new_session=for_new_session)
+        self._decide_ptc(llm, for_new_session=for_new_session)
+        if self._provider_managed_mcp_state.has_servers():
+            if (
+                self._provider_managed_mcp_state.has_connectors()
+                and llm.provider != Provider.RESPONSES
+            ):
+                raise AgentConfigError(
+                    "Provider-managed connectors are only supported for the OpenAI Responses provider."
+                )
+            if llm.provider not in {Provider.ANTHROPIC, Provider.RESPONSES}:
+                raise AgentConfigError(
+                    "Provider-managed MCP is only supported for Anthropic Messages "
+                    "and the OpenAI Responses provider."
+                )
         resolved_model = resolve_resolved_model(llm)
         if not isinstance(resolved_model, ResolvedModelSpec):
             return
@@ -1310,18 +1325,6 @@ class McpAgent(ABC, ToolAgent):
         super()._on_llm_attached(llm)
 
         if self._provider_managed_mcp_state.has_servers():
-            if (
-                self._provider_managed_mcp_state.has_connectors()
-                and llm.provider != Provider.RESPONSES
-            ):
-                raise AgentConfigError(
-                    "Provider-managed connectors are only supported for the OpenAI Responses provider."
-                )
-            if llm.provider not in {Provider.ANTHROPIC, Provider.RESPONSES}:
-                raise AgentConfigError(
-                    "Provider-managed MCP is only supported for Anthropic Messages "
-                    "and the OpenAI Responses provider."
-                )
             llm.set_provider_managed_mcp_state(self._provider_managed_mcp_state)
 
         self._ptc_decision = self._decide_ptc(llm)
@@ -1785,10 +1788,12 @@ class McpAgent(ABC, ToolAgent):
             request_tool_handler=request_tool_handler,
         )
 
-    def _ptc_selection(self, llm: FastAgentLLMProtocol | None) -> _PtcSelection:
+    def _ptc_selection(
+        self, llm: FastAgentLLMProtocol | None, *, for_new_session: bool = False
+    ) -> _PtcSelection:
         """Resolve the PTC policy and whether a user setting, not a model default, chose it."""
         assert self._context is not None and self._context.config is not None
-        if self._restored_ptc is not None:
+        if self._restored_ptc is not None and not for_new_session:
             # Not explicit: an environment that cannot serve it falls back to direct tools.
             return _PtcSelection(self._restored_ptc, explicit=False)
         if self._context.ptc_enabled is not None:
@@ -1839,11 +1844,13 @@ class McpAgent(ABC, ToolAgent):
             override = resolve_model_query_overrides(model).ptc_names if model else None
         return override or self._context.config.ptc.function_names
 
-    def _decide_ptc(self, llm: FastAgentLLMProtocol | None) -> _PtcDecision:
+    def _decide_ptc(
+        self, llm: FastAgentLLMProtocol | None, *, for_new_session: bool = False
+    ) -> _PtcDecision:
         """Decide PTC for ``llm`` here; raises if explicitly selected but unservable."""
         if not self._context or not self._context.config:
             return _PtcDecision(enabled=False, function_names="canonical")
-        selection = self._ptc_selection(llm)
+        selection = self._ptc_selection(llm, for_new_session=for_new_session)
         decision = _PtcDecision(selection.enabled, self._ptc_function_names(llm))
         if not selection.enabled or self._ptc_environment_supported():
             return decision
