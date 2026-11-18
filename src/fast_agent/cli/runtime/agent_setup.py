@@ -1514,11 +1514,16 @@ async def _run_initialized_agent_request(
         await cli_agent()
 
 
-async def _rollback_cli_startup(fast: Any, request: AgentRunRequest) -> None:
+def _server_registry(fast: Any) -> Any | None:
+    """The core's server registry, or None once the core is disposed or never initialized."""
     try:
-        registry = fast.app.context.server_registry
+        return fast.app.context.server_registry
     except RuntimeError:
-        registry = None
+        return None
+
+
+async def _rollback_cli_startup(fast: Any, request: AgentRunRequest) -> None:
+    registry = _server_registry(fast)
     if registry is not None:
         for server_name in request.startup_mcp_servers or ():
             registry.remove_runtime(server_name, owner=_cli_startup_owner(request))
@@ -1580,8 +1585,12 @@ def _classify_cli_mcp_failure(
         )
     else:
         surface = "harness_startup"
-        registry = fast.app.context.server_registry
-        registry_origin = registry.get_server_origin(server_name) if server_name else None
+        registry = _server_registry(fast)
+        registry_origin = (
+            registry.get_server_origin(server_name)
+            if registry is not None and server_name
+            else None
+        )
         origin = registry_origin if registry_origin in {"central", "card"} else "session"
         input_ref = request.config_path or server_name or "MCP configuration"
         explicit_auth = False
@@ -1625,6 +1634,10 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             instruction=instruction,
             serve_permissions_enabled=serve_permissions_enabled,
         )
+    except SystemExit:
+        # Already reported (the harness renders startup errors before exiting).
+        await _rollback_cli_startup(fast, request)
+        raise
     except BaseException as exc:
         failure = _classify_cli_mcp_failure(
             fast,

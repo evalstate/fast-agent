@@ -1098,17 +1098,10 @@ async def test_closed_object_arguments_show_their_keys_and_reject_unknown_ones(r
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "code",
-    [
-        "statuses = ['open']\nfor status in statuses:\n    await orders__get_orders(customer_id='c', status=status)",
-        "created = {'gte': '2026'}\nawait find(created=created)",
-        "kwargs = {'created': {'gte': '2026'}, 'filters': []}\nawait find(**kwargs)",
-    ],
-)
-async def test_typed_arguments_built_outside_the_call_get_a_hint(runtime, code) -> None:
+async def test_typed_arguments_built_outside_the_call_get_a_hint(runtime) -> None:
     runtime.model_tools([*TOOLS, Tool(name="find", input_schema=_OBJECT_ARGUMENTS)])
     dispatch = RecordingDispatcher()
+    code = "created = {'gte': '2026'}\nawait find(created=created)"
 
     result = await runtime.execute({"code": code}, dispatch)
     annotated = await runtime.execute(
@@ -1120,6 +1113,39 @@ async def test_typed_arguments_built_outside_the_call_get_a_hint(runtime, code) 
     # The hint's way out: a variable annotated `Any` is accepted.
     assert not annotated.is_error, _text(annotated)
     assert len(dispatch.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code",
+    [
+        "statuses = ['open']\nfor status in statuses:\n    await orders__get_orders(customer_id='c', status=status)",
+        "kwargs = {'customer_id': 'c', 'status': 'open'}\nawait orders__get_orders(**kwargs)",
+        "kwargs = {'created': {'gte': '2026'}, 'filters': []}\nawait find(**kwargs)",
+    ],
+)
+async def test_arguments_the_checker_cannot_type_still_run(runtime, code) -> None:
+    """Widened Literal strings and ``**dict`` values are left to the tool to validate."""
+    runtime.model_tools([*TOOLS, Tool(name="find", input_schema=_OBJECT_ARGUMENTS)])
+    dispatch = RecordingDispatcher()
+
+    result = await runtime.execute({"code": code}, dispatch)
+
+    assert not result.is_error, _text(result)
+    assert len(dispatch.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_unknowable_argument_types_do_not_hide_real_errors(runtime) -> None:
+    dispatch = RecordingDispatcher()
+
+    result = await runtime.execute(
+        {"code": "kwargs = {'status': 'open'}\nawait orders__get_orders(**kwargs, customer=1)"},
+        dispatch,
+    )
+
+    assert result.is_error and "NOT executed" in _text(result)
+    assert dispatch.calls == []
 
 
 def _member_schema(*, handle_note: str, profile_fields: int) -> dict[str, Any]:

@@ -1070,7 +1070,7 @@ class ProgrammaticToolRuntime:
                 cwd=cwd,
             )
         except MontyTypingError as exc:
-            if not _only_stub_gaps(exc.display()):
+            if not _only_false_positives(exc.display(), code):
                 raise
         return await session.feed_run(
             code,
@@ -1272,10 +1272,37 @@ def _returns_shell_output(tool: Tool) -> bool:
     return isinstance(properties, Mapping) and {"stdout", "stderr"} <= properties.keys()
 
 
-def _only_stub_gaps(diagnostics: str) -> bool:
-    """Whether type checking failed only on functions Monty runs but its stubs omit."""
+_ARGUMENT_TYPE_ERROR = re.compile(
+    r"^ptc\.py:(\d+):(\d+): error\[invalid-argument-type\].*Expected `(.+?)`, found `(.+?)`$"
+)
+_STRING_LITERALS = ('Literal["', 'list[Literal["')
+_WIDENED_STRINGS = frozenset({"str", "list[str]"})
+
+
+def _only_false_positives(diagnostics: str, code: str) -> bool:
+    """Whether type checking failed only on code that runs as written.
+
+    Monty runs some functions its stubs omit. The checker also rejects argument values it
+    cannot type precisely: a ``**dict`` has unknown keys, so its value type is checked against
+    every parameter not passed explicitly, and a string built outside the call infers ``str``
+    rather than the ``Literal`` the parameter declares. The tool validates those values itself.
+    """
+    lines = code.splitlines()
     errors = [line for line in diagnostics.splitlines() if "error[" in line]
-    return bool(errors) and all(_STUB_GAP.search(line) for line in errors)
+    return bool(errors) and all(
+        _STUB_GAP.search(error) or _unknowable_argument(error, lines) for error in errors
+    )
+
+
+def _unknowable_argument(error: str, lines: list[str]) -> bool:
+    match = _ARGUMENT_TYPE_ERROR.match(error)
+    if match is None:
+        return False
+    line, column, expected, found = match.groups()
+    index = int(line) - 1
+    if index < len(lines) and lines[index][int(column) - 1 :].startswith("**"):
+        return True
+    return expected.startswith(_STRING_LITERALS) and found in _WIDENED_STRINGS
 
 
 def _matching_pattern(tool: Tool, patterns: Sequence[str]) -> str | None:
