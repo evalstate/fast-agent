@@ -17,6 +17,7 @@ from fast_agent.commands.tool_summaries import (
     provider_tool_status_label,
     ptc_settings_label,
 )
+from fast_agent.ptc.mentions import tool_mention_token
 from fast_agent.tools.tool_surface import LARGE_STUB_TOKENS, ToolExposure
 from fast_agent.utils.markdown import escape_markdown_text, markdown_code_span
 
@@ -61,7 +62,7 @@ def _large_stub_note() -> str:
 def _render_code_tool_markdown(
     tool: "Tool", surface: "ToolSurface", ptc: "ProgrammaticSurface"
 ) -> str:
-    functions = surface.exposed(ToolExposure.PROGRAMMATIC)
+    functions = surface.programmatic_functions(deferred=False)
     tokens = sum(function.context_tokens for function in functions)
     lines = [
         f"## Callable functions ({len(functions)} · {format_token_estimate(tokens)})",
@@ -72,13 +73,31 @@ def _render_code_tool_markdown(
         if function.large:
             line += f" ⚠ {format_token_estimate(function.context_tokens)}"
         lines.append(line)
-    return render_tool_schema_markdown(
-        tool,
-        preamble=(
-            f"_{escape_markdown_text(ptc_settings_label(ptc))}_",
-            f"## Instructions\n\n{ptc.instructions.strip()}",
-            "\n".join(lines),
-        ),
+    sections = [
+        f"_{escape_markdown_text(ptc_settings_label(ptc))}_",
+        f"## Instructions\n\n{ptc.instructions.strip()}",
+        "\n".join(lines),
+    ]
+    deferred = surface.programmatic_functions(deferred=True)
+    if deferred:
+        deferred_tokens = sum(function.stub_tokens for function in deferred)
+        names = ", ".join(
+            markdown_code_span(function.python_name or function.tool.name) for function in deferred
+        )
+        sections.append(
+            f"## Searchable functions ({len(deferred)} · "
+            f"{format_token_estimate(deferred_tokens)} on demand)\n\n"
+            f"{_deferred_note(ptc.tool_name)}\n\n{names}"
+        )
+    return render_tool_schema_markdown(tool, preamble=sections)
+
+
+def _deferred_note(tool_name: str) -> str:
+    return (
+        f"Not in the {markdown_code_span(tool_name)} description; still callable. "
+        f"{markdown_code_span('search_tools(query=..., server=...)')} finds them; "
+        f"{markdown_code_span('^tool:<name>')} or {markdown_code_span('/tools add <name>')} "
+        "adds a definition to your message."
     )
 
 
@@ -124,13 +143,23 @@ def render_tool_detail_markdown(surface_tool: "SurfaceTool", surface: "ToolSurfa
     preamble: list[str] = []
     if ptc is not None and surface_tool.exposure is ToolExposure.PROGRAMMATIC:
         python_name = surface_tool.python_name or tool.name
-        note = (
+        callable_as = (
             f"Callable from {markdown_code_span(ptc.tool_name)} as "
-            f"{markdown_code_span(f'await {python_name}(...)')}; its definition is not sent "
-            f"to the model as a tool. The stub adds "
-            f"{format_token_estimate(surface_tool.context_tokens)} to the "
-            f"{markdown_code_span(ptc.tool_name)} description."
+            f"{markdown_code_span(f'await {python_name}(...)')}"
         )
+        if surface_tool.deferred:
+            note = (
+                f"{callable_as}; deferred from the initial {markdown_code_span(ptc.tool_name)} "
+                f"description (discoverable via {markdown_code_span('search_tools')} or "
+                f"attachable with {markdown_code_span(tool_mention_token(python_name))}, "
+                f"{format_token_estimate(surface_tool.stub_tokens)})."
+            )
+        else:
+            note = (
+                f"{callable_as}; its definition is not sent to the model as a tool. The stub "
+                f"adds {format_token_estimate(surface_tool.context_tokens)} to the "
+                f"{markdown_code_span(ptc.tool_name)} description."
+            )
         if surface_tool.large:
             note += f" {_large_stub_note()}"
         preamble.append(note)
@@ -153,6 +182,8 @@ def _format_args(args: list[str] | None) -> str | None:
 
 
 def _format_context(summary: "ToolSummary") -> str:
+    if summary.deferred:
+        return f" · {format_token_estimate(summary.stub_tokens)} on demand"
     if summary.context_tokens is None:
         return ""
     context = f" · {format_token_estimate(summary.context_tokens)}"
@@ -231,32 +262,67 @@ def _model_tool_lines(listing: "ToolsListing") -> list[str]:
     return lines
 
 
+def _function_lines(summaries: "list[ToolSummary]", *, start: int) -> list[str]:
+    lines: list[str] = []
+    for index, summary in enumerate(summaries, start=start):
+        lines.append(_format_function_header(index=index, summary=summary))
+        if summary.python_name and summary.python_name != summary.name:
+            lines.append(_format_tool_detail("Tool", markdown_code_span(summary.name)))
+        lines.extend(_format_wrapped_description(summary.description or ""))
+        lines.append("")
+    return lines
+
+
+def _function_group_lines(groups: "list[tuple[str, list[ToolSummary]]]") -> list[str]:
+    lines: list[str] = []
+    for group, summaries in groups:
+        names = ", ".join(
+            markdown_code_span(summary.python_name or summary.name) for summary in summaries
+        )
+        lines.append(f"- **{escape_markdown_text(group)}** ({len(summaries)}): {names}")
+    return [*lines, ""] if lines else lines
+
+
+def _deferred_tool_lines(listing: "ToolsListing", *, show_all: bool, start: int) -> list[str]:
+    ptc = listing.ptc
+    deferred = listing.deferred
+    if ptc is None or not deferred:
+        return []
+    lines = [
+        (
+            f"## Searchable from {escape_markdown_text(ptc.tool_name)} "
+            f"({len(deferred)} · {format_token_estimate(listing.deferred_tokens)} on demand)"
+        ),
+        "",
+        _deferred_note(ptc.tool_name),
+        "",
+    ]
+    if show_all:
+        lines.extend(_function_lines(deferred, start=start))
+    else:
+        lines.extend(_function_group_lines(listing.deferred_groups()))
+    return lines
+
+
 def _programmatic_tool_lines(listing: "ToolsListing", *, show_all: bool) -> list[str]:
     ptc = listing.ptc
     if ptc is None or not listing.programmatic:
         return []
+    upfront = listing.upfront
+    count = f"{len(upfront)} upfront" if listing.deferred else str(len(upfront))
     lines = [
         (
             f"## Callable from {escape_markdown_text(ptc.tool_name)} "
-            f"({len(listing.programmatic)} · {format_token_estimate(listing.programmatic_tokens)} "
+            f"({count} · {format_token_estimate(listing.programmatic_tokens)} "
             f"inside {escape_markdown_text(ptc.tool_name)})"
         ),
         "",
     ]
+    start = len(listing.model) + 1
     if show_all:
-        for index, summary in enumerate(listing.programmatic, start=len(listing.model) + 1):
-            lines.append(_format_function_header(index=index, summary=summary))
-            if summary.python_name and summary.python_name != summary.name:
-                lines.append(_format_tool_detail("Tool", markdown_code_span(summary.name)))
-            lines.extend(_format_wrapped_description(summary.description or ""))
-            lines.append("")
+        lines.extend(_function_lines(upfront, start=start))
     else:
-        for group, summaries in listing.programmatic_groups():
-            names = ", ".join(
-                markdown_code_span(summary.python_name or summary.name) for summary in summaries
-            )
-            lines.append(f"- **{escape_markdown_text(group)}** ({len(summaries)}): {names}")
-        lines.append("")
+        lines.extend(_function_group_lines(listing.programmatic_groups()))
 
     large = listing.large_programmatic
     if large:
@@ -267,6 +333,7 @@ def _programmatic_tool_lines(listing: "ToolsListing", *, show_all: bool) -> list
         )
         warning = f"> ⚠ Large stubs (≥ ~{LARGE_STUB_TOKENS} tokens each) inflate the code tool: "
         lines.extend([warning + names, ""])
+    lines.extend(_deferred_tool_lines(listing, show_all=show_all, start=start + len(upfront)))
     if not show_all:
         lines.extend([f"_{TOOLS_LIST_HINT}_", ""])
     return lines

@@ -303,9 +303,12 @@ async def test_mcp_filter_constrains_model_routes(
 
     try:
         await agent.initialize()
-        # Server instructions list only the tools the filter allows.
-        assert ("recording__hidden_call" in agent.instruction) is hidden
-        assert ("recording__allowed_call" in agent.instruction) is allowed
+        # Server instructions list only the tools the filter allows, and no tools at all when
+        # PTC tool search makes them discoverable on demand.
+        listed = not (enabled and names == "canonical")
+        assert ("recording__hidden_call" in agent.instruction) is (hidden and listed)
+        assert ("recording__allowed_call" in agent.instruction) is (allowed and listed)
+        assert "Records calls." in agent.instruction
         for local_name, permitted in (("hidden_call", hidden), ("allowed_call", allowed)):
             for name in (
                 f"recording__{local_name}",

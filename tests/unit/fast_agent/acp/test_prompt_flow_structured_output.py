@@ -7,7 +7,9 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock
 
 import pytest
+from acp.exceptions import RequestError
 from acp.schema import AgentThoughtChunk, TextContentBlock
+from mcp_types import TextContent, Tool
 
 from fast_agent.acp.server import prompt_flow as prompt_flow_module
 from fast_agent.acp.server.live_session_registry import ACPLiveSessionRegistry
@@ -16,7 +18,18 @@ from fast_agent.acp.server.prompt_flow import PromptFlowHost as ACPPromptFlowHos
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.interfaces import StreamingAgentProtocol
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.tools.tool_surface import (
+    ProgrammaticSurface,
+    SurfaceTool,
+    ToolExposure,
+    ToolSurface,
+)
 from fast_agent.types import LlmStopReason, PromptMessageExtended
+from fast_agent.ui.prompt.resource_mentions import (
+    build_prompt_with_resources,
+    parse_mentions,
+    resolve_mentions,
+)
 
 if TYPE_CHECKING:
     from fast_agent.acp.server.models import ACPSessionState
@@ -401,3 +414,111 @@ async def test_reasoning_only_streaming_preserves_final_status_line_update(
     assert host._connection.notifications[-1]["session_id"] == "session-1"
     assert host._connection.notifications[-1]["kwargs"] == status_line_meta
     assert host._connection.notifications[-1]["update"].content.text == ""
+
+
+class _ToolMentionAgent(EmptyStructuredAgent):
+    def __init__(self, *, programmatic: bool) -> None:
+        self.programmatic = programmatic
+        self.received: PromptMessageExtended | None = None
+
+    async def tool_surface(self) -> ToolSurface:
+        if not self.programmatic:
+            return ToolSurface(tools=())
+        return ToolSurface(
+            programmatic=ProgrammaticSurface(
+                tool_name="exec_sandbox",
+                vocabulary=1,
+                tool_format="json",
+                instructions="",
+                type_check=False,
+                max_duration_seconds=30,
+                max_memory_mb=64,
+            ),
+            tools=(
+                SurfaceTool(
+                    tool=Tool(name="jobs-list", input_schema={}),
+                    exposure=ToolExposure.PROGRAMMATIC,
+                    context_tokens=20,
+                    python_name="jobs_list",
+                    stub="def jobs_list(): ...",
+                ),
+            ),
+        )
+
+    async def generate(
+        self,
+        _message: PromptMessageExtended,
+        *,
+        request_params: Any = None,
+    ) -> PromptMessageExtended:
+        self.received = _message
+        return await super().generate(_message, request_params=request_params)
+
+
+@pytest.mark.parametrize("programmatic", [True, False])
+@pytest.mark.asyncio
+async def test_acp_prompt_appends_tool_definitions_only_for_ptc(programmatic: bool) -> None:
+    agent = _ToolMentionAgent(programmatic=programmatic)
+    flow = ACPPromptFlow(FakePromptFlowHost(agent))
+    texts = ["Use ^tool:jobs-list, then summarize.", "About these ^tool:jobs_list"]
+    await flow.prompt(
+        session_id="session-1",
+        prompt=[TextContentBlock(type="text", text=text) for text in texts],
+    )
+
+    assert agent.received is not None
+    sent_texts = [
+        block.text for block in agent.received.content[:2] if isinstance(block, TextContent)
+    ]
+    if programmatic:
+        assert sent_texts == ["Use `jobs_list`, then summarize.", "About these"]
+        [definitions] = agent.received.content[2:]
+        assert isinstance(definitions, TextContent)
+        assert "<fastagent:tool-definitions>" in definitions.text
+        assert "def jobs_list(): ..." in definitions.text
+        assert (definitions.meta or {}).get("fast_agent_tool_definitions") == ["jobs_list"]
+    else:
+        assert sent_texts == texts
+        assert len(agent.received.content) == 2
+
+
+@pytest.mark.asyncio
+async def test_acp_and_tui_send_the_same_model_visible_mention_blocks() -> None:
+    typed = "Use ^tool:jobs-list for\n    indented  code ^tool:jobs_list"
+    agent = _ToolMentionAgent(programmatic=True)
+    await ACPPromptFlow(FakePromptFlowHost(agent)).prompt(
+        session_id="session-1",
+        prompt=[TextContentBlock(type="text", text=typed)],
+    )
+    tui = build_prompt_with_resources(typed, await resolve_mentions(agent, parse_mentions(typed)))
+
+    assert agent.received is not None
+    assert [block.model_dump() for block in agent.received.content] == [
+        block.model_dump() for block in tui.content
+    ]
+    assert tui.first_text() == "Use `jobs_list` for\n    indented  code"
+
+
+@pytest.mark.asyncio
+async def test_acp_prompt_reports_an_unknown_tool_mention(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    agent = _ToolMentionAgent(programmatic=True)
+    flow = ACPPromptFlow(FakePromptFlowHost(agent))
+    logger = Mock()
+    monkeypatch.setattr(prompt_flow_module, "logger", logger)
+
+    with pytest.raises(RequestError) as exc:
+        await flow.prompt(
+            session_id="session-1",
+            prompt=[TextContentBlock(type="text", text="Show me ^tool:missing")],
+        )
+
+    assert exc.value.code == -32602
+    data = exc.value.data
+    assert isinstance(data, dict)
+    assert "^tool:missing" in data["reason"]
+    assert agent.received is None
+    assert any(
+        call.kwargs.get("name") == "acp_prompt_error" for call in logger.error.call_args_list
+    )

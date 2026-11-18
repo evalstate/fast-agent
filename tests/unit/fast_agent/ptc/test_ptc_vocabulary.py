@@ -22,6 +22,7 @@ from fast_agent.core.harness_tools import set_harness_tools
 from fast_agent.core.logging.transport import AsyncEventBus
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.mcp.mcp_aggregator import NamespacedTool
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.ptc.stubs import build_functions
 from fast_agent.ptc.vocabulary import (
@@ -76,12 +77,12 @@ async def warnings_recorded() -> AsyncIterator[list[Event]]:
 # Intentional product contract, not a per-model implementation table.
 SIGNATURES = {
     "shell": "shell(*, command: str, working_directory: str = ..., background: bool = ..., timeout: int = ..., check: bool = ...) -> dict[str, Any]",
-    "process": 'process(*, process_id: str = ..., action: Literal["list", "status", "wait", "stop", "read_output"] = ..., wait_sec: int = ..., offset: int = ..., limit: int = ..., query: str = ...) -> Any',
-    "write_text_file": "write_text_file(*, path: str, content: str) -> Any",
-    "edit_file": "edit_file(*, path: str, new_string: str, old_string: str = ..., replace_all: bool = ...) -> Any",
-    "attach_media": "attach_media(*, source: str, mime_type: str = ..., name: str = ..., description: str = ...) -> Any",
+    "process": 'process(*, process_id: str = ..., action: Literal["list", "status", "wait", "stop", "read_output"] = ..., wait_sec: int = ..., offset: int = ..., limit: int = ..., query: str = ...) -> str | Any',
+    "write_text_file": "write_text_file(*, path: str, content: str) -> str | Any",
+    "edit_file": "edit_file(*, path: str, new_string: str, old_string: str = ..., replace_all: bool = ...) -> str | Any",
+    "attach_media": "attach_media(*, source: str, mime_type: str = ..., name: str = ..., description: str = ...) -> str | Any",
     "subagent": "subagent(*, message: str, model: str | None = ..., label: str | None = ..., include_user_message: bool = ...) -> dict[str, Any]",
-    "get_resource": "get_resource(*, uri: str, server_name: str | None = ...) -> Any",
+    "get_resource": "get_resource(*, uri: str, server_name: str | None = ...) -> str | Any",
 }
 
 
@@ -523,6 +524,11 @@ async def test_mcp_collision_dispatches_alias_back_to_server(
 
     monkeypatch.setattr(agent, "_get_filtered_mcp_tools", list_tools)
     monkeypatch.setattr(agent._aggregator, "call_tool", call_tool)
+    # Routes check that their MCP destination is still discovered.
+    (tool,) = await list_tools()
+    agent._aggregator._namespaced_tool_map = {
+        "shell": NamespacedTool(tool=tool, server_name="srv", namespaced_tool_name="shell")
+    }
     try:
         await agent.list_tools()
         result = await agent.call_tool("exec_sandbox", {"code": "await shell_tool()"})

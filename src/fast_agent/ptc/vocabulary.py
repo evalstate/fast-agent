@@ -7,10 +7,10 @@ Remove the legacy hints and ``function_names`` switch after the matched rollout
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING, Final, Literal, Protocol, runtime_checkable
 
-from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, tool_source
+from fast_agent.tools.tool_sources import SHELL_TOOL_SOURCE, SKILL_TOOL_SOURCE, tool_source
 
 if TYPE_CHECKING:
     from mcp_types import Tool
@@ -51,11 +51,15 @@ class PtcBuiltinNameReserver(Protocol):
     def reserve_ptc_builtin_name(self, name: str) -> bool: ...
 
 
+BUILTIN_TOOL_OWNERS: Final = frozenset({"harness", "subagent", "elicitation"})
+"""``meta["fast_agent"]["builtin"]`` values of tools the fast-agent runtime installs."""
+
+
 def is_builtin_tool(tool: Tool) -> bool:
     """Runtime ownership, not a name guess: user tools cannot claim built-in names."""
     metadata = (tool.meta or {}).get("fast_agent")
-    return tool_source(tool) == SHELL_TOOL_SOURCE or (
-        isinstance(metadata, Mapping) and metadata.get("builtin") in {"harness", "subagent"}
+    return tool_source(tool) in {SHELL_TOOL_SOURCE, SKILL_TOOL_SOURCE} or (
+        isinstance(metadata, Mapping) and metadata.get("builtin") in BUILTIN_TOOL_OWNERS
     )
 
 
@@ -68,13 +72,26 @@ def function_order(tool: Tool) -> tuple[int, str]:
     return len(PTC_BUILTIN_ORDER), tool.name
 
 
-def legacy_name_hint(detail: str, available: Mapping[str, object]) -> str:
-    undefined = set(
-        re.findall(
-            r"(?m)^[^\n]+:\d+:\d+: error\[unresolved-reference\] Name `([A-Za-z_]\w*)` used when not defined$",
-            detail,
-        )
-    )
+_UNDEFINED_NAME = re.compile(
+    r"(?m)^[^\n]+:\d+:\d+: error\[unresolved-reference\] Name `([A-Za-z_]\w*)` used when not defined$"
+)
+_NAME_ERROR = re.compile(r"NameError: name '([A-Za-z_]\w*)' is not defined")
+
+
+def undefined_names(detail: str, *, ran: bool = False) -> set[str]:
+    """Names Monty's type checker reported as undefined.
+
+    With ``ran``, ``detail`` is a failed run's traceback (no type check ran): its final
+    NameError, if any, names the undefined name.
+    """
+    if not ran:
+        return set(_UNDEFINED_NAME.findall(detail))
+    match = _NAME_ERROR.fullmatch(detail.rstrip().rpartition("\n")[2])
+    return {match[1]} if match else set()
+
+
+def legacy_name_hint(undefined: Collection[str], available: Mapping[str, object]) -> str:
+    """Point ``undefined`` names a renamed function used to have at its current name."""
     hints = [
         f"`{old}` is `{new}` here."
         + (" Use action='wait'." if old == "poll_process" else "")

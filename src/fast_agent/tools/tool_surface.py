@@ -4,7 +4,8 @@
 (PTC) most tools are not in that list: they are Python functions described inside the code tool.
 ``ToolSurface`` records every tool the model can reach and how it reaches it, so tool listings
 can show what is in context and why. Future exposure kinds (for example tools that are only
-discoverable through search) extend ``ToolExposure``.
+discoverable through search) are still programmatic: ``SurfaceTool.deferred`` records that their
+definition is not in the code tool's description.
 """
 
 from __future__ import annotations
@@ -32,7 +33,8 @@ class ToolExposure(StrEnum):
     """The tool definition is sent to the model with each request."""
 
     PROGRAMMATIC = "programmatic"
-    """Callable only from the PTC code tool; its stub is part of that tool's description."""
+    """Callable only from the PTC code tool. Its stub is part of that tool's description unless
+    ``SurfaceTool.deferred``: then it is discoverable through ``search_tools`` instead."""
 
 
 def estimate_tokens(text: str) -> int:
@@ -57,11 +59,21 @@ class SurfaceTool:
     python_name: str | None = None
     signature: str | None = None
     stub: str | None = None
+    deferred: bool = False
+    """A programmatic function whose stub is not in the code tool's description; sandbox code
+    can still call it, and ``search_tools`` or a ``^tool:`` mention reveals its definition."""
+    stub_tokens: int = 0
+    """Estimated tokens of the function's stub, whether upfront or loaded on demand."""
+    source: str | None = None
+    """Source group of a programmatic function: an MCP server name, ``card``, ``agents``,
+    ``local`` or ``builtin``."""
 
     @property
     def large(self) -> bool:
         return (
-            self.exposure is ToolExposure.PROGRAMMATIC and self.context_tokens >= LARGE_STUB_TOKENS
+            self.exposure is ToolExposure.PROGRAMMATIC
+            and not self.deferred
+            and self.context_tokens >= LARGE_STUB_TOKENS
         )
 
     def matches(self, name: str) -> bool:
@@ -79,6 +91,10 @@ class ProgrammaticSurface:
     type_check: bool
     max_duration_seconds: float
     max_memory_mb: int
+    search_active: bool = False
+    """Whether some functions are deferred behind ``search_tools``."""
+    retired: frozenset[str] = frozenset()
+    """Python names assigned earlier in the conversation whose tools are gone."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +118,14 @@ class ToolSurface:
 
     def exposed(self, exposure: ToolExposure) -> list[SurfaceTool]:
         return [tool for tool in self.tools if tool.exposure is exposure]
+
+    def programmatic_functions(self, *, deferred: bool | None = None) -> list[SurfaceTool]:
+        """Programmatic functions, optionally only the upfront (``False``) or deferred ones."""
+        return [
+            tool
+            for tool in self.exposed(ToolExposure.PROGRAMMATIC)
+            if deferred is None or tool.deferred is deferred
+        ]
 
     def find(self, name: str) -> SurfaceTool | None:
         """Find a tool by its tool name or, for programmatic tools, its Python name."""

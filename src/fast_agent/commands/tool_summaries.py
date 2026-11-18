@@ -68,6 +68,10 @@ class ToolSummary:
     python_name: str | None = None
     signature: str | None = None
     large: bool = False
+    deferred: bool = False
+    """A PTC function left out of the code tool description, found through ``search_tools``."""
+    stub_tokens: int = 0
+    source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,18 +92,45 @@ class ToolsListing:
         return sum(summary.context_tokens or 0 for summary in self.model)
 
     @property
+    def upfront(self) -> list[ToolSummary]:
+        """PTC functions whose stubs are in the code tool description."""
+        return [summary for summary in self.programmatic if not summary.deferred]
+
+    @property
+    def deferred(self) -> list[ToolSummary]:
+        """PTC functions found through ``search_tools`` or attached with ``^tool:`` mentions."""
+        return [summary for summary in self.programmatic if summary.deferred]
+
+    @property
     def programmatic_tokens(self) -> int:
-        return sum(summary.context_tokens or 0 for summary in self.programmatic)
+        """Tokens the upfront stubs add to the code tool description."""
+        return sum(summary.context_tokens or 0 for summary in self.upfront)
+
+    @property
+    def deferred_tokens(self) -> int:
+        """Tokens of the deferred stubs, loaded only on demand."""
+        return sum(summary.stub_tokens for summary in self.deferred)
 
     @property
     def large_programmatic(self) -> list[ToolSummary]:
         return [summary for summary in self.programmatic if summary.large]
 
     def programmatic_groups(self) -> list[tuple[str, list[ToolSummary]]]:
-        groups: dict[str, list[ToolSummary]] = {}
-        for summary in self.programmatic:
-            groups.setdefault(summary.group, []).append(summary)
-        return list(groups.items())
+        """Upfront functions grouped by their source label."""
+        return _grouped(self.upfront, key=lambda summary: summary.group)
+
+    def deferred_groups(self) -> list[tuple[str, list[ToolSummary]]]:
+        """Deferred functions grouped by source, the ``server`` that ``search_tools`` filters."""
+        return _grouped(self.deferred, key=lambda summary: summary.source or summary.group)
+
+
+def _grouped(
+    summaries: list[ToolSummary], *, key: Callable[[ToolSummary], str]
+) -> list[tuple[str, list[ToolSummary]]]:
+    groups: dict[str, list[ToolSummary]] = {}
+    for summary in summaries:
+        groups.setdefault(key(summary), []).append(summary)
+    return list(groups.items())
 
 
 @dataclass(slots=True)
@@ -424,6 +455,9 @@ def _summarize_surface_tool(
     summary.python_name = surface_tool.python_name
     summary.signature = surface_tool.signature
     summary.large = surface_tool.large
+    summary.deferred = surface_tool.deferred
+    summary.stub_tokens = surface_tool.stub_tokens
+    summary.source = surface_tool.source
     return summary
 
 
@@ -457,9 +491,13 @@ def ptc_settings_label(ptc: ProgrammaticSurface) -> str:
 
 
 def code_tool_description(listing: ToolsListing) -> str:
-    count = len(listing.programmatic)
+    count = len(listing.upfront)
     noun = "function" if count == 1 else "functions"
-    return f"Runs Python that calls the {count} {noun} listed below."
+    description = f"Runs Python that calls the {count} {noun} listed below."
+    if deferred := len(listing.deferred):
+        verb = "is" if deferred == 1 else "are"
+        description += f" {deferred} more {verb} found with search_tools."
+    return description
 
 
 def format_token_estimate(tokens: int) -> str:

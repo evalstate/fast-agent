@@ -49,6 +49,7 @@ from fast_agent.context import Context
 from fast_agent.core.instruction_refresh import (
     McpInstructionCapable,
     build_instruction,
+    lists_server_tools,
     resolve_instruction_skill_manifests,
 )
 from fast_agent.core.instruction_utils import (
@@ -586,6 +587,7 @@ class ACPServerSessionRuntime:
             skill_read_access=skill_read_access,
             context=effective_context,
             source=agent.name if isinstance(agent, AgentProtocol) else None,
+            include_tool_names=lists_server_tools(agent),
         )
 
     async def replace_instance_for_session(

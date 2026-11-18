@@ -746,10 +746,13 @@ def _parse_slash_alias_command(
 
 
 def _parse_tool_command(remainder: str) -> CommandPayload:
+    # Deferred: the tools handler module pulls in the agent runtime.
+    from fast_agent.commands.handlers.tools import TOOL_USAGE, tool_detail_argument
+
     tool_name = strip_to_none(remainder)
     if tool_name is None:
-        return CommandError(message="Tool name required: /tool <tool-name>")
-    return ListToolsCommand(argument=tool_name)
+        return CommandError(message=f"Tool name required: {TOOL_USAGE}")
+    return ListToolsCommand(argument=tool_detail_argument(tool_name))
 
 
 _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {

@@ -50,6 +50,7 @@ from fast_agent.mcp.connect_targets import (
     connect_flag_requires_value_token,
 )
 from fast_agent.mcp.provider_management import provider_managed_base_url
+from fast_agent.ptc.mentions import TOOL_MENTION_SERVER, resolve_tool_mention_surface
 from fast_agent.tools.tool_surface import resolve_tool_surface
 from fast_agent.ui.prompt.attachment_tokens import (
     FILE_MENTION_SERVER,
@@ -1839,7 +1840,11 @@ class AgentCompleter(Completer):
         if not server_name:
             return None
 
-        split_result = self._split_mention_argument_section(remainder)
+        split_result = (
+            None
+            if self._is_tool_mention_server(server_name)
+            else self._split_mention_argument_section(remainder)
+        )
         if split_result is None:
             return self._mention_context(
                 token=token,
@@ -1854,12 +1859,13 @@ class AgentCompleter(Completer):
             split_result=split_result,
         )
 
-    @staticmethod
-    def _mention_server_meta(server_name: str) -> str:
+    def _mention_server_meta(self, server_name: str) -> str:
         if server_name == FILE_MENTION_SERVER:
             return "local file attachment"
         if server_name == URL_MENTION_SERVER:
             return "remote URL attachment"
+        if self._is_tool_mention_server(server_name):
+            return "PTC function definition"
         return "connected mcp server (resources)"
 
     def _mention_server_completions(self, context: _MentionContext) -> list[Completion]:
@@ -1873,7 +1879,13 @@ class AgentCompleter(Completer):
             return list(cached)
 
         server_names = self._run_async_completion(self._list_connected_resource_servers) or []
+        tool_mentions = self._ptc_tool_mentions()
+        if tool_mentions is not None:
+            # With PTC, "tool" names functions even if an MCP resource server uses the name.
+            server_names = [name for name in server_names if name != TOOL_MENTION_SERVER]
         server_names = list(dict.fromkeys([*server_names, FILE_MENTION_SERVER, URL_MENTION_SERVER]))
+        if starts_with_casefold(TOOL_MENTION_SERVER, context.partial) and tool_mentions:
+            server_names.append(TOOL_MENTION_SERVER)
         completions = [
             Completion(
                 f"{server_name}:",
@@ -1886,6 +1898,63 @@ class AgentCompleter(Completer):
         ]
         self._completion_cache_put(cache_key, completions)
         return completions
+
+    async def _list_tool_mention_entries(self) -> tuple[bool, list[Completion]]:
+        """Whether the current agent uses PTC, and completions for its functions."""
+        surface = await resolve_tool_mention_surface(self._current_agent_object())
+        if surface.programmatic is None:
+            return False, []
+
+        entries: list[Completion] = []
+        for function in sorted(
+            surface.programmatic_functions(), key=lambda tool: not tool.deferred
+        ):
+            if not function.python_name:
+                continue
+            description = (function.tool.description or "").strip().partition("\n")[0]
+            if len(description) > 72:
+                description = f"{description[:71]}…"
+            meta = [function.source or "PTC", f"~{function.stub_tokens} tok"]
+            if description:
+                meta.append(description)
+            entries.append(Completion(function.python_name, display_meta=" · ".join(meta)))
+        return True, entries
+
+    def _ptc_tool_mentions(self) -> tuple[Completion, ...] | None:
+        """Completions for ``^tool:`` mentions; None when the current agent does not use PTC.
+
+        While the surface cannot be looked up, ``^tool:`` is assumed to name PTC functions.
+        """
+        if self._completion_cache_get(("tool_mention_off", self.current_agent)) is not None:
+            return None
+        cache_key = ("tool_mention", self.current_agent)
+        cached = self._completion_cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        lookup = self._run_async_completion(self._list_tool_mention_entries)
+        if lookup is None:
+            return ()
+        enabled, entries = lookup
+        if not enabled:
+            self._completion_cache_put(("tool_mention_off", self.current_agent), [])
+            return None
+        self._completion_cache_put(cache_key, entries)
+        return tuple(entries)
+
+    def _tool_mention_entries(self) -> tuple[Completion, ...]:
+        return self._ptc_tool_mentions() or ()
+
+    def _is_tool_mention_server(self, server_name: str) -> bool:
+        """Whether ``^<server_name>:`` names PTC functions rather than MCP resources."""
+        return server_name == TOOL_MENTION_SERVER and self._ptc_tool_mentions() is not None
+
+    def _mention_tool_completions(self, partial: str) -> list[Completion]:
+        return [
+            Completion(entry.text, start_position=-len(partial), display_meta=entry.display_meta)
+            for entry in self._tool_mention_entries()
+            if starts_with_casefold(entry.text, partial)
+        ]
 
     def _mention_url_completions(self, partial: str) -> list[Completion]:
         return [
@@ -1950,6 +2019,8 @@ class AgentCompleter(Completer):
         return completions
 
     def _mention_resource_completions(self, context: _MentionContext) -> list[Completion]:
+        if context.server_name is not None and self._is_tool_mention_server(context.server_name):
+            return self._mention_tool_completions(context.partial)
         if context.server_name == FILE_MENTION_SERVER:
             return self._complete_local_attachment_paths(context.partial)
         if context.server_name == URL_MENTION_SERVER:

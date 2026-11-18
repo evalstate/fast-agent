@@ -14,6 +14,7 @@ from fast_agent.history.tool_activities import message_tool_call_count, message_
 from fast_agent.history.turns import is_hc_prompt, is_user_prompt, typed_turn_starts
 from fast_agent.llm.usage_tracking import UsageReport
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.ptc.context_blocks import user_authored_text
 from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.numeric import nonnegative_number_or_none
 from fast_agent.utils.text import collapse_whitespace
@@ -305,7 +306,7 @@ def _summarize_turn_messages(
     assistant_parts: list[str] = []
 
     for message in turn:
-        text = message.all_text()
+        text = user_authored_text(message.content)
         if is_user_prompt(message):
             normalized = collapse_whitespace(text)
             # A turn is previewed by what the person asked, unless hc opened it.
@@ -539,7 +540,7 @@ def build_history_overview(
         recent_messages.extend(
             HistoryMessageSnippet(
                 role=str(message.role),
-                snippet=_preview_text(message.all_text()),
+                snippet=_preview_text(user_authored_text(message.content)),
             )
             for message in messages[-recent_count:]
         )

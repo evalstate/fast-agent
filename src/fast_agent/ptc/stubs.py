@@ -2,7 +2,9 @@
 
 Every tool becomes a keyword-only ``async def`` whose parameters come from the tool's JSON
 input schema. The same stubs are shown to the model and used by Monty's type checker, so
-code that calls a tool incorrectly is rejected before any tool runs.
+code that calls a tool incorrectly is rejected before any tool runs. The one difference is
+``UNSTRUCTURED_RETURNS``: the checker sees ``Any``, because Monty rejects indexing a
+``str | Any`` result as a dict even though parsed JSON text arrives as one.
 """
 
 from __future__ import annotations
@@ -15,11 +17,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.ptc.catalog import tool_identity
 from fast_agent.ptc.store import STORE_FUNCTION_NAMES, STORE_STUBS
 from fast_agent.ptc.vocabulary import function_order, is_builtin_tool
 
 if TYPE_CHECKING:
     from mcp_types import Tool
+
+    from fast_agent.ptc.catalog import PtcNameLedger
 
 # Modules importable inside Monty; a tool must not shadow them.
 SANDBOX_MODULES = frozenset(
@@ -62,6 +67,9 @@ _JSON_SCALAR_TYPES = {
     "boolean": "bool",
     "null": "None",
 }
+UNSTRUCTURED_RETURNS = "str | Any"
+"""Return annotation of a tool without an output schema: text, or JSON text parsed into a
+dict/list, or media handles."""
 _MAX_ANNOTATION_DEPTH = 4
 _MAX_RETURNS_CHARS = 1200
 _FASTMCP_WRAP_RESULT = "x-fastmcp-wrap-result"
@@ -104,8 +112,11 @@ class PtcFunction:
                 arguments[parameter.schema_name] = value
         return arguments
 
-    def signature(self) -> str:
-        """Return the one-line call signature, e.g. ``name(*, query: str) -> Any``."""
+    def signature(self, *, type_check: bool = False) -> str:
+        """Return the one-line call signature, e.g. ``name(*, query: str) -> Any``.
+
+        ``type_check`` renders the variant Monty's type checker sees (see the module docstring).
+        """
         parameters = ", ".join(_render_parameter(parameter) for parameter in self._ordered())
         if self.accepts_extra:
             extra_name = "kwargs"
@@ -116,7 +127,8 @@ class PtcFunction:
             parameters = f"{parameters}, {extra}" if parameters else extra
         if parameters and not parameters.startswith("**"):
             parameters = f"*, {parameters}"
-        return f"{self.python_name}({parameters}) -> {self.returns}"
+        returns = "Any" if type_check and self.returns == UNSTRUCTURED_RETURNS else self.returns
+        return f"{self.python_name}({parameters}) -> {returns}"
 
     def example_call(self) -> str:
         """Return an awaited call with required arguments, e.g. ``await bash(command=...)``."""
@@ -125,8 +137,8 @@ class PtcFunction:
         )
         return f"await {self.python_name}({arguments})"
 
-    def stub(self) -> str:
-        lines = [f"async def {self.signature()}:"]
+    def stub(self, *, type_check: bool = False) -> str:
+        lines = [f"async def {self.signature(type_check=type_check)}:"]
         docstring = self._docstring()
         if docstring:
             first, *rest = _docstring_literal(docstring).split("\n")
@@ -180,18 +192,28 @@ def build_functions(
     *,
     reserved_names: frozenset[str] = frozenset(),
     profile_names: bool = False,
+    ledger: PtcNameLedger | None = None,
 ) -> dict[str, PtcFunction]:
     """Build sandbox functions keyed by Python name, resolving name collisions.
 
     ``reserved_names`` are other sandbox globals that tool functions must not shadow.
+    ``ledger`` keeps names assigned by earlier builds of the conversation.
     """
     functions: dict[str, PtcFunction] = {}
     # ptc-vocab-v0: preserve the parent rendering exactly in the comparison arm.
     ordered = tools if profile_names else sorted(tools, key=function_order)
     for tool in ordered:
-        python_name = _unique(_global_identifier(tool.name, reserved_names), functions)
+        candidate = _global_identifier(tool.name, reserved_names)
+        python_name = (
+            ledger.allocate(tool_identity(tool.name), candidate, functions, reserved_names)
+            if ledger is not None
+            else _unique(candidate, functions)
+        )
         function = _build_function(tool, python_name)
-        functions[python_name] = replace(function, builtin=False) if profile_names else function
+        if profile_names:
+            returns = "Any" if function.returns == UNSTRUCTURED_RETURNS else function.returns
+            function = replace(function, builtin=False, returns=returns)
+        functions[python_name] = function
     renamed = {
         f.tool_name: f.python_name
         for f in functions.values()
@@ -228,7 +250,8 @@ class PermissionError(OSError): ...
 
 
 def render_stubs(functions: Mapping[str, PtcFunction]) -> str:
-    body = "\n\n\n".join(function.stub() for function in functions.values())
+    """Render the type checker's stubs for ``functions`` and the runtime's helpers."""
+    body = "\n\n\n".join(function.stub(type_check=True) for function in functions.values())
     return (
         f"from typing import Any, Literal\n\n{_MISSING_BUILTIN_STUBS}\n\n{STORE_STUBS}\n\n{body}\n"
     )
@@ -280,12 +303,15 @@ def _build_function(tool: Tool, python_name: str) -> PtcFunction:
     wrapped = _wrapped_result_schema(output_schema) if structured else None
     if wrapped is not None:
         output_schema = wrapped
-    members = _union_members(output_schema, output_definitions, 0) if output_schema else ["Any"]
-    if structured:
-        # Structured content with media arrives as {"structured_content", "content"}, and a
-        # peer's wrapped result may lack "result": both are dicts whatever the schema says.
-        members.append("dict[str, Any]")
-    returns = _union(members)
+    if output_schema is None:
+        returns = UNSTRUCTURED_RETURNS
+    else:
+        members = _union_members(output_schema, output_definitions, 0)
+        if structured:
+            # Structured content with media arrives as {"structured_content", "content"}, and a
+            # peer's wrapped result may lack "result": both are dicts whatever the schema says.
+            members.append("dict[str, Any]")
+        returns = _union(members)
     returns_shape = _returns_shape(output_schema, output_definitions)
     description = options.get("description")
     return PtcFunction(

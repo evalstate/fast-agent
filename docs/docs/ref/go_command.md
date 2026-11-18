@@ -79,6 +79,7 @@ not need to inspect Fast-Agent session files or private message channels.
 - `-xx`: Enable both local shell access and built-in subagents
 - `--no-shell`: Disable local shell/filesystem tools, even when skills or agent config request them
 - `--ptc` / `--no-ptc`: Enable or disable [programmatic tool calling](config_file.md#programmatic-tool-calling-ptc), overriding the model string, YAML configuration and model default. Local POSIX environments only.
+- `--ptc-all`: Enable programmatic tool calling with all function stubs upfront instead of deferring them behind `search_tools()`. Cannot be combined with `--no-ptc`.
 - `--reload`: Enable manual AgentCard reloads with `/reload`
 - `--watch`: Watch AgentCard paths and reload automatically
 - `--timeout`, `-t <seconds>`: Maximum one-shot execution duration for `--message` or `--prompt-file` runs

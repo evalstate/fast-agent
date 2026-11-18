@@ -270,7 +270,8 @@ provider.model_name[?reasoning=value][&query=value...]
 `ptc=on|true|off|false` (any provider) enables or disables
 [programmatic tool calling](../ref/config_file.md#programmatic-tool-calling-ptc).
 For example, `glm53flash?ptc=off` disables PTC, while `glm53?ptc=on` enables it.
-The CLI flags `--ptc` / `--no-ptc` take precedence over the model string.
+The CLI flags `--ptc` / `--ptc-all` / `--no-ptc` take precedence over the model string.
+`--ptc-all` enables PTC with all function stubs upfront.
 
 --8<-- "_generated/ptc_model_defaults.md"
 

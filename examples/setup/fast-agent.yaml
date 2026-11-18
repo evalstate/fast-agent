@@ -127,11 +127,14 @@ anthropic:
 
 # Programmatic tool calling: null follows the model default.
 # Catalog defaults: https://fast-agent.ai/ref/config_file/#ptc-model-defaults
-# CLI --ptc/--no-ptc and model query ?ptc=on|off override this.
+# CLI --ptc/--ptc-all/--no-ptc and model query ?ptc=on|off override this.
 # Local POSIX only (model defaults fall back to direct tools elsewhere);
 # pydantic-monty is included in the core install.
 #ptc:
 #  enabled: null
+# Defer extra function stubs behind search_tools() when there are more than three.
+# --ptc-all enables PTC with all stubs upfront.
+#  search: true
 # Temporary benchmark comparison only: canonical vocabulary v1 | previous profile names.
 #  function_names: canonical
 

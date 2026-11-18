@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 from fast_agent.acp.content_conversion import convert_mcp_content_to_acp
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.message_roles import is_message_role
+from fast_agent.ptc.context_blocks import user_authored_content
 from fast_agent.session import (
     Session,
     SessionBusyError,
@@ -254,7 +255,7 @@ class ACPServerSessionStore:
                 continue
             update_builder = update_builders[role_value]
 
-            for content in message.content:
+            for content in user_authored_content(message.content):
                 acp_block = convert_mcp_content_to_acp(content)
                 if acp_block is None:
                     continue

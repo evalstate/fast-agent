@@ -91,6 +91,7 @@ from fast_agent.skills.mcp_registry import (
     server_supports_directory_read,
     server_supports_mcp_skills,
 )
+from fast_agent.tools.tool_sources import FAST_AGENT_TOOL_SOURCE_META
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.env import env_flag
@@ -328,6 +329,23 @@ class MCPToolCatalog:
             ),
             None,
         )
+
+
+def _without_runtime_ownership(meta: dict[str, Any] | None) -> dict[str, Any] | None:
+    """``meta`` without markers only fast-agent's runtime sets on the tools it installs.
+
+    A server cannot make its tool a fast-agent built-in (``meta["fast_agent"]["builtin"]``)
+    or claim a runtime tool source.
+    """
+    if not meta:
+        return meta
+    meta = {key: value for key, value in meta.items() if key != FAST_AGENT_TOOL_SOURCE_META}
+    fast_agent_meta = meta.get("fast_agent")
+    if isinstance(fast_agent_meta, Mapping) and "builtin" in fast_agent_meta:
+        meta["fast_agent"] = {
+            key: value for key, value in fast_agent_meta.items() if key != "builtin"
+        }
+    return meta
 
 
 @dataclass
@@ -1999,6 +2017,7 @@ class MCPAggregator(ContextDependent):
             tool_copy = namespaced_tool.tool.model_copy(
                 deep=True, update={"name": namespaced_tool_name}
             )
+            tool_copy.meta = _without_runtime_ownership(tool_copy.meta)
             if matching_tool:
                 meta = dict(tool_copy.meta or {})
                 mark_tool_metadata(meta, matching_tool)

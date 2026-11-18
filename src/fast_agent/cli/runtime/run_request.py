@@ -82,6 +82,7 @@ class AgentRunRequest:
     model_base_url: str | None = None
     isolated: bool = False
     ptc: bool | None = None
+    ptc_search: bool | None = None
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
@@ -218,4 +219,5 @@ class AgentRunRequest:
             "missing_shell_cwd_policy": self.missing_shell_cwd_policy,
             "managed_mcp_agent_names": self.managed_mcp_agent_names,
             "ptc": self.ptc,
+            "ptc_search": self.ptc_search,
         }

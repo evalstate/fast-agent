@@ -31,6 +31,7 @@ from fast_agent.integrations.herdr_lifecycle import herdr_working
 from fast_agent.interfaces import AgentProtocol, StreamingAgentProtocol, ToolRunnerHookCapable
 from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.mcp.helpers.content_helpers import is_text_content
+from fast_agent.ptc.mentions import ToolMentionError, expand_agent_tool_mentions
 from fast_agent.types import AgentRequest, AgentResponse, LlmStopReason, PromptMessageExtended
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 
@@ -57,6 +58,14 @@ def _is_fatal_tool_error_text(response_text: str) -> bool:
         or response_text.startswith("Tool '")
         and " is not available" in response_text
     )
+
+
+async def _expand_tool_mentions(agent: object, message: PromptMessageExtended) -> None:
+    """Rewrite ``^tool:`` mentions and add their definitions when the agent uses PTC."""
+    try:
+        await expand_agent_tool_mentions(agent, message)
+    except ToolMentionError as exc:
+        raise RequestError.invalid_params({"reason": str(exc)}) from exc
 
 
 @dataclass(frozen=True)
@@ -352,6 +361,7 @@ class ACPPromptFlow:
             if turn.current_agent_name:
                 agent = turn.instance.agents[turn.current_agent_name]
                 active_agent = agent
+                await _expand_tool_mentions(agent, turn.prompt_message)
                 acp_stop_reason, status_line_meta = await self._send_prompt_to_agent(
                     agent=agent,
                     agent_name=turn.current_agent_name,

@@ -141,12 +141,12 @@ async def test_stubs_narrow_only_values_passed_through(agent: McpAgent) -> None:
 
     assert signatures == {
         "add": "add(*, a: int, b: int) -> int",
-        "code": "code() -> Any",
-        "payload": "payload() -> Any",
+        "code": "code() -> str | Any",
+        "payload": "payload() -> str | Any",
         "ready": "ready() -> bool",
         "maybe": "maybe() -> int | None",
-        "pair": "pair() -> Any",
-        "rootint": "rootint() -> Any",
+        "pair": "pair() -> str | Any",
+        "rootint": "rootint() -> str | Any",
     }
 
 
@@ -196,7 +196,8 @@ async def test_mcp_text_stays_text_and_wrapped_results_unwrap() -> None:
         Tool(name="chart", input_schema={"type": "object"}, output_schema=wrapped),
         Tool(name="odd", input_schema={"type": "object"}, output_schema=wrapped),
     ]
-    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    # All four stubs upfront: this checks their rendering, not tool search.
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True, search=False))
     description = runtime.model_tools(tools)[0].description or ""
     image = ImageContent(type="image", mime_type="image/png", data="aGk=")
 
@@ -250,6 +251,6 @@ async def test_unrecognised_annotations_register_and_keep_the_text_path(agent: M
     )
     direct = [await agent.call_tool(function.__name__, {}, "call-2") for function in UNRECOGNISED]
 
-    assert signatures == [f"{function.__name__}() -> Any" for function in UNRECOGNISED]
+    assert signatures == [f"{function.__name__}() -> str | Any" for function in UNRECOGNISED]
     assert value == [[1, "a"], {"a": 1}, [[1]], "3"]
     assert [_text(result) for result in direct] == ['[1,"a"]', '{"a":1}', "[[1]]", "3"]

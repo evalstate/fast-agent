@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
+    Final,
     Literal,
     TypeVar,
     cast,
@@ -63,12 +64,17 @@ from fast_agent.commands.model_capabilities import (
 from fast_agent.config import MCPServerSettings, ShellSettings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+    FAST_AGENT_COMPACTION_CHANNEL,
+    FAST_AGENT_PROVIDER_CHECKPOINT,
     HUMAN_INPUT_TOOL_NAME,
     MAX_PROCESS_POLL_WAIT_SECONDS,
+    OPENAI_COMPACTION_ITEMS,
+    OPENAI_COMPACTION_TRIGGER,
     should_parallelize_tool_calls,
 )
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError, PromptExitError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.history.turns import is_user_prompt
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider_types import Provider
@@ -111,6 +117,14 @@ from fast_agent.mcp.tool_result_truncation import (
 )
 from fast_agent.paths import resolve_home_paths
 from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
+from fast_agent.ptc.catalog import (
+    AGENTS_SOURCE,
+    CARD_SOURCE,
+    TOOL_SOURCES_FINGERPRINT_META,
+    TOOL_SOURCES_TAG,
+    ToolRoute,
+)
+from fast_agent.ptc.search import SEARCH_FUNCTION_NAME
 from fast_agent.ptc.vocabulary import PtcFunctionNames, is_builtin_tool
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
@@ -200,10 +214,29 @@ class _ManagedMcpSetup:
     provider_managed_servers: list[str]
 
 
-@dataclass(frozen=True, slots=True)
-class _PtcToolAlias:
-    name: str
-    local: bool
+_INACTIVE_TOOL_SOURCES: Final = "inactive"
+"""Roster fingerprint of the notice retracting ``search_tools`` after search went inactive."""
+_TOOL_SOURCES_RETRACTION = (
+    f"<{TOOL_SOURCES_TAG}>All available functions are now listed directly in "
+    f"`{PTC_TOOL_NAME}`; `{SEARCH_FUNCTION_NAME}` is no longer available.</{TOOL_SOURCES_TAG}>"
+)
+# Channels of messages after which the provider no longer sees what came before in full.
+_CHECKPOINT_CHANNELS: Final = frozenset(
+    {FAST_AGENT_COMPACTION_CHANNEL, FAST_AGENT_PROVIDER_CHECKPOINT, OPENAI_COMPACTION_ITEMS}
+)
+
+
+def _last_tool_sources_fingerprint(messages: list[PromptMessageExtended]) -> str | None:
+    """The fingerprint of the latest source roster in ``messages`` since the last checkpoint."""
+    for message in reversed(messages):
+        if not _CHECKPOINT_CHANNELS.isdisjoint(message.channels or {}):
+            return None
+        for block in reversed(message.content):
+            if isinstance(block, TextContent) and block.meta:
+                fingerprint = block.meta.get(TOOL_SOURCES_FINGERPRINT_META)
+                if isinstance(fingerprint, str):
+                    return fingerprint
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -333,7 +366,13 @@ class McpAgent(ABC, ToolAgent):
         self._llm: FastAgentLLMProtocol | None = None
         self._codex_web_search = CodexWebSearchAdapter(self)
         self._ptc_runtime: ProgrammaticToolRuntime | None = None
-        self._ptc_tool_aliases: dict[str, _PtcToolAlias] = {}
+        # Model-facing names whose tool dispatch must not resolve by name: aliases, and
+        # an MCP tool's plain name while a local tool of the same name is present.
+        self._ptc_tool_aliases: dict[str, ToolRoute] = {}
+        # Alias names assigned this conversation: a new colliding tool never takes one.
+        self._ptc_alias_names: dict[ToolRoute, str] = {}
+        # Whether a local or an MCP tool first held each plain name this conversation.
+        self._ptc_name_owners: dict[str, bool] = {}
 
         # Instantiate human input tool once if enabled in config
         self._human_input_tool = self._initial_human_input_tool()
@@ -871,6 +910,7 @@ class McpAgent(ABC, ToolAgent):
             skill_read_access=self.skill_read_access,
             context=self._instruction_context,
             source=self._name,
+            include_tool_names=not self.ptc_search_enabled,
         )
         new_instruction = self.process_rendered_instruction(new_instruction)
         self.set_instruction(new_instruction)
@@ -1751,19 +1791,72 @@ class McpAgent(ABC, ToolAgent):
         request_params: RequestParams | None = None,
     ) -> CallToolResult:
         if self._programmatic_tool_runtime() is not None and name in self._ptc_tool_aliases:
-            alias = self._ptc_tool_aliases[name]
-            if alias.local:
-                return await super().call_tool(
-                    alias.name, arguments, tool_use_id, request_params=request_params
-                )
+            return await self._call_tool_route(
+                name,
+                self._ptc_tool_aliases[name],
+                arguments,
+                tool_use_id,
+                request_params=request_params,
+            )
+        return await self._call_unrouted_tool(
+            name, arguments, tool_use_id, request_params=request_params
+        )
+
+    async def _call_tool_route(
+        self,
+        name: str,
+        route: ToolRoute,
+        arguments: dict[str, Any] | None,
+        tool_use_id: str | None,
+        *,
+        request_params: RequestParams | None,
+    ) -> CallToolResult:
+        """Call exactly the tool ``route`` names; never a tool of the other origin."""
+        if route.local:
+            # Routed local tools are function tools: built-in runtime tools have no route.
+            if route.name in self._execution_tools:
+                with self._codex_web_search.turn(request_params):
+                    self._codex_web_search.sync()
+                    denial = await self._codex_web_search.permission_error(
+                        route.name, arguments, tool_use_id
+                    )
+                    return denial or await super().call_tool(
+                        route.name, arguments, tool_use_id, request_params=request_params
+                    )
+        elif self._mcp_tool_listed(route.name):
             return await self._aggregator.call_tool(
-                alias.name,
+                route.name,
                 arguments,
                 tool_use_id,
                 request_tool_handler=(
                     request_params.tool_execution_handler if request_params else None
                 ),
             )
+        return CallToolResult(
+            content=[
+                TextContent(
+                    type="text",
+                    text=f"`{name}` is no longer available "
+                    "(its tool source was disconnected or removed).",
+                )
+            ],
+            is_error=True,
+        )
+
+    def _mcp_tool_listed(self, namespaced_name: str) -> bool:
+        """Whether the agent's MCP tools still include ``namespaced_name``."""
+        tool = self._aggregator.tool_catalog().namespaced_tool(namespaced_name)
+        return tool is not None and self._tool_matches_filter(namespaced_name)
+
+    async def _call_unrouted_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None,
+        tool_use_id: str | None,
+        *,
+        request_params: RequestParams | None,
+    ) -> CallToolResult:
+        """Call ``name`` as a local tool, or else through the MCP router."""
         with self._codex_web_search.turn(request_params):
             self._codex_web_search.sync()
             denial = await self._codex_web_search.permission_error(name, arguments, tool_use_id)
@@ -1912,7 +2005,33 @@ class McpAgent(ABC, ToolAgent):
         if self._ptc_runtime is None:
             self._ptc_runtime = ProgrammaticToolRuntime(self._context.config.ptc)
         self._ptc_runtime.function_names = self._ptc.function_names
+        self._ptc_runtime.search_enabled = self._ptc_search_setting()
         return self._ptc_runtime
+
+    @property
+    def ptc_mention_names(self) -> frozenset[str] | None:
+        """Names ``^tool:`` mentions resolve, from the latest catalogue (see ``ToolMentionNamesProvider``)."""
+        runtime = self._programmatic_tool_runtime()
+        if runtime is None or not runtime.catalog.functions:
+            return None
+        catalog = runtime.catalog
+        return frozenset(catalog.functions) | (frozenset(catalog.tools) - catalog.retired)
+
+    def _ptc_search_setting(self) -> bool:
+        assert self._context is not None and self._context.config is not None
+        if self._context.ptc_search is not None:
+            return self._context.ptc_search
+        return self._context.config.ptc.search
+
+    @property
+    def ptc_search_enabled(self) -> bool:
+        """Whether PTC may defer function definitions behind ``search_tools``.
+
+        Server instructions then omit per-server tool lists, so the system prompt neither
+        lists deferred functions nor changes when servers' tools change.
+        """
+        runtime = self._programmatic_tool_runtime()
+        return runtime is not None and runtime.vocabulary == 1 and runtime.search_enabled
 
     def _ptc_environment_supported(self) -> bool:
         """Do not route another environment's paths into the local PTC pass-through."""
@@ -2009,16 +2128,44 @@ class McpAgent(ABC, ToolAgent):
                     runtime.tool_name, "local", arguments, tool_use_id
                 )
 
+        # Nested calls route by the catalogue this run uses, whatever refreshes meanwhile.
+        catalog = runtime.catalog
+
         async def dispatch(
             nested_name: str, nested_arguments: dict[str, Any], call_id: str
         ) -> CallToolResult:
             with acp_tool_call_context(parent_tool_call_id=acp_call_id):
                 return await self._call_ptc_nested_tool(
-                    nested_name, nested_arguments, call_id, request_params=request_params
+                    nested_name,
+                    nested_arguments,
+                    call_id,
+                    route=catalog.routes.get(nested_name),
+                    request_params=request_params,
                 )
 
+        def on_search(call_id: str, search_arguments: dict[str, Any], text: str) -> None:
+            self.display.show_tool_call(
+                SEARCH_FUNCTION_NAME,
+                search_arguments,
+                name=self._name,
+                tool_call_id=call_id,
+                source_label="PTC",
+            )
+            self.display.show_tool_result(
+                CallToolResult(content=[TextContent(type="text", text=text)]),
+                name=self._name,
+                tool_name=SEARCH_FUNCTION_NAME,
+                tool_call_id=call_id,
+                source_label="PTC",
+            )
+
         result = await runtime.execute(
-            arguments, dispatch, parent_call_id=tool_use_id, cwd=self._ptc_working_directory()
+            arguments,
+            dispatch,
+            catalog=catalog,
+            parent_call_id=tool_use_id,
+            cwd=self._ptc_working_directory(),
+            on_search=on_search,
         )
         if tool_handler is not None and acp_call_id is not None:
             error = None
@@ -2041,9 +2188,13 @@ class McpAgent(ABC, ToolAgent):
         arguments: dict[str, Any],
         call_id: str,
         *,
+        route: ToolRoute | None,
         request_params: RequestParams | None,
     ) -> CallToolResult:
-        """Run a tool called from PTC sandbox code through the normal dispatch path."""
+        """Run a tool called from PTC sandbox code through the normal dispatch path.
+
+        ``route`` is the tool's origin in the run's catalogue; built-ins have none.
+        """
         is_subagent = self._is_builtin_subagent_tool(self._tool_display_metadata(name))
         if is_subagent:
             self._show_subagent_message(arguments)
@@ -2056,9 +2207,14 @@ class McpAgent(ABC, ToolAgent):
                 source_label="PTC",
             )
         started = time.perf_counter()
-        result = await self._dispatch_tool_call(
-            name, arguments, call_id, request_params=request_params
-        )
+        if route is None:
+            result = await self._call_unrouted_tool(
+                name, arguments, call_id, request_params=request_params
+            )
+        else:
+            result = await self._call_tool_route(
+                name, route, arguments, call_id, request_params=request_params
+            )
         if is_subagent:
             await self._show_subagent_result(result)
         else:
@@ -3153,14 +3309,67 @@ class McpAgent(ABC, ToolAgent):
         messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
+        *,
+        refresh_tools: bool = False,
     ) -> PromptMessageExtended:
         with self._codex_web_search.turn(request_params):
-            return await super()._generate_tool_turn_impl(messages, request_params, tools)
+            ptc_runtime = self._programmatic_tool_runtime()
+            refresh_tools = refresh_tools or tools is None
+            if ptc_runtime is not None:
+                if tools is None:
+                    # Refresh the catalogue so the source roster reflects this turn's tools.
+                    tools = (await self.list_tools()).tools
+                messages = self._with_tool_sources_notice(ptc_runtime, messages, request_params)
+            return await super()._generate_tool_turn_impl(
+                messages, request_params, tools, refresh_tools=refresh_tools
+            )
+
+    def _with_tool_sources_notice(
+        self,
+        runtime: ProgrammaticToolRuntime,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None,
+    ) -> list[PromptMessageExtended]:
+        """Append the searchable source roster to a user prompt when it changed.
+
+        The roster travels in the conversation rather than in the ``exec_sandbox`` description
+        or system prompt, so connecting a server does not rewrite cached context. The last
+        roster sent is read back from history since the last compaction checkpoint: after
+        ``/clear``, a resume or compaction it is sent again. When search goes inactive, a
+        one-line notice retracts an announced roster.
+        """
+        if not messages:
+            return messages
+        last = messages[-1]
+        if not is_user_prompt(last) or OPENAI_COMPACTION_TRIGGER in (last.channels or {}):
+            return messages
+        use_history = (
+            request_params.use_history
+            if request_params is not None and "use_history" in request_params.model_fields_set
+            else self.config.use_history
+        )
+        context = [*self.message_history, *messages] if use_history else messages
+        announced = _last_tool_sources_fingerprint(context)
+        catalog = runtime.catalog
+        if catalog.search_active:
+            fingerprint, text = catalog.roster.fingerprint, catalog.roster.render()
+        elif announced in {None, _INACTIVE_TOOL_SOURCES}:
+            return messages
+        else:
+            fingerprint, text = _INACTIVE_TOOL_SOURCES, _TOOL_SOURCES_RETRACTION
+        if announced == fingerprint:
+            return messages
+        notice = TextContent(
+            type="text", text=text, meta={TOOL_SOURCES_FINGERPRINT_META: fingerprint}
+        )
+        return [*messages[:-1], last.model_copy(update={"content": [*last.content, notice]})]
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)
         if self._ptc_runtime is not None:
             self._ptc_runtime.reset_conversation()
+        self._ptc_alias_names.clear()
+        self._ptc_name_owners.clear()
         self._codex_web_search.history_loaded(None)
 
     def load_message_history(
@@ -3171,6 +3380,8 @@ class McpAgent(ABC, ToolAgent):
             super().clear(clear_prompts=True)
             if self._ptc_runtime is not None:
                 self._ptc_runtime.reset_conversation()
+            self._ptc_alias_names.clear()
+            self._ptc_name_owners.clear()
         super().load_message_history(messages)
         self._codex_web_search.history_loaded(messages)
 
@@ -3186,8 +3397,9 @@ class McpAgent(ABC, ToolAgent):
         mcp_tools = await self._get_filtered_mcp_tools()
         local_tools = await self._additional_runtime_tools()
         # ptc-vocab-v0: preserve parent merging/order for the profile comparison arm.
+        routes: dict[str, ToolRoute] = {}
         if ptc_runtime is not None and ptc_runtime.vocabulary == 1:
-            merged_tools = self._merge_ptc_tools(mcp_tools, local_tools)
+            merged_tools, routes = self._merge_ptc_tools(mcp_tools, local_tools)
         else:
             # Preserve direct-mode precedence and names.
             merged_tools = list(mcp_tools)
@@ -3204,6 +3416,9 @@ class McpAgent(ABC, ToolAgent):
             )
             merged_tools = ptc_runtime.model_tools(
                 merged_tools,
+                sources=self._ptc_function_sources(),
+                unavailable_sources=self._ptc_unavailable_sources(mcp_tools),
+                routes=routes,
                 file_read=self._shell_runtime_enabled
                 or READ_TEXT_FILE_TOOL_NAME in filesystem_tools,
                 file_write=self._shell_runtime_enabled
@@ -3244,41 +3459,102 @@ class McpAgent(ABC, ToolAgent):
         self.logger.warning(f"PTC tool '{name}' conflicts with a built-in; exposed as '{alias}'")
         return True
 
-    def _merge_ptc_tools(self, mcp_tools: list[Tool], local_tools: list[Tool]) -> list[Tool]:
-        """Keep built-in routes intact; give colliding external tools explicit aliases."""
+    def _merge_ptc_tools(
+        self, mcp_tools: list[Tool], local_tools: list[Tool]
+    ) -> tuple[list[Tool], dict[str, ToolRoute]]:
+        """Keep built-in routes intact; give colliding external tools explicit aliases.
+
+        Aliases are stable for the conversation: a tool keeps its alias across refreshes, and
+        an alias once assigned is never reused for another tool. When a local and an MCP tool
+        share a name, the one that held it first keeps it; the other stays aliased even after
+        the first holder leaves. Also returns each external tool's route by listed name.
+        """
+        # Only local tools are built-ins; the aggregator strips remote ownership claims.
         builtins = [tool for tool in local_tools if is_builtin_tool(tool)]
         others = [(tool, False) for tool in mcp_tools] + [
             (tool, True) for tool in local_tools if not is_builtin_tool(tool)
         ]
-        claimed = {tool.name for tool in builtins} | {"exec_sandbox"}
+        # search_tools is a sandbox global, not a tool name: build_functions reserves it.
+        claimed = {tool.name for tool in builtins} | {PTC_TOOL_NAME}
+        claimed.update(self._ptc_alias_names.values())
         # Host dispatch still owns the reader when sandbox open() hides it.
         if self.has_filesystem_read_text_file_tool:
             claimed.add(READ_TEXT_FILE_TOOL_NAME)
         occupied = claimed | {tool.name for tool, _ in others}
-        aliases: dict[str, _PtcToolAlias] = {}
+        aliases: dict[str, ToolRoute] = {}
+        routes: dict[str, ToolRoute] = {}
         merged = list(builtins)
-        for tool, local in sorted(others, key=lambda item: (item[0].name, item[1])):
-            if tool.name in claimed:
-                alias = f"{tool.name}_tool"
-                suffix = 2
-                while alias in occupied:
-                    alias = f"{tool.name}_tool_{suffix}"
-                    suffix += 1
-                occupied.add(alias)
-                aliases[alias] = _PtcToolAlias(tool.name, local)
-                if self._ptc_tool_aliases.get(alias) != aliases[alias]:
+        owners = self._ptc_name_owners
+        plain: set[str] = set()
+
+        def order(item: tuple[Tool, bool]) -> tuple[str, bool]:
+            tool, local = item
+            return tool.name, local is not owners.get(tool.name, local)
+
+        for tool, local in sorted(others, key=order):
+            target = ToolRoute(tool.name, local)
+            if tool.name in plain and not owners[tool.name]:
+                # Dispatch tries local tools first: route the MCP owner explicitly.
+                aliases[tool.name] = routes[tool.name]
+            if (
+                tool.name in claimed
+                or tool.name in plain
+                or owners.get(tool.name, local) is not local
+            ):
+                alias = self._ptc_alias_names.get(target)
+                if alias is None:
+                    alias = f"{tool.name}_tool"
+                    suffix = 2
+                    while alias in occupied:
+                        alias = f"{tool.name}_tool_{suffix}"
+                        suffix += 1
+                    self._ptc_alias_names[target] = alias
                     self.logger.warning(
-                        f"PTC tool '{tool.name}' conflicts with a built-in; exposed as '{alias}'"
+                        f"PTC tool '{tool.name}' conflicts with a reserved or existing name; "
+                        f"exposed as '{alias}'"
                     )
+                occupied.add(alias)
+                aliases[alias] = target
+                routes[alias] = target
                 tool = tool.model_copy(
                     update={
                         "name": alias,
                         "description": f"Tool `{tool.name}`.\n\n{tool.description or ''}",
                     }
                 )
+            else:
+                owners[tool.name] = local
+                plain.add(tool.name)
+                routes[tool.name] = target
             merged.append(tool)
         self._ptc_tool_aliases = aliases
-        return merged
+        return merged, routes
+
+    def _ptc_function_sources(self) -> dict[str, str]:
+        """Source groups of local tools that are not plain local functions."""
+        sources = {name: CARD_SOURCE for name in self.card_tool_names}
+        sources.update({name: AGENTS_SOURCE for name in self.agent_backed_tools})
+        for alias, target in self._ptc_tool_aliases.items():
+            if not target.local and is_namespaced_name(target.name):
+                sources[alias] = get_server_name(target.name)
+            elif target.name in sources:
+                sources[alias] = sources[target.name]
+        return sources
+
+    def _ptc_unavailable_sources(self, mcp_tools: list[Tool]) -> dict[str, str]:
+        """Attached servers that contribute no functions, e.g. not connected yet.
+
+        A server whose tools the agent's tool filter excludes is not listed: it is not
+        missing, just not a source for this agent.
+        """
+        loaded = {get_server_name(tool.name) for tool in mcp_tools if is_namespaced_name(tool.name)}
+        catalog = self._aggregator.tool_catalog()
+        unavailable: dict[str, str] = {}
+        for server_name in self._aggregator.server_names:
+            name = self._aggregator.server_display_name(server_name)
+            if name not in loaded and not catalog.server_tool_names(server_name):
+                unavailable[name] = "no functions loaded"
+        return unavailable
 
     @staticmethod
     def _append_unique_tools(
@@ -3300,7 +3576,8 @@ class McpAgent(ABC, ToolAgent):
         if skill_tool is not None:
             tools.append(skill_tool)
         human_tool = self._human_input_runtime_tool()
-        if human_tool is not None:
+        # ToolAgent may already install its own human input tool under the same name.
+        if human_tool is not None and all(tool.name != human_tool.name for tool in tools):
             tools.append(human_tool)
         return tools
 

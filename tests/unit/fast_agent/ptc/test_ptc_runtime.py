@@ -214,6 +214,30 @@ async def test_settle_helper_and_tool_are_both_callable(type_check: bool) -> Non
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("type_check", [True, False])
+async def test_removed_function_is_explained_with_or_without_type_checking(
+    type_check: bool,
+) -> None:
+    """Runtime NameErrors get the same hint as the type checker's undefined names."""
+    runtime = ProgrammaticToolRuntime(
+        ProgrammaticToolCallingSettings(enabled=True, type_check=type_check)
+    )
+    kept = Tool(name="kept", input_schema={"type": "object"})
+    runtime.model_tools([kept, Tool(name="gone", input_schema={"type": "object"})])
+    runtime.model_tools([kept])
+    programmatic = runtime.surface([]).programmatic
+    assert programmatic is not None and programmatic.retired == {"gone"}
+    try:
+        result = await runtime.execute({"code": "await gone()"}, RecordingDispatcher())
+        assert result.is_error
+        assert "Hint: `gone` is no longer available" in _text(result)
+        runtime.reset_conversation()
+        assert runtime.catalog.retired == frozenset()
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
 async def test_settle_gathers_every_result_and_survives_conversation_reset(runtime) -> None:
     """``settle`` is the allSettled pattern: Monty's gather() has no return_exceptions.
 

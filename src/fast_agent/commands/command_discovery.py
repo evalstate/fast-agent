@@ -520,12 +520,31 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             usage="/tool <tool-name>",
             examples=["/tool <tool-name>"],
         ),
-        _simple_command_entry(
-            "tools",
-            summary="List callable tools or show one tool's JSON schemas",
-            usage="/tools [--all|<tool-name>]",
-            examples=["/tools", "/tools --all", "/tools <tool-name>"],
-        ),
+        {
+            "name": "tools",
+            "summary": "List callable tools or show one tool's JSON schemas",
+            "usage": "/tools [--all|ptc|<tool-name>|add <function>...|select]",
+            "actions": [
+                {
+                    "name": "add",
+                    "summary": "add ^tool: mentions for PTC functions to the input draft",
+                    "usage": "/tools add <function> [<function>...]",
+                },
+                {
+                    "name": "select",
+                    "summary": "pick PTC functions interactively and add their ^tool: mentions",
+                    "aliases": ["browse", "explore"],
+                    "usage": "/tools select",
+                },
+            ],
+            "examples": [
+                "/tools",
+                "/tools --all",
+                "/tools <tool-name>",
+                "/tools add <function>",
+                "/tools select",
+            ],
+        },
         _simple_command_entry(
             "prompts",
             summary="List prompt templates",
@@ -627,6 +646,18 @@ def _command_index_payload(
 
 
 def _model_facing_command_detail(detail: CommandDetailEntry) -> CommandDetailEntry:
+    if detail["name"] == "tools":
+        # `/tools add` and `/tools select` edit the user's input draft.
+        return {
+            **detail,
+            "usage": "/tools [--all|ptc|<tool-name>]",
+            "actions": [],
+            "examples": [
+                example
+                for example in detail["examples"]
+                if " add" not in example and " select" not in example
+            ],
+        }
     actions: list[ActionPayload] = []
     for action in detail["actions"]:
         transformed = action.copy()

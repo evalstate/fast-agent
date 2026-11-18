@@ -1,4 +1,4 @@
-"""Parse and resolve inline MCP resource mentions for interactive prompt input."""
+"""Parse and resolve inline attachment mentions for interactive prompt input."""
 
 from __future__ import annotations
 
@@ -13,6 +13,17 @@ from uritemplate import URITemplate
 from fast_agent.mcp.helpers.content_helpers import image_link, resource_link
 from fast_agent.mcp.mcp_content import MCPFile
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.ptc.mentions import (
+    ORIGINAL_TEXT_META,
+    TOOL_MENTION_SERVER,
+    ToolMentionError,
+    iter_tool_mentions,
+    mention_name,
+    resolve_tool_mention_surface,
+    rewrite_tool_mentions,
+    tool_mention_names,
+    tool_mention_token,
+)
 from fast_agent.tools.attach_media import build_attach_media
 from fast_agent.ui.prompt.attachment_tokens import (
     FILE_MENTION_SERVER,
@@ -28,6 +39,7 @@ if TYPE_CHECKING:
 
 _TOKEN_RE = re.compile(r"(?P<prefix>^|\s)(?P<token>\^[^\s]+)")
 _TEMPLATE_ARG_KEY_RE = re.compile(r"(?:^|,)(?P<key>[A-Za-z0-9_.-]+)=")
+_LEADING_BLANK_LINES_RE = re.compile(r"\A(?:[ \t]*\n)+")
 _SLASH_SENTINEL = "__fast_agent_slash__"
 
 
@@ -44,8 +56,13 @@ class ParsedMention:
 class ParsedMentions:
     text: str
     cleaned_text: str
+    """``text`` without attachment and resource tokens. ``^tool:`` tokens stay in place until
+    ``resolve_mentions`` rewrites them against the agent's PTC functions."""
     mentions: list[ParsedMention]
     warnings: list[str]
+    cwd: Path | None = None
+    tool_mentions: bool = True
+    """Whether ``^tool:`` names PTC functions rather than resources of an MCP server ``tool``."""
 
 
 @dataclass(frozen=True)
@@ -184,19 +201,52 @@ def _parse_token(
     )
 
 
-def parse_mentions(text: str, *, cwd: Path | None = None) -> ParsedMentions:
-    """Parse supported resource mentions from text and strip them from the sent message body."""
+def parse_mentions(
+    text: str,
+    *,
+    cwd: Path | None = None,
+    tool_mentions: bool = True,
+) -> ParsedMentions:
+    """Parse supported mentions from text and strip resource tokens from the sent message body.
+
+    With ``tool_mentions``, ``^tool:<name>`` tokens are PTC function mentions and stay in the
+    text; otherwise they are resource mentions for an MCP server named ``tool``.
+    """
     mentions: list[ParsedMention] = []
     warnings: list[str] = []
-    pieces: list[str] = []
-    cursor = 0
+    removed: list[tuple[int, int]] = []
+    tool_prefix = tool_mention_token("")
+
+    if tool_mentions:
+        mentions.extend(
+            ParsedMention(
+                raw=match.group(),
+                server_name=TOOL_MENTION_SERVER,
+                resource_uri=mention_name(match),
+                start=match.start(),
+                end=match.end(),
+            )
+            for match in iter_tool_mentions(text)
+        )
+    tool_starts = {mention.start for mention in mentions}
 
     for match in _TOKEN_RE.finditer(text):
         token = match.group("token")
         token_start = match.start("token")
         token_end = match.end("token")
-
-        pieces.append(text[cursor:token_start])
+        if tool_mentions and token.startswith(tool_prefix):
+            if token_start not in tool_starts:
+                # Not a function name: an error for PTC agents, a resource URI otherwise.
+                mentions.append(
+                    ParsedMention(
+                        raw=token,
+                        server_name=TOOL_MENTION_SERVER,
+                        resource_uri=token.removeprefix(tool_prefix),
+                        start=token_start,
+                        end=token_end,
+                    )
+                )
+            continue
 
         parsed: ParsedMention | None
         try:
@@ -205,24 +255,37 @@ def parse_mentions(text: str, *, cwd: Path | None = None) -> ParsedMentions:
             parsed = None
             warnings.append(f"Malformed resource mention '{token}': {exc}")
 
-        if parsed is None:
-            pieces.append(token)
-        else:
+        if parsed is not None:
             mentions.append(parsed)
+            removed.append((token_start, token_end))
 
-        cursor = token_end
-
-    pieces.append(text[cursor:])
-
-    cleaned_text = "".join(pieces)
-    cleaned_text = re.sub(r"[ \t]{2,}", " ", cleaned_text).strip()
-
+    mentions.sort(key=lambda mention: mention.start)
     return ParsedMentions(
         text=text,
-        cleaned_text=cleaned_text,
+        cleaned_text=_remove_tokens(text, removed),
         mentions=_dedupe_mentions(mentions),
         warnings=warnings,
+        cwd=cwd,
+        tool_mentions=tool_mentions,
     )
+
+
+def _remove_tokens(text: str, spans: Sequence[tuple[int, int]]) -> str:
+    """Remove token spans, collapsing only the spaces next to each token.
+
+    Indentation and spacing elsewhere are preserved byte for byte.
+    """
+    if not spans:
+        return text
+    for start, end in reversed(spans):
+        after = end
+        while after < len(text) and text[after] in " \t":
+            after += 1
+        if after == len(text) or text[after] == "\n":
+            while start and text[start - 1] in " \t":
+                start -= 1
+        text = text[:start] + text[after:]
+    return _LEADING_BLANK_LINES_RE.sub("", text).rstrip()
 
 
 def _dedupe_mentions(mentions: Sequence[ParsedMention]) -> list[ParsedMention]:
@@ -233,7 +296,12 @@ def _dedupe_mentions(mentions: Sequence[ParsedMention]) -> list[ParsedMention]:
 
 
 async def resolve_mentions(agent: Any, parsed: ParsedMentions) -> ResolvedMentions:
-    """Resolve parsed mentions to embedded MCP resource blocks."""
+    """Resolve parsed mentions to content blocks.
+
+    ``^tool:`` mentions name PTC functions only when PTC is enabled for ``agent``; otherwise
+    they are resolved as resources of an MCP server named ``tool``. Every mention is resolved
+    before failing, so one ``ResourceMentionError`` reports all problems.
+    """
     if not parsed.mentions:
         return ResolvedMentions(
             text=parsed.text,
@@ -242,18 +310,35 @@ async def resolve_mentions(agent: Any, parsed: ParsedMentions) -> ResolvedMentio
             resources=[],
         )
 
-    remote_mentions = [
-        mention
-        for mention in parsed.mentions
-        if mention.server_name not in {FILE_MENTION_SERVER, URL_MENTION_SERVER}
-    ]
-    resource_agent = _as_resource_mention_resolver(agent)
-    if remote_mentions and resource_agent is None:
-        raise ResourceMentionError("Current agent does not support MCP resources")
-
+    cleaned_text = parsed.cleaned_text
     resources: list[ContentBlock] = []
     failures: list[str] = []
+    if parsed.tool_mentions and any(
+        mention.server_name == TOOL_MENTION_SERVER for mention in parsed.mentions
+    ):
+        surface = await resolve_tool_mention_surface(agent)
+        if surface.programmatic is None:
+            reparsed = parse_mentions(parsed.text, cwd=parsed.cwd, tool_mentions=False)
+            return await resolve_mentions(agent, reparsed)
+        names = set(tool_mention_names(cleaned_text))
+        failures.extend(
+            f"{mention.raw}: not a `{surface.programmatic.tool_name}` function name"
+            for mention in parsed.mentions
+            if mention.server_name == TOOL_MENTION_SERVER and mention.resource_uri not in names
+        )
+        try:
+            rewrite = rewrite_tool_mentions(surface, [cleaned_text])
+        except ToolMentionError as exc:
+            failures.append(str(exc))
+        else:
+            [cleaned_text] = rewrite.texts
+            if rewrite.definitions is not None:
+                resources.append(rewrite.definitions)
+
+    resource_agent = _as_resource_mention_resolver(agent)
     for mention in parsed.mentions:
+        if parsed.tool_mentions and mention.server_name == TOOL_MENTION_SERVER:
+            continue
         try:
             if mention.server_name == FILE_MENTION_SERVER:
                 resources.append(_resolve_local_content_block(mention.resource_uri))
@@ -272,14 +357,20 @@ async def resolve_mentions(agent: Any, parsed: ParsedMentions) -> ResolvedMentio
                 for content in result.contents
             )
         except Exception as exc:
-            failures.append(f"{mention.raw}: {exc}")
+            if mention.server_name == TOOL_MENTION_SERVER:
+                failures.append(
+                    f"{mention.raw}: programmatic tool calling is not enabled for this agent "
+                    f"and no MCP resource matched ({exc})"
+                )
+            else:
+                failures.append(f"{mention.raw}: {exc}")
 
     if failures:
         raise ResourceMentionError("; ".join(failures))
 
     return ResolvedMentions(
         text=parsed.text,
-        cleaned_text=parsed.cleaned_text,
+        cleaned_text=cleaned_text,
         mentions=list(parsed.mentions),
         resources=resources,
     )
@@ -291,10 +382,7 @@ def build_prompt_with_resources(
 ) -> PromptMessageExtended:
     """Build PromptMessageExtended with text content and embedded resources."""
     text = resolved.cleaned_text if resolved.mentions else original_text
-    text_content = TextContent(type="text", text=text)
-    text_meta = dict(getattr(text_content, "meta", None) or {})
-    text_meta["fast_agent_original_text"] = original_text
-    text_content.meta = text_meta
+    text_content = TextContent(type="text", text=text, meta={ORIGINAL_TEXT_META: original_text})
     content: list[ContentBlock] = [text_content]
     content.extend(resolved.resources)
     return PromptMessageExtended(role="user", content=content)

@@ -14,6 +14,9 @@ mcp:
 # Programmatic tool calling. `--ptc` on the command line sets `enabled: true`.
 ptc:
   enabled: false
+  # Defer extra function stubs behind search_tools() when there are more than three.
+  # --ptc-all enables PTC with all stubs upfront.
+  # search: true
   # Temporary matched-benchmark switch: canonical (default) | profile.
   # function_names: canonical
   # Tools (fnmatch patterns) that stay directly callable next to exec_sandbox.

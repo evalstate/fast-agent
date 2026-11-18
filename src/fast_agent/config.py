@@ -2003,6 +2003,10 @@ class ProgrammaticToolCallingSettings(BaseModel):
     """Expose tools through the Python code tool; null uses the model default.
     Override with `--ptc` / `--no-ptc` or the `ptc` model query. Local POSIX only."""
 
+    search: bool = True
+    """Defer non-built-in sandbox function stubs behind `search_tools()` when more than three
+    extra functions are present. `--ptc-all` disables this and includes all function stubs upfront."""
+
     # ptc-vocab-v0: remove the temporary comparison setting after matched rollout.
     function_names: Literal["canonical", "profile"] = "canonical"
     """Temporary benchmark comparison switch: canonical PTC vocabulary v1 (default), or

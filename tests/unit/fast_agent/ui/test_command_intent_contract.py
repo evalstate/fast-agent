@@ -192,7 +192,7 @@ type ExpectedParseResult = str | CommandPayload | dict[str, object]
         ),
         pytest.param(
             "/tool extra",
-            ListToolsCommand(argument="extra"),
+            ListToolsCommand(argument="-- extra"),
             id="tool-selects-named-schema",
         ),
         pytest.param(

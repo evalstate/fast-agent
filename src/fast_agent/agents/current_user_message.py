@@ -7,6 +7,8 @@ from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from fast_agent.ptc.context_blocks import user_authored_content
+
 if TYPE_CHECKING:
     from mcp_types import ContentBlock
 
@@ -29,10 +31,12 @@ _current_user_message: ContextVar[CurrentUserMessage | None] = ContextVar(
 def snapshot_current_user_message(
     messages: list[PromptMessageExtended],
 ) -> CurrentUserMessage | None:
-    """Copy the latest current external user message without its metadata."""
+    """Copy the latest current external user message without metadata or generated context."""
     for message in reversed(messages):
         if message.role == "user" and not message.tool_results and not message.is_template:
-            return CurrentUserMessage(content=tuple(deepcopy(message.content)))
+            return CurrentUserMessage(
+                content=tuple(deepcopy(user_authored_content(message.content)))
+            )
     return None
 
 
