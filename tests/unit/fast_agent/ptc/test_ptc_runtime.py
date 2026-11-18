@@ -42,7 +42,7 @@ from fast_agent.mcp.url_elicitation_required import (
 )
 from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.ptc.runtime import _ExecutionStats, _NestedCalls
-from fast_agent.ptc.stubs import build_functions
+from fast_agent.ptc.stubs import _MAX_RETURNS_CHARS, build_functions
 from fast_agent.ptc.values import MediaStore
 from fast_agent.tools.invocation_context import is_programmatic_tool_call, outer_tool_call_id
 from fast_agent.tools.local_shell_executor import LocalEnvironment
@@ -1142,14 +1142,16 @@ def _member_schema(*, handle_note: str, profile_fields: int) -> dict[str, Any]:
 
 
 def test_return_shapes_keep_nested_descriptions_and_degrade_at_field_boundaries() -> None:
-    long_note = "Member handle. " + "Background detail. " * 70
+    # Fixtures scale with the safety net so every degradation level is exercised.
+    over = _MAX_RETURNS_CHARS // 10
+    long_note = "Member handle. " + "Background detail. " * over
     schemas = {
         "small": _member_schema(handle_note="Member handle.", profile_fields=1),
         "verbose": _member_schema(handle_note=long_note, profile_fields=1),
-        "deep": _member_schema(handle_note=long_note, profile_fields=100),
+        "deep": _member_schema(handle_note=long_note, profile_fields=over),
         "flat": {
             "type": "object",
-            "properties": {f"f_{n}": {"type": "string"} for n in range(200)},
+            "properties": {f"f_{n}": {"type": "string"} for n in range(over)},
         },
     }
     tools = [
@@ -1185,7 +1187,7 @@ def test_return_shapes_keep_nested_descriptions_and_degrade_at_field_boundaries(
     assert "{members?: list[{id: str, orgs?: list[{...}], profile?: {...}}]}" == shapes["deep"]
     # ...and a shape that still cannot fit is cut after a whole field.
     assert re.search(r", f_\d+\?: str, …$", shapes["flat"])
-    assert all(len(shape) <= 1200 for shape in shapes.values())
+    assert all(len(shape) <= _MAX_RETURNS_CHARS for shape in shapes.values())
 
 
 def test_tools_declare_their_exposure_and_program_return_type() -> None:

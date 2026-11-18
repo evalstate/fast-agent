@@ -74,7 +74,10 @@ UNSTRUCTURED_RETURNS = "str | Any"
 """Return annotation of a tool without an output schema: text, or JSON text parsed into a
 dict/list, or media handles."""
 _MAX_ANNOTATION_DEPTH = 4
-_MAX_RETURNS_CHARS = 1200
+# A safety net for pathological output schemas, not a prompt budget: real catalogues render
+# well below it (the Hugging Face PTC tools peak at about 2.5k characters), and the field notes
+# it would trim are what tell a model about caps, units and when fields are present.
+_MAX_RETURNS_CHARS = 64 * 1024
 type _Notes = Literal["all", "numeric", "top"]
 """Which field descriptions a return shape keeps as comments: all; top-level ones and nested
 ones with a number (usually a limit, such as "first 100"); or top-level ones only."""
