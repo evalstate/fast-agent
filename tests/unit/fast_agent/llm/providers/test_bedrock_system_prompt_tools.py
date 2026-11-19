@@ -32,6 +32,21 @@ from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM
             [("get_weather", {})],
             id="non-object-arguments",
         ),
+        pytest.param(
+            '{"arguments": {"city": "Paris"}, "name": "get_weather"}',
+            [("get_weather", {"city": "Paris"})],
+            id="arguments-before-name",
+        ),
+        pytest.param(
+            '{"name": "ping", "comment": "literal { marker", "arguments": "x"}',
+            [("ping", {})],
+            id="brace-in-string-before-arguments",
+        ),
+        pytest.param(
+            'Use {note} then {"name": "get_weather", "arguments": {"city": "Paris"}}',
+            [("get_weather", {"city": "Paris"})],
+            id="prose-with-brace-before-call",
+        ),
         pytest.param('{"name": "Paris"}', [], id="object-without-arguments"),
     ],
 )
