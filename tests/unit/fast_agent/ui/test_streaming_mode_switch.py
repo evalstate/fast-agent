@@ -336,7 +336,7 @@ def test_diff_live_appends_new_lines_with_newline_scroll() -> None:
     output.seek(0)
     live.update(Text("alpha\nbeta\ngamma"), refresh=True)
 
-    rendered = output.getvalue()
+    rendered = output.getvalue().removeprefix("\x1b[?2026h").removesuffix("\x1b[?2026l")
     assert rendered.startswith("\x1b[1G\ngamma")
     assert "\x1b[1B" not in rendered
 
@@ -357,7 +357,7 @@ def test_diff_live_clears_only_shortened_line_tail() -> None:
     output.seek(0)
     live.update(Text("abc"), refresh=True)
 
-    rendered = output.getvalue()
+    rendered = output.getvalue().removeprefix("\x1b[?2026h").removesuffix("\x1b[?2026l")
     assert rendered.startswith("\x1b[1Gabc")
     assert "\x1b[0K" in rendered
 
@@ -785,7 +785,7 @@ def test_diff_live_resyncs_cursor_after_console_print_before_next_update() -> No
     output.seek(0)
     live.update(Text("frameX\nline2"), refresh=True)
 
-    rendered = output.getvalue()
+    rendered = output.getvalue().removeprefix("\x1b[?2026h").removesuffix("\x1b[?2026l")
     assert rendered.startswith("\x1b[1G\x1b[2AframeX")
     assert "\x1b[1G\x1b[1AframeX" not in rendered
 
@@ -809,7 +809,7 @@ def test_diff_live_appends_without_extra_scroll_after_console_print() -> None:
     output.seek(0)
     live.update(Text("a\nb\nc"), refresh=True)
 
-    rendered = output.getvalue()
+    rendered = output.getvalue().removeprefix("\x1b[?2026h").removesuffix("\x1b[?2026l")
     assert rendered.startswith("\x1b[1Gc")
     assert rendered != "\x1b[1G\nc\x1b[1G"
 
@@ -833,7 +833,7 @@ def test_diff_live_growing_last_line_rewinds_after_console_print() -> None:
     output.seek(0)
     live.update(Text("abcd\nefgh\ni"), refresh=True)
 
-    rendered = output.getvalue()
+    rendered = output.getvalue().removeprefix("\x1b[?2026h").removesuffix("\x1b[?2026l")
     assert rendered.startswith("\x1b[1G\x1b[1Aefgh")
     assert not rendered.startswith("\x1b[1Gefgh")
 
@@ -875,7 +875,7 @@ def test_diff_live_uses_newlines_when_last_line_wraps_and_grows() -> None:
         ]
     )
 
-    rendered = output.getvalue()
+    rendered = output.getvalue().removeprefix("\x1b[?2026h").removesuffix("\x1b[?2026l")
     assert rendered.startswith("\x1b[1Gefgh\x1b[1G\ni")
     assert "\x1b[1B" not in rendered
     assert "\x1b[1G\n" in rendered
@@ -1095,7 +1095,10 @@ def test_stream_cursor_suffix_only_targets_last_segment() -> None:
     )
 
     handle._stream_cursor_visible = False
-    assert handle._cursor_suffix(segment_index=1, total_segments=2) == " "
+    assert (
+        handle._cursor_suffix(segment_index=1, total_segments=2)
+        == streaming_module.STREAM_CURSOR_BLOCK
+    )
 
     handle._show_stream_cursor = False
     assert handle._cursor_suffix(segment_index=1, total_segments=2) == ""
@@ -1536,3 +1539,274 @@ def test_diff_live_participates_in_rich_live_nesting() -> None:
     assert not local_console._live_stack
     assert "outer" in output.getvalue()
     assert "inner" in output.getvalue()
+
+
+@pytest.mark.parametrize(
+    ("mode", "kind", "text"),
+    [
+        ("markdown", "markdown", "hello world test 12"),
+        ("markdown", "markdown", "hello world test 123"),
+        ("markdown", "markdown", "paragraph one\n\n"),
+        ("markdown", "markdown", "- "),
+        ("markdown", "markdown", "## "),
+        ("markdown", "markdown", "1. "),
+        ("markdown", "markdown", "> "),
+        ("markdown", "reasoning", "Thinking:\n```python\nx = 1"),
+        ("markdown", "reasoning", "Thinking:\n```python\nx = 1\n```"),
+        ("plain", "plain", "hello world test 12"),
+        ("plain", "plain", "a" * 19),
+        ("plain", "plain", "a" * 20),
+        ("plain", "plain", "line1\n\n"),
+    ],
+)
+def test_cursor_blink_preserves_exact_line_count_and_wrapping(
+    mode: StreamingMode,
+    kind: str,
+    text: str,
+) -> None:
+    handle = _make_handle(mode)
+    segment = StreamSegment(kind=cast("Any", kind), text=text)
+    test_console = Console(force_terminal=True, color_system=None, width=20)
+
+    handle._stream_cursor_visible = True
+    visible_renderable = handle._render_display_segment(
+        segment,
+        cursor_suffix=handle._cursor_suffix(segment_index=0, total_segments=1),
+    )
+    handle._stream_cursor_visible = False
+    hidden_renderable = handle._render_display_segment(
+        segment,
+        cursor_suffix=handle._cursor_suffix(segment_index=0, total_segments=1),
+    )
+
+    visible_lines = [
+        "".join(seg.text for seg in line)
+        for line in test_console.render_lines(visible_renderable, test_console.options, pad=False)
+    ]
+    hidden_lines = [
+        "".join(seg.text for seg in line)
+        for line in test_console.render_lines(hidden_renderable, test_console.options, pad=False)
+    ]
+
+    assert len(visible_lines) == len(hidden_lines)
+    assert [
+        line.replace(streaming_module.STREAM_CURSOR_BLOCK, " ") for line in visible_lines
+    ] == hidden_lines
+
+
+def test_reasoning_segment_incomplete_fence_places_cursor_before_closing_fence() -> None:
+    handle = _make_handle("markdown")
+    segment = StreamSegment(kind="reasoning", text="Thinking:\n```python\nx = 1")
+    test_console = Console(force_terminal=True, color_system=None, width=40)
+
+    renderable = handle._render_display_segment(
+        segment,
+        cursor_suffix=streaming_module.STREAM_CURSOR_BLOCK,
+    )
+    rendered_lines = [
+        "".join(seg.text for seg in line).rstrip()
+        for line in test_console.render_lines(renderable, test_console.options, pad=False)
+    ]
+
+    assert any(f"x = 1{streaming_module.STREAM_CURSOR_BLOCK}" in line for line in rendered_lines)
+    assert not any("```" in line for line in rendered_lines)
+
+
+def test_idle_cursor_blink_reuses_rendered_markdown_without_reparsing(monkeypatch) -> None:
+    original_console = _set_console_size(width=40, height=20)
+    try:
+        handle = _make_handle("markdown")
+        handle._stream_cursor_blink = streaming_module._StreamCursorBlink(
+            last_activity_at=0.0,
+            idle_delay=0.5,
+            half_cycle=0.5,
+        )
+        build_calls = 0
+        original_build = streaming_module.build_markdown_renderable
+
+        def _counting_build(*args: Any, **kwargs: Any) -> Any:
+            nonlocal build_calls
+            build_calls += 1
+            return original_build(*args, **kwargs)
+
+        monkeypatch.setattr(streaming_module, "build_markdown_renderable", _counting_build)
+
+        handle.update("Hello **markdown** world")
+        assert build_calls == 1
+
+        # Idle blink off then on: should not re-run build_markdown_renderable
+        handle._refresh_stream_cursor_if_due(now=0.6)
+        assert handle._stream_cursor_visible is False
+        assert build_calls == 1
+
+        handle._refresh_stream_cursor_if_due(now=1.1)
+        assert handle._stream_cursor_visible is True
+        assert build_calls == 1
+
+        # Content update invalidates cache and renders new markdown
+        handle.update(" more")
+        assert build_calls == 2
+    finally:
+        _restore_console_size(original_console)
+
+
+def test_diff_live_wraps_interactive_writes_with_dec_mode_2026() -> None:
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(file=output, force_terminal=True, color_system=None, width=40),
+        transient=True,
+    )
+    live.__enter__()
+    output.truncate(0)
+    output.seek(0)
+    live.update(Text("hello"), refresh=True)
+
+    rendered = output.getvalue()
+    assert rendered.startswith("\x1b[?2026h")
+    assert rendered.endswith("\x1b[?2026l")
+
+
+def test_diff_live_resets_region_on_width_resize() -> None:
+    output = io.StringIO()
+    local_console = Console(
+        file=output, force_terminal=True, color_system=None, width=40, height=10
+    )
+    live = streaming_module._DiffLive(console=local_console, transient=True)
+    live.__enter__()
+    live.update(Text("line 1\nline 2\nline 3"), refresh=True)
+    assert len(live._lines) == 3
+
+    output.truncate(0)
+    output.seek(0)
+    local_console._width = 25
+    live.update(Text("resized 1\nresized 2"), refresh=True)
+
+    rendered = output.getvalue()
+    assert "\x1b[2K" in rendered
+    assert "resized 1" in rendered
+    assert "resized 2" in rendered
+    assert len(live._lines) == 2
+    assert live._last_size == (25, 10)
+
+
+def test_diff_live_width_shrink_clears_reflowed_rows_in_single_sync_block() -> None:
+    output = io.StringIO()
+    local_console = Console(
+        file=output, force_terminal=True, color_system=None, width=80, height=10
+    )
+    live = streaming_module._DiffLive(console=local_console, transient=True)
+    live.__enter__()
+    # Two 70-cell lines at width 80 will wrap to 4 physical rows when shrunk to width 40.
+    live.update(Text("a" * 70 + "\n" + "b" * 70), refresh=True)
+    assert len(live._lines) == 2
+
+    output.truncate(0)
+    output.seek(0)
+    local_console._width = 40
+    live.update(Text("narrow"), refresh=True)
+
+    rendered = output.getvalue()
+    assert rendered.count("\x1b[?2026h") == 1
+    assert rendered.count("\x1b[?2026l") == 1
+    assert rendered.count("\x1b[2K") == 4
+    assert "narrow" in rendered
+
+
+def test_idle_cursor_blink_caches_static_segments_in_mixed_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _CapturingLive:
+        def __init__(self) -> None:
+            self.renderable: Any = None
+
+        def update(self, renderable: Any, *, refresh: bool = False) -> None:
+            del refresh
+            self.renderable = renderable
+
+    handle = _make_handle("markdown")
+    capturing_live = _CapturingLive()
+    handle._live = cast("Any", capturing_live)
+    handle._live_started = True
+    handle._segment_assembler.handle_stream_chunk(
+        StreamChunk(text="```python\nx = 1\n```", is_reasoning=False)
+    )
+    handle._segment_assembler.handle_stream_chunk(
+        StreamChunk(text="thinking...", is_reasoning=True)
+    )
+
+    render_calls = 0
+    original_syntax_render = Syntax.__rich_console__
+
+    def _counting_syntax_render(self: Syntax, *args: Any, **kwargs: Any):
+        nonlocal render_calls
+        render_calls += 1
+        return original_syntax_render(self, *args, **kwargs)
+
+    monkeypatch.setattr(Syntax, "__rich_console__", _counting_syntax_render)
+
+    local_console = Console(file=io.StringIO(), force_terminal=True, color_system=None, width=60)
+    monkeypatch.setattr(streaming_module.console, "console", local_console)
+
+    handle._render_current_buffer()
+    # Trigger Rich rendering of the combined renderable to populate segment caches.
+    assert capturing_live.renderable is not None
+    list(local_console.render(capturing_live.renderable))
+    calls_after_first_frame = render_calls
+    assert calls_after_first_frame > 0
+
+    # Idle cursor blink toggles visibility without re-highlighting the earlier Syntax segment.
+    handle._stream_cursor_visible = False
+    handle._render_current_buffer()
+    assert capturing_live.renderable is not None
+    list(local_console.render(capturing_live.renderable))
+    assert render_calls == calls_after_first_frame
+
+
+def test_scroll_indicator_debounce_is_not_frozen_by_idle_blink_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _CapturingLive:
+        def __init__(self) -> None:
+            self.renderable: Any = None
+
+        def update(self, renderable: Any, *, refresh: bool = False) -> None:
+            del refresh
+            self.renderable = renderable
+
+    handle = _make_handle("plain")
+    capturing_live = _CapturingLive()
+    handle._live = cast("Any", capturing_live)
+    handle._live_started = True
+    local_console = Console(
+        file=io.StringIO(), force_terminal=True, color_system=None, width=40, height=6
+    )
+    monkeypatch.setattr(streaming_module.console, "console", local_console)
+
+    now = 100.0
+    monkeypatch.setattr(streaming_module.time, "monotonic", lambda: now)
+    handle._segment_assembler.handle_stream_chunk(
+        StreamChunk(text="\n".join(f"line {i}" for i in range(20)), is_reasoning=False)
+    )
+
+    handle._render_current_buffer()
+    assert handle._scroll_indicator_visible is False
+    assert handle._scroll_indicator_pending_since == 100.0
+
+    # Advance past debounce while still truncating: header must reflect "scrolling"
+    # immediately and keep it on subsequent idle blinks.
+    now = 100.0 + streaming_module.SCROLL_INDICATOR_DEBOUNCE_SECONDS + 0.1
+    handle._segment_assembler.handle_stream_chunk(
+        StreamChunk(text="\n" + "\n".join(f"more {i}" for i in range(20)), is_reasoning=False)
+    )
+    handle._render_current_buffer()
+
+    assert handle._scroll_indicator_visible is True
+    assert capturing_live.renderable is not None
+    rendered = "".join(s.text for s in local_console.render(capturing_live.renderable))
+    assert "scrolling" in rendered
+
+    handle._stream_cursor_visible = False
+    handle._render_current_buffer()
+    assert capturing_live.renderable is not None
+    rendered_blink = "".join(s.text for s in local_console.render(capturing_live.renderable))
+    assert "scrolling" in rendered_blink

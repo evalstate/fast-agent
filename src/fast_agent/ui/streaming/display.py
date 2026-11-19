@@ -73,6 +73,8 @@ SCROLL_INDICATOR_DEBOUNCE_SECONDS = 0.2
 # Markdown renderable).
 _STREAM_HEADER_AND_MARGIN_LINES = 3
 _MISSING_CONSOLE_WIDTH = object()
+_DEC_SYNC_START = "\x1b[?2026h"
+_DEC_SYNC_END = "\x1b[?2026l"
 
 
 @runtime_checkable
@@ -226,16 +228,49 @@ class StreamContextBaseline:
 
 
 @dataclass(frozen=True)
-class _CursorStyledRenderable:
+class _CachedStaticRenderable:
     renderable: "RenderableType"
+    _segment_cache: dict[tuple[int, int], tuple[Segment, ...]]
 
     def __rich_console__(
         self,
         console: Console,
         options: "ConsoleOptions",
     ) -> "RenderResult":
-        segments = tuple(console.render(self.renderable, options))
-        yield from _style_terminal_stream_cursor(segments)
+        cache_key = (id(console), options.max_width)
+        segments = self._segment_cache.get(cache_key)
+        if segments is None:
+            segments = tuple(console.render(self.renderable, options))
+            self._segment_cache[cache_key] = segments
+        yield from segments
+
+
+@dataclass(frozen=True)
+class _CursorStyledRenderable:
+    renderable: "RenderableType"
+    visible: bool = True
+    _segment_cache: dict[tuple[int, int], tuple[Segment, ...]] | None = None
+
+    def with_visibility(self, visible: bool) -> "_CursorStyledRenderable":
+        cache = self._segment_cache if self._segment_cache is not None else {}
+        return _CursorStyledRenderable(
+            renderable=self.renderable,
+            visible=visible,
+            _segment_cache=cache,
+        )
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: "ConsoleOptions",
+    ) -> "RenderResult":
+        cache_key = (id(console), options.max_width)
+        segments = self._segment_cache.get(cache_key) if self._segment_cache is not None else None
+        if segments is None:
+            segments = tuple(console.render(self.renderable, options))
+            if self._segment_cache is not None:
+                self._segment_cache[cache_key] = segments
+        yield from _style_terminal_stream_cursor(segments, visible=self.visible)
 
 
 class _CursorSyntax(Syntax):
@@ -274,9 +309,12 @@ class _CursorSyntax(Syntax):
         return highlighted
 
 
-def _style_terminal_stream_cursor(segments: tuple[Segment, ...]) -> tuple[Segment, ...]:
-    visible = "".join(segment.text for segment in segments if not segment.control)
-    terminal = visible.rstrip()
+def _style_terminal_stream_cursor(
+    segments: tuple[Segment, ...],
+    visible: bool = True,
+) -> tuple[Segment, ...]:
+    visible_text = "".join(segment.text for segment in segments if not segment.control)
+    terminal = visible_text.rstrip()
     has_cursor = terminal.endswith(STREAM_CURSOR_BLOCK)
     cursor_offset = len(terminal) - len(STREAM_CURSOR_BLOCK) if has_cursor else len(terminal)
     output: list[Segment] = []
@@ -300,14 +338,20 @@ def _style_terminal_stream_cursor(segments: tuple[Segment, ...]) -> tuple[Segmen
         after = segment.text[cursor_end:]
         if before:
             output.append(Segment(before, segment.style))
-        cursor_style = (segment.style or Style()) + STREAM_CURSOR_STYLE
-        output.append(Segment(STREAM_CURSOR_BLOCK, cursor_style))
+        if visible:
+            cursor_style = (segment.style or Style()) + STREAM_CURSOR_STYLE
+            output.append(Segment(STREAM_CURSOR_BLOCK, cursor_style))
+        else:
+            output.append(Segment(" ", segment.style))
         inserted = True
         if after:
             output.append(Segment(after, segment.style))
 
     if not inserted:
-        output.append(Segment(STREAM_CURSOR_BLOCK, STREAM_CURSOR_STYLE))
+        if visible:
+            output.append(Segment(STREAM_CURSOR_BLOCK, STREAM_CURSOR_STYLE))
+        else:
+            output.append(Segment(" "))
     return tuple(output)
 
 
@@ -412,6 +456,7 @@ class _DiffLive(Live):
         )
         del screen, auto_refresh, refresh_per_second, vertical_overflow
         self._lines: list[_RenderedLine] = []
+        self._last_size: tuple[int, int] | None = None
         self._is_interactive = self.console.is_terminal
         self._console_state_active = False
         self._cursor_below_frame = False
@@ -442,6 +487,12 @@ class _DiffLive(Live):
         renderable = self.get_renderable()
         if not self._is_interactive or self._nested:
             return
+        current_size = (self.console.size.width, self.console.size.height)
+        width_changed = (
+            bool(self._lines)
+            and self._last_size is not None
+            and current_size[0] != self._last_size[0]
+        )
         lines = self._render_lines(renderable)
 
         # Safety: clamp both the new frame and the stored old frame to the
@@ -452,20 +503,30 @@ class _DiffLive(Live):
         # mis-position the cursor and duplicate or overwrite rows.  Keeping
         # both old and new within bounds guarantees that cursor-up commands
         # can always reach the first stored line.
-        max_visible = self.console.size.height
+        max_visible = current_size[1]
         self._frame_truncated = False
         if max_visible > 0:
             if len(lines) > max_visible:
                 self._frame_truncated = True
                 lines = lines[-max_visible:]
-            if len(self._lines) > max_visible:
+            if not width_changed and len(self._lines) > max_visible:
                 self._lines = self._lines[-max_visible:]
 
-        if not self._lines:
+        if width_changed:
+            clear_height = self._reflowed_physical_height(
+                new_width=current_size[0],
+                max_visible=max_visible,
+            )
+            clear_payload = self._build_clear_region_payload(clear_height)
+            initial_payload = self._build_initial_payload(lines)
+            self._write(f"{clear_payload}{initial_payload}")
+            self._cursor_below_frame = False
+        elif not self._lines:
             self._write_initial(lines)
         else:
             self._write_diff(lines)
         self._lines = lines
+        self._last_size = current_size
 
     def stop(self) -> None:
         if not self._started:
@@ -480,6 +541,7 @@ class _DiffLive(Live):
             self._restore_console_state()
             self._nested = False
             self._frame_truncated = False
+            self._last_size = None
 
     def _print_current_renderable(self) -> None:
         renderable = self.get_renderable()
@@ -547,16 +609,21 @@ class _DiffLive(Live):
             for line in rendered_lines
         ]
 
-    def _write_initial(self, lines: list[_RenderedLine]) -> None:
+    def _build_initial_payload(self, lines: list[_RenderedLine]) -> str:
         if not lines:
-            return
+            return ""
         payload_parts: list[str] = []
         for index, line in enumerate(lines):
             if index:
                 payload_parts.append(self._scroll_newline())
             payload_parts.append(line.text)
         payload_parts.append(str(Control.move_to_column(0)))
-        payload = "".join(payload_parts)
+        return "".join(payload_parts)
+
+    def _write_initial(self, lines: list[_RenderedLine]) -> None:
+        payload = self._build_initial_payload(lines)
+        if not payload:
+            return
         self._write(payload)
         self._cursor_below_frame = False
 
@@ -657,10 +724,18 @@ class _DiffLive(Live):
         self._write("".join(payload))
         self._cursor_below_frame = False
 
-    def _clear_region(self) -> None:
-        height = len(self._lines)
+    def _reflowed_physical_height(self, *, new_width: int, max_visible: int) -> int:
+        if not self._lines:
+            return 0
+        width = max(1, new_width)
+        height = sum(max(1, math.ceil(line.cell_length / width)) for line in self._lines)
+        if max_visible > 0:
+            return min(height, max_visible)
+        return height
+
+    def _build_clear_region_payload(self, height: int) -> str:
         if height <= 0:
-            return
+            return ""
         cursor_row = height - 1
         if self._cursor_below_frame:
             cursor_row += 1
@@ -670,7 +745,13 @@ class _DiffLive(Live):
             if row < height - 1:
                 payload.append(self._move_to_line_start(1))
         payload.append(self._move_to_line_start(-(height - 1)))
-        self._write("".join(payload))
+        return "".join(payload)
+
+    def _clear_region(self) -> None:
+        payload = self._build_clear_region_payload(len(self._lines))
+        if not payload:
+            return
+        self._write(payload)
         self._lines = []
         self._cursor_below_frame = False
 
@@ -697,8 +778,9 @@ class _DiffLive(Live):
     def _write(self, text: str) -> None:
         if not text:
             return
+        payload = f"{_DEC_SYNC_START}{text}{_DEC_SYNC_END}" if self._is_interactive else text
         with self.console._lock:
-            self.console.file.write(text)
+            self.console.file.write(payload)
             self.console.file.flush()
 
     def _enable_redirect_io(self) -> None:
@@ -817,6 +899,7 @@ class StreamingMessageHandle:
             target_height_ratio=1.0,
             code_word_wrap=self._display.code_word_wrap,
             render_fences_with_syntax=self._display.render_fences_with_syntax,
+            escape_xml=self._display._escape_xml,
         )
         self._plain_truncator = PlainTextTruncator(target_height_ratio=1.0)
         self._viewport = StreamViewport(
@@ -902,6 +985,10 @@ class StreamingMessageHandle:
         self._max_render_height = 0
         self._preserve_final_frame = False
         self._suppress_tail_padding_for_final_frame = False
+        self._content_version = 0
+        self._cached_frame_state: tuple[tuple[object, ...], Text, list[RenderableType]] | None = (
+            None
+        )
 
     def _set_tool_header_prefix(self, tool_header_name: str | None) -> None:
         from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
@@ -982,20 +1069,68 @@ class StreamingMessageHandle:
         if cached is not None:
             return cached
 
-        right_content = self._header_right.strip()
+        base_right = self._header_right.strip()
+        suffix_parts: list[str] = []
         if live:
-            right_content = f"{right_content} [dim]{live}[/dim]".strip()
+            suffix_parts.append(f"[dim]{live}[/dim]")
         if queued:
             # Typed-ahead / hc-sent messages; transient, like the rest of the header.
-            right_content = f"{right_content} [yellow]⧗ {queued} queued[/yellow]".strip()
+            suffix_parts.append(f"[yellow]⧗ {queued} queued[/yellow]")
         if self._scroll_indicator_visible:
-            indicator = "[black on blue]scrolling[/black on blue]"
-            right_content = f"{right_content} {indicator}" if right_content else indicator
+            suffix_parts.append("[black on blue]scrolling[/black on blue]")
+        suffix_content = " ".join(suffix_parts)
+        right_content = f"{base_right} {suffix_content}".strip() if suffix_content else base_right
 
         combined = self._display._format_header_line(self._header_left, right_content)
+        if width > 0 and combined.cell_len > width:
+            combined = self._fit_header_to_width(
+                left_markup=self._header_left,
+                base_right_markup=base_right,
+                suffix_markup=suffix_content,
+                width=width,
+            )
+        combined.no_wrap = True
+        combined.overflow = "ellipsis"
         self._header_cache[cache_key] = combined
         if len(self._header_cache) > 8:
             self._header_cache.clear()
+        return combined
+
+    @staticmethod
+    def _fit_header_to_width(
+        *,
+        left_markup: str,
+        base_right_markup: str,
+        suffix_markup: str,
+        width: int,
+    ) -> Text:
+        left_text = Text.from_markup(left_markup)
+        suffix_text = Text.from_markup(suffix_markup) if suffix_markup else Text()
+        if suffix_text.plain:
+            suffix_text.stylize("dim")
+
+        base_right_text = Text.from_markup(base_right_markup) if base_right_markup else Text()
+        if base_right_text.plain:
+            base_right_text.stylize("dim")
+            reserved = left_text.cell_len + 1
+            if suffix_text.cell_len:
+                reserved += suffix_text.cell_len + 1
+            budget = width - reserved
+            if budget >= 4:
+                base_right_text.truncate(budget, overflow="ellipsis")
+            else:
+                base_right_text = Text()
+
+        combined = Text()
+        combined.append_text(left_text)
+        if base_right_text.cell_len:
+            combined.append(" ", style="default")
+            combined.append_text(base_right_text)
+        if suffix_text.cell_len:
+            combined.append(" ", style="default")
+            combined.append_text(suffix_text)
+        if combined.cell_len > width:
+            combined.truncate(width, overflow="ellipsis")
         return combined
 
     def update_model(self, model: str | None) -> None:
@@ -1253,16 +1388,28 @@ class StreamingMessageHandle:
     def _handle_stream_chunk(self, chunk: StreamChunk) -> bool:
         """Process a typed stream chunk with explicit reasoning flag."""
         self._token_rate.record(len(chunk.text), time.monotonic())
-        return self._segment_assembler.handle_stream_chunk(chunk)
+        changed = self._segment_assembler.handle_stream_chunk(chunk)
+        if changed:
+            self._content_version += 1
+            self._cached_frame_state = None
+        return changed
 
     def _handle_chunk(self, chunk: str) -> bool:
         self._token_rate.record(len(chunk), time.monotonic())
-        return self._segment_assembler.handle_text(chunk)
+        changed = self._segment_assembler.handle_text(chunk)
+        if changed:
+            self._content_version += 1
+            self._cached_frame_state = None
+        return changed
 
     def _handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None) -> bool:
         if event_type == "delta" and info:
             self._token_rate.record(len(str(info.get("chunk") or "")), time.monotonic())
-        return self._segment_assembler.handle_tool_event(event_type, info)
+        changed = self._segment_assembler.handle_tool_event(event_type, info)
+        if changed:
+            self._content_version += 1
+            self._cached_frame_state = None
+        return changed
 
     def _cursor_suffix(self, *, segment_index: int, total_segments: int) -> str:
         if not self._show_stream_cursor:
@@ -1271,7 +1418,7 @@ class StreamingMessageHandle:
             return ""
         if segment_index != total_segments - 1:
             return ""
-        return STREAM_CURSOR_BLOCK if self._stream_cursor_visible else " "
+        return STREAM_CURSOR_BLOCK
 
     def _record_stream_cursor_activity(self, *, now: float) -> None:
         self._stream_cursor_blink.reset(now)
@@ -1331,7 +1478,8 @@ class StreamingMessageHandle:
         width_override = self._effective_stream_width()
         original_width_attr = _apply_console_width_override(console.console, width_override)
         try:
-            header = self._build_header()
+            if self._try_render_cached_cursor_blink():
+                return
             # Reserve lines for the header (text + spacing newline) and a
             # safety margin that absorbs height differences introduced when
             # consecutive markdown segments are coalesced into one Markdown
@@ -1354,6 +1502,7 @@ class StreamingMessageHandle:
             )
             now = time.monotonic()
             self._update_scroll_status(is_truncated=is_truncated, now=now)
+            header = self._build_header()
             self._segment_assembler.compact(window_segments)
 
             content_height = sum(viewport_window.heights)
@@ -1377,15 +1526,26 @@ class StreamingMessageHandle:
                 content_height=content_height,
                 max_allowed_height=max_allowed_height,
             )
+            cached_renderables: list[RenderableType] = [
+                item
+                if isinstance(item, _CursorStyledRenderable)
+                else _CachedStaticRenderable(item, _segment_cache={})
+                for item in renderables
+            ]
 
             content = (
-                Group(*renderables)
-                if len(renderables) > 1
-                else (renderables[0] if renderables else Text(""))
+                Group(*cached_renderables)
+                if len(cached_renderables) > 1
+                else (cached_renderables[0] if cached_renderables else Text(""))
             )
 
             header_with_spacing = header.copy()
             header_with_spacing.append("\n", style="default")
+            self._cached_frame_state = (
+                self._current_frame_cache_key(live_label=self._rendered_live),
+                header_with_spacing,
+                cached_renderables,
+            )
 
             combined = Group(header_with_spacing, content)
             render_interval_ms = (
@@ -1436,31 +1596,92 @@ class StreamingMessageHandle:
             for segment_index, segment in enumerate(display_segments)
         ]
 
+    def _current_frame_cache_key(self, *, live_label: str) -> tuple[object, ...]:
+        segments = self._segment_assembler.segments
+        last_segment = segments[-1] if segments else None
+        queued = queued_input_count() if self._show_stream_cursor else 0
+        return (
+            self._content_version,
+            len(segments),
+            id(last_segment),
+            last_segment.text if last_segment is not None else "",
+            console.console.size.width,
+            console.console.size.height,
+            self._scroll_indicator_visible,
+            live_label,
+            queued,
+            self._header_right,
+            self._show_stream_cursor,
+            self._max_render_height,
+            self._suppress_tail_padding_for_final_frame,
+        )
+
+    def _try_render_cached_cursor_blink(self) -> bool:
+        if self._cached_frame_state is None or not self._live:
+            return False
+        if self._scroll_indicator_pending_since is not None:
+            return False
+        cached_key, cached_header_with_spacing, cached_renderables = self._cached_frame_state
+        live_label = self._live_label()
+        if cached_key != self._current_frame_cache_key(live_label=live_label):
+            return False
+        self._rendered_live = live_label
+
+        updated_renderables: list[RenderableType] = [
+            item.with_visibility(self._stream_cursor_visible)
+            if isinstance(item, _CursorStyledRenderable)
+            else item
+            for item in cached_renderables
+        ]
+        self._cached_frame_state = (cached_key, cached_header_with_spacing, updated_renderables)
+        content = (
+            Group(*updated_renderables)
+            if len(updated_renderables) > 1
+            else (updated_renderables[0] if updated_renderables else Text(""))
+        )
+        combined = Group(cached_header_with_spacing, content)
+        try:
+            self._live.update(combined, refresh=True)
+            self._last_render_time = time.monotonic()
+        except Exception as exc:
+            logger.warning(
+                "Error updating live display during streaming",
+                exc_info=True,
+                data={"error": str(exc)},
+            )
+        return True
+
     def _render_display_segment(
         self,
         segment: "StreamSegment",
         *,
         cursor_suffix: str,
     ) -> "RenderableType":
+        layout_cursor = STREAM_CURSOR_BLOCK if cursor_suffix else ""
         if segment.kind == "markdown":
             renderable = build_markdown_renderable(
                 segment.text,
                 code_theme=self._display.code_style,
                 escape_xml=self._display._escape_xml,
-                cursor_suffix=cursor_suffix,
+                cursor_suffix=layout_cursor,
                 close_incomplete_fences=True,
                 render_fences_with_syntax=self._display.render_fences_with_syntax,
                 code_word_wrap=self._display.code_word_wrap,
             )
         elif segment.kind == "reasoning":
-            renderable = self._render_reasoning_segment(segment, cursor_suffix=cursor_suffix)
+            renderable = self._render_reasoning_segment(segment, cursor_suffix=layout_cursor)
         elif segment.kind == "tool":
-            renderable = self._render_tool_segment(segment, cursor_suffix=cursor_suffix)
+            renderable = self._render_tool_segment(segment, cursor_suffix=layout_cursor)
         else:
-            renderable = Text(f"{segment.text}{cursor_suffix}")
+            renderable = Text(f"{segment.text}{layout_cursor}")
 
-        if cursor_suffix == STREAM_CURSOR_BLOCK:
-            return _CursorStyledRenderable(renderable)
+        if layout_cursor:
+            visible = self._stream_cursor_visible if cursor_suffix == STREAM_CURSOR_BLOCK else False
+            return _CursorStyledRenderable(
+                renderable,
+                visible=visible,
+                _segment_cache={},
+            )
         return renderable
 
     def _render_reasoning_segment(
@@ -1473,9 +1694,15 @@ class StreamingMessageHandle:
             return Text(f"{segment.text}{cursor_suffix}", style="dim italic")
 
         prepared = prepare_markdown_content(segment.text, self._display._escape_xml)
-        prepared_for_display = close_incomplete_code_blocks(prepared)
         if cursor_suffix:
-            prepared_for_display += cursor_suffix
+            last_line = prepared.split("\n")[-1].lstrip()
+            if last_line.startswith(("```", "~~~")):
+                prepared_with_cursor = f"{prepared}\n{cursor_suffix}"
+            else:
+                prepared_with_cursor = f"{prepared}{cursor_suffix}"
+            prepared_for_display = close_incomplete_code_blocks(prepared_with_cursor)
+        else:
+            prepared_for_display = close_incomplete_code_blocks(prepared)
         return Markdown(
             prepared_for_display,
             code_theme=self._display.code_style,

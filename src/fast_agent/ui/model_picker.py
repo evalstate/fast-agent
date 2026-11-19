@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from prompt_toolkit.application import Application
-from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.data_structures import Point
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.margins import ScrollbarMargin
+from prompt_toolkit.utils import get_cwidth
 from prompt_toolkit.widgets import Frame
 
 if TYPE_CHECKING:
@@ -43,6 +43,7 @@ from fast_agent.ui.model_picker_common import (
     provider_option_count_label,
 )
 from fast_agent.ui.picker_theme import build_picker_style
+from fast_agent.ui.single_list_picker_layout import picker_terminal_size, truncate_picker_text
 from fast_agent.utils.text import strip_to_none
 
 
@@ -160,7 +161,7 @@ class _SplitListPicker:
         self.provider_window = Window(
             self.provider_control,
             wrap_lines=False,
-            height=Dimension.exact(self.LIST_VISIBLE_ROWS),
+            height=self._list_height,
             dont_extend_height=True,
             ignore_content_width=True,
             always_hide_cursor=True,
@@ -170,30 +171,36 @@ class _SplitListPicker:
         self.model_window = Window(
             self.model_control,
             wrap_lines=False,
-            height=Dimension.exact(self.LIST_VISIBLE_ROWS),
+            height=self._list_height,
             dont_extend_height=True,
             ignore_content_width=True,
             always_hide_cursor=True,
             right_margins=[ScrollbarMargin(display_arrows=False)],
         )
 
+        wide = Condition(lambda: not self._is_narrow())
+        models_focused = Condition(self._models_focused)
         picker_columns = VSplit(
             [
-                Frame(
-                    self.provider_window,
-                    title="Providers",
-                    width=lambda: self._provider_width(),
+                ConditionalContainer(
+                    Frame(
+                        self.provider_window, title="Providers", width=self._provider_frame_width
+                    ),
+                    wide | ~models_focused,
                 ),
-                Frame(self.model_window, title="Models"),
-            ],
-            padding=1,
+                ConditionalContainer(Window(width=1), wide),
+                ConditionalContainer(
+                    Frame(self.model_window, title=self._model_frame_title),
+                    wide | models_focused,
+                ),
+            ]
         )
 
         body = HSplit(
             [
                 picker_columns,
-                Window(height=1, char="─", style="class:muted"),
-                Window(self.status_control, height=2),
+                Window(height=Dimension(preferred=1, max=1), char="─", style="class:muted"),
+                Window(self.status_control, height=Dimension(preferred=2, max=2)),
             ]
         )
 
@@ -274,17 +281,31 @@ class _SplitListPicker:
         self.app.layout.focus(self.model_window)
 
     def _terminal_cols(self) -> int:
-        app = get_app_or_none()
-        if app is not None:
-            try:
-                return max(1, app.output.get_size().columns)
-            except Exception:
-                pass
-        return max(1, shutil.get_terminal_size((100, 20)).columns)
+        return picker_terminal_size().columns
+
+    def _terminal_rows(self) -> int:
+        return picker_terminal_size().rows
+
+    def _is_narrow(self) -> bool:
+        return self._terminal_cols() < 72
+
+    def _list_height(self) -> Dimension:
+        # Two frame borders, the separator, and two footer lines.
+        rows = min(self.LIST_VISIBLE_ROWS, max(1, self._terminal_rows() - 5))
+        return Dimension(preferred=rows, max=rows)
 
     def _provider_width(self) -> int:
         cols = self._terminal_cols()
-        return max(30, min(42, cols // 3))
+        return cols if self._is_narrow() else max(30, min(42, cols // 3))
+
+    def _provider_frame_width(self) -> Dimension:
+        return Dimension() if self._is_narrow() else Dimension.exact(self._provider_width())
+
+    def _model_frame_title(self) -> str:
+        if not self._is_narrow():
+            return "Models"
+        name = self._provider_display_name_for_option(self.current_provider)
+        return truncate_picker_text(f"Models — {name}", self._terminal_cols() - 6)
 
     def _initial_provider_index(self) -> int:
         if self._initial_provider_name:
@@ -398,33 +419,26 @@ class _SplitListPicker:
 
     def _model_panel_width(self) -> int:
         cols = self._terminal_cols()
-        return max(42, cols - self._provider_width() - 8)
+        frame_width = cols if self._is_narrow() else cols - self._provider_width() - 1
+        return max(0, frame_width - 3)  # Frame borders and scrollbar.
 
     @staticmethod
-    def _truncate_picker_text(value: str, width: int) -> str:
-        if width <= 0:
-            return ""
-        if len(value) <= width:
-            return value
-        if width == 1:
-            return "…"
-        return f"{value[: width - 1]}…"
-
-    @classmethod
-    def _tabulate_model_label(cls, label: str, *, panel_width: int) -> str:
-        if " → " not in label:
-            return cls._truncate_picker_text(label, max(panel_width - 4, 8))
+    def _tabulate_model_label(label: str, *, panel_width: int) -> str:
+        if " → " not in label or panel_width < 12:
+            return truncate_picker_text(label, panel_width)
 
         left, right = label.split(" → ", 1)
-        name_width = max(14, min(22, panel_width // 3))
-        detail_width = max(18, panel_width - name_width - 2)
+        name_width = min(22, panel_width // 3)
+        detail_width = panel_width - name_width - 2
+        name = truncate_picker_text(left.strip(), name_width)
         return (
-            f"{cls._truncate_picker_text(left.strip(), name_width).ljust(name_width)}"
-            f"  {cls._truncate_picker_text(right.strip(), detail_width)}"
+            f"{name}{' ' * (name_width - get_cwidth(name))}  "
+            f"{truncate_picker_text(right.strip(), detail_width)}"
         )
 
     def _render_provider_panel(self) -> StyleAndTextTuples:
         fragments: StyleAndTextTuples = []
+        width = self._provider_width() - 5  # Frame, scrollbar, and cursor.
         for index, option in enumerate(self.snapshot.providers):
             selected = index == self.state.provider_index
             cursor = "❯ " if self._providers_focused() and selected else "  "
@@ -435,8 +449,12 @@ class _SplitListPicker:
             availability = self._provider_availability_label(option)
             provider_name = self._provider_display_name_for_option(option)
             count_label = provider_option_count_label(option)
-            text = f"{cursor}{provider_name:<16} [{availability}] ({count_label})\n"
-            fragments.append((line_style, text))
+            details = f"[{availability}] ({count_label})"
+            name_width = min(16, max(width // 2, width - get_cwidth(details) - 1))
+            name = truncate_picker_text(provider_name, name_width)
+            padding = " " * max(1, name_width - get_cwidth(name) + 1)
+            text = truncate_picker_text(f"{name}{padding}{details}", width)
+            fragments.append((line_style, f"{cursor}{text}\n"))
         return fragments
 
     def _render_model_panel(self) -> StyleAndTextTuples:
@@ -445,13 +463,16 @@ class _SplitListPicker:
         self._clamp_model_index()
 
         provider_available = self._provider_is_available(self.current_provider)
+        panel_width = self._model_panel_width()
         if not models:
             empty_message = (
-                "  No local overlays found.\n"
+                "  No local overlays found."
                 if self.current_provider.overlay_group
-                else "  No models in this scope.\n"
+                else "  No models in this scope."
             )
-            fragments.append(("class:muted", empty_message))
+            fragments.append(
+                ("class:muted", truncate_picker_text(empty_message, panel_width) + "\n")
+            )
             return fragments
 
         for index, model in enumerate(models):
@@ -470,7 +491,7 @@ class _SplitListPicker:
                     line_style,
                     (
                         f"{cursor}{availability_display.marker} "
-                        f"{self._tabulate_model_label(model.label, panel_width=self._model_panel_width())}\n"
+                        f"{self._tabulate_model_label(model.label, panel_width=panel_width - 4)}\n"
                     ),
                 )
             )
@@ -493,6 +514,22 @@ class _SplitListPicker:
         models = self.current_models
         model_count = len(models)
         model_position = self.state.model_index + 1 if model_count > 0 else 0
+
+        if self._is_narrow():
+            width = self._terminal_cols()
+            if self._models_focused():
+                status_line = (
+                    f"{scope.capitalize()} · {model_position}/{model_count} · {status}{warning}"
+                )
+                action = "auth" if self._provider_activation_action(provider) else "pick"
+                keys = f"↑↓ Enter {action} ← back c scope q"
+            else:
+                status_line = f"{scope.capitalize()} · {model_count} models · {status}"
+                keys = "↑↓ Enter/→ models c scope q"
+            return [
+                ("class:focus", truncate_picker_text(status_line, width) + "\n"),
+                ("class:muted", truncate_picker_text(keys, width)),
+            ]
 
         return [
             (
@@ -524,12 +561,9 @@ class _SplitListPicker:
             self._right(event)
 
         @kb.add("tab")
+        @kb.add("s-tab")
         def _tab(event) -> None:
             self._tab(event)
-
-        @kb.add("s-tab")
-        def _shift_tab(event) -> None:
-            self._shift_tab(event)
 
         @kb.add("up")
         def _up(event) -> None:
@@ -547,8 +581,19 @@ class _SplitListPicker:
         def _accept(event) -> None:
             self._accept(event)
 
-        @kb.add("q")
+        @kb.add("backspace")
+        def _backspace(event) -> None:
+            if self._is_narrow() and self._models_focused():
+                self._left(event)
+
         @kb.add("escape")
+        def _escape(event) -> None:
+            if self._is_narrow() and self._models_focused():
+                self._left(event)
+            else:
+                self._quit(event)
+
+        @kb.add("q")
         @kb.add("c-c")
         def _quit(event) -> None:
             self._quit(event)
@@ -564,12 +609,10 @@ class _SplitListPicker:
         event.app.invalidate()
 
     def _tab(self, event) -> None:
-        event.app.layout.focus_next()
-        event.app.invalidate()
-
-    def _shift_tab(self, event) -> None:
-        event.app.layout.focus_previous()
-        event.app.invalidate()
+        if self._models_focused():
+            self._left(event)
+        else:
+            self._right(event)
 
     def _up(self, event) -> None:
         if event.app.layout.has_focus(self.provider_window):
@@ -590,6 +633,9 @@ class _SplitListPicker:
         event.app.invalidate()
 
     def _accept(self, event) -> None:
+        if self._is_narrow() and self._providers_focused():
+            self._right(event)
+            return
         result = self._selected_result()
         if result is not None:
             event.app.exit(result=result)

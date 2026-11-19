@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-import shutil
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.utils import get_cwidth
 
-from fast_agent.ui.single_list_picker_layout import build_single_list_picker_app
+from fast_agent.ui.single_list_picker_layout import (
+    build_single_list_picker_app,
+    picker_terminal_size,
+    truncate_picker_text,
+)
 
 if TYPE_CHECKING:
     from prompt_toolkit.formatted_text import StyleAndTextTuples
@@ -95,7 +99,7 @@ class _ReferencePicker:
         return self.state.index == len(self.items) + 1
 
     def _terminal_cols(self) -> int:
-        return max(1, shutil.get_terminal_size((100, 20)).columns)
+        return picker_terminal_size().columns
 
     def _cursor_position(self) -> Point | None:
         return Point(x=0, y=self.state.index)
@@ -177,9 +181,9 @@ class _ReferencePicker:
             _CUSTOM_ROW,
             _DONE_ROW,
         ]
-        width = self._terminal_cols()
-        status_width = 34
-        token_width = max(18, width - status_width - 4)
+        width = max(0, self._terminal_cols() - 7)  # Frame, scrollbar, cursor, and gap.
+        status_width = min(34, width // 2)
+        token_width = width - status_width
         fragments: StyleAndTextTuples = []
         for index, item in enumerate(rows):
             selected = index == self.state.index
@@ -189,26 +193,42 @@ class _ReferencePicker:
                 status_text = item.status_text
             else:
                 priority = item.priority
-                token_text = item.token[: token_width - 1]
-                if len(item.token) > token_width:
-                    token_text = item.token[: token_width - 2] + "…"
+                token_text = item.token
                 if item.priority == "configured" and item.current_value is not None:
                     status_text = item.current_value
                 else:
                     status_text = item.status
-                if len(status_text) > status_width:
-                    status_text = status_text[: status_width - 1] + "…"
             line_style = self._row_style(selected=selected, priority=priority)
             cursor = "❯ " if selected else "  "
+            token_text = truncate_picker_text(token_text, token_width)
+            status_text = truncate_picker_text(status_text, status_width)
+            padding = " " * (token_width - get_cwidth(token_text) + 2)
             fragments.append(
                 (
                     line_style,
-                    f"{cursor}{token_text.ljust(token_width)}  {status_text.ljust(status_width)}\n",
+                    f"{cursor}{token_text}{padding}{status_text}\n",
                 )
             )
         return fragments
 
     def _render_details(self) -> StyleAndTextTuples:
+        width = self._terminal_cols()
+        lines = self._detail_lines()
+        if width < 56:
+            keys = "Enter confirm · Esc cancel"
+            if self.current_item is not None and self.current_item.removable:
+                keys = "Enter · Esc cancel · X remove"
+            lines[-2:] = [("class:muted", keys)]
+        return [
+            (
+                style,
+                truncate_picker_text(text.removesuffix("\n"), width)
+                + ("\n" if text.endswith("\n") else ""),
+            )
+            for style, text in lines
+        ]
+
+    def _detail_lines(self) -> list[tuple[str, str]]:
         item = self.current_item
         if self._is_custom_row():
             return [

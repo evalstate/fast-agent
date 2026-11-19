@@ -1,13 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import io
 from typing import Any, cast
 
 import pytest
+from prompt_toolkit.application import create_app_session
+from prompt_toolkit.data_structures import Size
+from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.keys import Keys
+from prompt_toolkit.output.vt100 import Vt100_Output
 
 from fast_agent.llm.llamacpp_discovery import LlamaCppModelListing
-from fast_agent.ui.llamacpp_model_picker import LlamaCppModelPickerContext, _LlamaCppModelPicker
+from fast_agent.ui.llamacpp_model_picker import (
+    LlamaCppModelPickerContext,
+    LlamaCppModelPickerResult,
+    _LlamaCppModelPicker,
+)
 
 
 def _enter_binding(picker: _LlamaCppModelPicker):
@@ -189,3 +198,73 @@ async def test_llamacpp_picker_lazy_load_can_upgrade_training_context() -> None:
     rendered = "".join(fragment[1] for fragment in picker._render_details())
 
     assert "context: training: 262144 / runtime: 75264" in rendered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("cols", "rows"), [(40, 14), (40, 18), (32, 16), (60, 16), (100, 24)])
+async def test_llamacpp_picker_renders_and_selects_at_terminal_size(cols: int, rows: int) -> None:
+    stdout = io.StringIO()
+    output = Vt100_Output(stdout, lambda: Size(rows=rows, columns=cols), enable_cpr=False)
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=output):
+        picker = _LlamaCppModelPicker(
+            (
+                LlamaCppModelListing(
+                    model_id="example/model", owned_by="llamacpp", training_context_window=None
+                ),
+            )
+        )
+        panes: list[tuple[bool, bool]] = []
+
+        def capture_and_advance() -> None:
+            if picker.app.is_done:
+                return
+            visible = picker.app.layout.visible_windows
+            panes.append((picker.model_window in visible, picker.action_window in visible))
+            pipe.send_text("\r")
+
+        picker.app.after_render += lambda _: capture_and_advance()
+        result = await asyncio.wait_for(picker.run_async(), timeout=5)
+
+    assert result == LlamaCppModelPickerResult(action="start_now", model_id="example/model")
+    assert "Window too small" not in stdout.getvalue()
+    assert "example/model" in stdout.getvalue()
+    assert "Actions" in stdout.getvalue()
+    assert panes[0] == (True, cols >= 72)
+    assert panes[-1] == (cols >= 72, True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("cols", "rows"), [(40, 16), (100, 24)])
+async def test_llamacpp_picker_actions_render_separate_lines_and_select_second_action(
+    cols: int, rows: int
+) -> None:
+    stdout = io.StringIO()
+    output = Vt100_Output(stdout, lambda: Size(rows=rows, columns=cols), enable_cpr=False)
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=output):
+        picker = _LlamaCppModelPicker(
+            (
+                LlamaCppModelListing(
+                    model_id="example/model", owned_by="llamacpp", training_context_window=None
+                ),
+            )
+        )
+        action_text = "".join(fragment[1] for fragment in picker._render_actions())
+        assert "\\n" not in action_text
+        assert len(action_text.splitlines()) == len(picker.action_options)
+        details_text = "".join(fragment[1] for fragment in picker._render_details())
+        assert "\\n" not in details_text
+
+        steps = ["\r", "\x1b[B", "\r"]
+
+        def advance() -> None:
+            if picker.app.is_done or not steps:
+                return
+            pipe.send_text(steps.pop(0))
+
+        picker.app.after_render += lambda _: advance()
+        result = await asyncio.wait_for(picker.run_async(), timeout=5)
+
+    assert result == LlamaCppModelPickerResult(
+        action="start_now_with_shell", model_id="example/model"
+    )
+    assert "\\n" not in stdout.getvalue()

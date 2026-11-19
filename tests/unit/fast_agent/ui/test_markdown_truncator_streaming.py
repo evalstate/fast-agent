@@ -494,3 +494,30 @@ def test_streaming_table_scrolls_latest_rows() -> None:
         assert row_numbers[0] == start_row
         assert row_numbers[-1] == total_rows
         assert row_numbers == list(range(start_row, total_rows + 1))
+
+
+def test_measure_rendered_height_includes_escape_xml_in_cache_and_render() -> None:
+    test_console = Console(file=io.StringIO(), force_terminal=False, width=20)
+    text = "<tag>content</tag> " * 5
+
+    plain_truncator = MarkdownTruncator(target_height_ratio=1.0, escape_xml=False)
+    escaped_truncator = MarkdownTruncator(target_height_ratio=1.0, escape_xml=True)
+
+    h_plain = plain_truncator.measure_rendered_height(text, test_console, code_theme="native")
+    h_escaped = escaped_truncator.measure_rendered_height(text, test_console, code_theme="native")
+
+    expected_escaped = len(
+        test_console.render_lines(
+            build_markdown_renderable(
+                text,
+                code_theme="native",
+                escape_xml=True,
+                close_incomplete_fences=True,
+                render_fences_with_syntax=True,
+            ),
+            options=test_console.options.update(width=test_console.size.width),
+            pad=False,
+        )
+    )
+    assert h_escaped == expected_escaped
+    assert h_plain > 0

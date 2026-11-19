@@ -63,3 +63,26 @@ def test_header_shows_queued_messages_only_while_streaming(monkeypatch) -> None:
     # The final frame can stay in scrollback: it must not carry the count.
     handle._show_stream_cursor = False
     assert "queued" not in handle._build_header().plain
+
+
+def test_narrow_width_header_fits_single_line(monkeypatch) -> None:
+    from rich.console import Console
+
+    from fast_agent.ui import console as ui_console
+
+    narrow_console = Console(width=32, height=20, force_terminal=True)
+    monkeypatch.setattr(ui_console, "console", narrow_console)
+
+    handle = StreamingMessageHandle(
+        display=ConsoleDisplay(Settings()),
+        header_left="[bold green]▎[/bold green][dim green]◀[/dim green] [green]assistant[/green]",
+        header_right="[dim]claude-sonnet-4-5-20250929-long-model[/dim]",
+        context_baseline=StreamContextBaseline(tokens=12_000, window=100_000),
+    )
+    handle._scroll_indicator_visible = True
+    handle._token_rate.record(4_000, time.monotonic() - 1.0)
+
+    header = handle._build_header()
+    assert header.cell_len <= 32
+    lines = narrow_console.render_lines(header, narrow_console.options, pad=False)
+    assert len(lines) == 1
