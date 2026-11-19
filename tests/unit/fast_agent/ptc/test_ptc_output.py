@@ -6,11 +6,18 @@ import logging
 import os
 import subprocess
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 import pytest_asyncio
-from mcp_types import CallToolResult, TextContent, Tool
+from mcp_types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
+    TextContent,
+    Tool,
+)
 from pydantic import ValidationError
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -21,11 +28,13 @@ from fast_agent.config import (
     ShellSettings,
     ShellToolProfile,
 )
+from fast_agent.constants import DEFAULT_PTC_OUTPUT_BYTE_LIMIT, DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.context import Context
 from fast_agent.mcp.tool_result_truncation import bound_tool_result_for_llm
 from fast_agent.ptc import PTC_TOOL_NAME
 from fast_agent.ptc.runtime import ProgrammaticToolRuntime
 from fast_agent.tools.shell_runtime import ShellRuntime
+from fast_agent.types import PromptMessageExtended
 from fast_agent.utils.tool_names import is_shell_command_tool_name
 
 if TYPE_CHECKING:
@@ -477,3 +486,181 @@ async def test_store_recovers_short_output_that_show_omits(tmp_path: Path) -> No
     finally:
         await runtime.close()
         await shell.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("ptc_limit", "expected_label"),
+    [
+        (None, f"about {round(DEFAULT_PTC_OUTPUT_BYTE_LIMIT / 1000)} KB"),
+        (64_000, "about 64 KB"),
+        (24_000, "about 24 KB"),
+    ],
+)
+async def test_ptc_description_reflects_active_ptc_output_cap(
+    ptc_limit: int | None, expected_label: str
+) -> None:
+    ptc_kwargs: dict[str, Any] = {"enabled": True}
+    if ptc_limit is not None:
+        ptc_kwargs["output_byte_limit"] = ptc_limit
+    agent = McpAgent(
+        AgentConfig(name="ptc-cap-desc", servers=[], shell=True),
+        context=Context(
+            config=Settings(
+                default_model="gpt-6-astra",
+                ptc=ProgrammaticToolCallingSettings(**ptc_kwargs),
+                shell_execution=ShellSettings(
+                    show_bash=False, output_byte_limit=DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+                ),
+            )
+        ),
+    )
+    try:
+        tools = (await agent.list_tools()).tools
+        description = next(tool for tool in tools if tool.name == PTC_TOOL_NAME).description or ""
+        assert expected_label in description
+        assert "about 16 KB" not in description
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_ptc_exec_sandbox_uses_ptc_cap_while_non_ptc_keeps_16kb() -> None:
+    payload_30k = "x" * 30_000
+    payload_55k = "y" * 55_000
+
+    # 1. Default PTC agent: 30 KB passes through untouched; 55 KB is truncated at 48 KB.
+    ptc_agent = McpAgent(
+        AgentConfig(name="ptc-cap-run", servers=[], shell=True),
+        context=Context(
+            config=Settings(
+                default_model="gpt-6-astra",
+                ptc=ProgrammaticToolCallingSettings(enabled=True),
+                shell_execution=ShellSettings(
+                    show_bash=False,
+                    output_byte_limit=DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+                    retain_truncated_output=False,
+                ),
+            )
+        ),
+    )
+    try:
+        await ptc_agent.list_tools()
+        req_30k = PromptMessageExtended(
+            role="assistant",
+            content=[],
+            tool_calls={
+                "c1": CallToolRequest(
+                    params=CallToolRequestParams(
+                        name=PTC_TOOL_NAME,
+                        arguments={"code": f"print({payload_30k!r})"},
+                    )
+                )
+            },
+        )
+        res_30k = await ptc_agent.run_tools(req_30k)
+        assert res_30k.tool_results is not None
+        text_30k = _text(res_30k.tool_results["c1"])
+        assert payload_30k in text_30k
+        assert "Tool result truncated" not in text_30k
+
+        req_55k = PromptMessageExtended(
+            role="assistant",
+            content=[],
+            tool_calls={
+                "c2": CallToolRequest(
+                    params=CallToolRequestParams(
+                        name=PTC_TOOL_NAME,
+                        arguments={"code": f"print({payload_55k!r})"},
+                    )
+                )
+            },
+        )
+        res_55k = await ptc_agent.run_tools(req_55k)
+        assert res_55k.tool_results is not None
+        text_55k = _text(res_55k.tool_results["c2"])
+        assert "Tool result truncated" in text_55k
+        assert len(text_55k.encode()) < len(payload_55k.encode())
+    finally:
+        await ptc_agent.shutdown()
+
+    # 2. Explicit ptc.output_byte_limit override is respected.
+    override_agent = McpAgent(
+        AgentConfig(name="ptc-cap-override", servers=[], shell=True),
+        context=Context(
+            config=Settings(
+                default_model="gpt-6-astra",
+                ptc=ProgrammaticToolCallingSettings(enabled=True, output_byte_limit=20_000),
+                shell_execution=ShellSettings(
+                    show_bash=False,
+                    output_byte_limit=DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+                    retain_truncated_output=False,
+                ),
+            )
+        ),
+    )
+    try:
+        await override_agent.list_tools()
+        req_override = PromptMessageExtended(
+            role="assistant",
+            content=[],
+            tool_calls={
+                "c3": CallToolRequest(
+                    params=CallToolRequestParams(
+                        name=PTC_TOOL_NAME,
+                        arguments={"code": f"print({payload_30k!r})"},
+                    )
+                )
+            },
+        )
+        res_override = await override_agent.run_tools(req_override)
+        assert res_override.tool_results is not None
+        text_override = _text(res_override.tool_results["c3"])
+        assert "Tool result truncated" in text_override
+    finally:
+        await override_agent.shutdown()
+
+    # 3. Non-PTC MCP tool still truncates at 16 KB (DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT).
+    direct_agent = McpAgent(
+        AgentConfig(name="non-ptc-cap", servers=[]),
+        context=Context(
+            config=Settings(
+                ptc=ProgrammaticToolCallingSettings(enabled=False),
+                shell_execution=ShellSettings(
+                    show_bash=False,
+                    output_byte_limit=DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+                    retain_truncated_output=False,
+                ),
+            )
+        ),
+    )
+    try:
+
+        async def fake_list_tools() -> ListToolsResult:
+            return ListToolsResult(tools=[Tool(name="demo__dump", input_schema={"type": "object"})])
+
+        async def fake_call_tool(name: str, *args: object, **kwargs: object) -> CallToolResult:
+            del name, args, kwargs
+            return CallToolResult(content=[TextContent(type="text", text=payload_30k)])
+
+        async def fake_app_config(server_name: str) -> None:
+            del server_name
+
+        direct_agent._aggregator.list_tools = cast("Any", fake_list_tools)
+        direct_agent._aggregator.call_tool = cast("Any", fake_call_tool)
+        direct_agent._aggregator.get_app_integration_config = cast("Any", fake_app_config)
+
+        req_direct = PromptMessageExtended(
+            role="assistant",
+            content=[],
+            tool_calls={
+                "c4": CallToolRequest(params=CallToolRequestParams(name="demo__dump", arguments={}))
+            },
+        )
+        res_direct = await direct_agent.run_tools(req_direct)
+        assert res_direct.tool_results is not None
+        text_direct = _text(res_direct.tool_results["c4"])
+        assert "Tool result truncated" in text_direct
+        assert f"of {len(payload_30k)} bytes" in text_direct
+    finally:
+        await direct_agent.shutdown()

@@ -14,7 +14,14 @@ from fast_agent.config import ProgrammaticToolCallingSettings, Settings, ShellSe
 from fast_agent.constants import FAST_AGENT_PTC_CALLS
 from fast_agent.ptc.catalog import PTC_SEARCH_EXTRA_THRESHOLD
 from fast_agent.ptc.runtime import ProgrammaticToolRuntime
-from fast_agent.ptc.search import SEARCH_FUNCTION_NAME, search_tools, stem, tokenize
+from fast_agent.ptc.search import (
+    _CELL_SEARCH_BYTE_BUDGET,
+    SEARCH_FUNCTION_NAME,
+    CellSearchState,
+    search_tools,
+    stem,
+    tokenize,
+)
 from fast_agent.ptc.stubs import UNSTRUCTURED_RETURNS
 from fast_agent.tools.elicitation import get_elicitation_tool
 from fast_agent.tools.shell_runtime import ShellRuntime
@@ -590,3 +597,145 @@ async def test_exclude_skips_seen_functions_in_code_and_direct_search() -> None:
         assert bad_type.is_error and "NOT executed" in _text(bad_type)
     finally:
         await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_batched_search_tools_deduplicates_full_stubs_within_one_cell() -> None:
+    tools = [
+        _tool(
+            "k8s__list_pods",
+            "List Kubernetes pods in a namespace. " + ("detail " * 80),
+            namespace={"type": "string", "description": "Target Kubernetes namespace."},
+        ),
+        _tool(
+            "k8s__get_pod_logs",
+            "Fetch Kubernetes pod container logs. " + ("detail " * 80),
+            namespace={"type": "string", "description": "Target Kubernetes namespace."},
+        ),
+        _tool(
+            "k8s__list_deployments",
+            "List Kubernetes deployments in a namespace. " + ("detail " * 80),
+            namespace={"type": "string", "description": "Target Kubernetes namespace."},
+        ),
+        _tool("k8s__list_services", "List Kubernetes services."),
+        _tool("k8s__list_nodes", "List cluster nodes."),
+    ]
+    runtime = _catalog_runtime(tools)
+    try:
+        code = """
+r1, r2 = await asyncio.gather(
+    search_tools(query="kubernetes pods", limit=2),
+    search_tools(query="kubernetes pods deployments", limit=3),
+)
+print("=== CALL 1 ===")
+print(r1)
+print("=== CALL 2 ===")
+print(r2)
+"""
+        result = await runtime.execute({"code": code}, _ok)
+        assert not result.is_error, _text(result)
+        rendered = _text(result)
+        part1, part2 = rendered.split("=== CALL 2 ===", 1)
+
+        assert "async def k8s__list_pods(" in part1
+        assert "async def k8s__get_pod_logs(" in part1
+        # Sibling call does not repeat already-shown full stubs; it emits a concise note
+        # and still renders the newly matched tool in full.
+        assert "# Already shown in this run:" in part2
+        assert "k8s__list_pods" in part2
+        assert "async def k8s__list_pods(" not in part2
+        assert "async def k8s__list_deployments(" in part2
+
+        # A separate exec_sandbox run starts with fresh per-cell state.
+        second_run = await runtime.execute(
+            {"code": 'print(await search_tools(query="k8s__list_pods", limit=1))'},
+            _ok,
+        )
+        assert not second_run.is_error, _text(second_run)
+        assert "async def k8s__list_pods(" in _text(second_run)
+        assert "# Already shown in this run:" not in _text(second_run)
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_batched_search_tools_enforces_shared_cell_budget_and_refinement_hint() -> None:
+    def _large_tool(name: str, topic: str) -> Tool:
+        return Tool(
+            name=name,
+            description=f"Manage {topic} resources. " + ("detailed specification " * 140),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": f"Target {topic} identifier."},
+                    "options": {"type": "string", "description": "Extra options."},
+                },
+                "required": ["target"],
+            },
+            output_schema={
+                "type": "object",
+                "properties": {"items": {"type": "array", "items": {"type": "string"}}},
+            },
+        )
+
+    topics = ["alpha", "bravo", "charlie", "delta"]
+    tools = [
+        _large_tool(f"cloud__{topic}_{idx}", f"{topic} workload {idx}")
+        for topic in topics
+        for idx in range(3)
+    ]
+    runtime = _catalog_runtime(tools)
+    try:
+        code = """
+results = await asyncio.gather(
+    search_tools(query="alpha workload", limit=3),
+    search_tools(query="bravo workload", limit=3),
+    search_tools(query="charlie workload", limit=3),
+    search_tools(query="delta workload", limit=3),
+)
+for idx, text in enumerate(results, 1):
+    print(f"=== Q{idx} ===")
+    print(text)
+"""
+        result = await runtime.execute({"code": code}, _ok)
+        assert not result.is_error, _text(result)
+        rendered = _text(result)
+
+        # Total output stays bounded near the shared ~20 KB cell budget (not ~36+ KB).
+        assert len(rendered.encode()) <= _CELL_SEARCH_BYTE_BUDGET + 5_000
+        # Later sibling calls demote to compact signatures with a clear refinement hint.
+        assert "cell search budget reached" in rendered
+        assert 'search_tools(query="<exact_name>")' in rendered
+        # Top match on the first call still includes its full Returns section.
+        first_section = rendered.split("=== Q2 ===", 1)[0]
+        assert "Returns:" in first_section
+
+        # Tools demoted to compact signatures in the budgeted cell can still be fetched
+        # in full in a subsequent cell (and are not treated as already shown).
+        followup = await runtime.execute(
+            {"code": 'print(await search_tools(query="cloud__delta_0", limit=1))'},
+            _ok,
+        )
+        assert not followup.is_error, _text(followup)
+        followup_text = _text(followup)
+        assert "async def cloud__delta_0(" in followup_text
+        assert "Returns:" in followup_text
+    finally:
+        await runtime.close()
+
+
+def test_cell_search_state_compact_demoted_tool_not_marked_seen() -> None:
+    tools = [_tool(f"svc__item_{i}", f"Service item {i}. " + ("docs " * 120)) for i in range(6)]
+    catalog = _catalog_runtime(tools).catalog
+    state = CellSearchState(cell_budget=2_500)
+
+    first = search_tools(catalog, query="service item", limit=5, cell_state=state)
+    assert "async def svc__item_0(" in first
+    assert "svc__item_0" in state.seen_full
+    # Later items were compact signatures only, so they are NOT in seen_full.
+    assert "svc__item_4" not in state.seen_full
+
+    second = search_tools(catalog, query="svc__item_4", limit=1, cell_state=state)
+    assert "# Already shown in this run:" not in second
+    assert "cell search budget reached" in second
+    assert "async def svc__item_4(" in second
