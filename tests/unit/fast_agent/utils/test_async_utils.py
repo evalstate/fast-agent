@@ -1,6 +1,7 @@
 """Tests for asyncio runtime helpers."""
 
 import asyncio
+import gc
 import subprocess
 import sys
 import time
@@ -135,3 +136,61 @@ asyncio.run(main())
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "timed out"
     assert time.monotonic() - started < 15
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_parent", [False, True])
+async def test_gather_with_cancel_retrieves_errors_before_cancellation(cancel_parent: bool) -> None:
+    loop = asyncio.get_running_loop()
+    original_handler = loop.get_exception_handler()
+    unhandled: list[dict[str, object]] = []
+    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+    failed = asyncio.Event()
+    waiting = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+    cancellation_propagated = False
+
+    async def fail() -> None:
+        failed.set()
+        raise RuntimeError("earlier failure")
+
+    async def wait_for_cancel() -> None:
+        waiting.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            sibling_cancelled.set()
+
+    async def cancel_later() -> None:
+        await failed.wait()
+        await waiting.wait()
+        # Allow the gather loop to collect the earlier completed task.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        raise asyncio.CancelledError("later cancellation")
+
+    try:
+        if cancel_parent:
+            task = asyncio.create_task(async_utils.gather_with_cancel([fail(), wait_for_cancel()]))
+            await failed.wait()
+            await waiting.wait()
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                cancellation_propagated = True
+            del task
+        else:
+            try:
+                await async_utils.gather_with_cancel([fail(), wait_for_cancel(), cancel_later()])
+            except asyncio.CancelledError:
+                cancellation_propagated = True
+        gc.collect()
+        await asyncio.sleep(0)
+        assert cancellation_propagated
+        assert sibling_cancelled.is_set()
+        assert unhandled == []
+    finally:
+        loop.set_exception_handler(original_handler)

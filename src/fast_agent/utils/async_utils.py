@@ -169,14 +169,12 @@ async def gather_with_cancel(aws: Iterable[Awaitable[T]]) -> list[T | BaseExcept
             )
             cancelled = next((task for task in done if task.cancelled()), None)
             if cancelled is not None:
-                for task in pending:
-                    task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
                 cancelled.result()
     except asyncio.CancelledError:
         for task in pending:
             task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        # Retrieve failures from completed tasks too, including earlier batches.
+        await asyncio.gather(*tasks, return_exceptions=True)
         raise
 
     results: list[T | BaseException] = []
