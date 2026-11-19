@@ -79,6 +79,7 @@ nav = [
       { "DeepSeek" = "models/providers/deepseek.md" },
       { "Moonshot" = "models/providers/moonshot.md" },
       { "Z.ai" = "models/providers/zai.md" },
+      { "Tencent Eval" = "models/providers/tencent-eval.md" },
       { "Hugging Face" = "models/providers/huggingface.md" },
       { "Google" = "models/providers/google.md" },
       { "llama.cpp" = "models/providers/llamacpp.md" },

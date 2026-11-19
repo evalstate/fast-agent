@@ -453,8 +453,7 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
     config_azure = config_azure_payload if isinstance(config_azure_payload, dict) else {}
 
     for provider_name, status in results.items():
-        env_key_name = ProviderKeyManager.get_env_key_name(provider_name)
-        env_key_value = os.environ.get(env_key_name) if env_key_name else None
+        env_key_value = ProviderKeyManager.get_env_var(provider_name)
         if env_key_value:
             status["env"] = _mask_configured_secret(env_key_value)
 
