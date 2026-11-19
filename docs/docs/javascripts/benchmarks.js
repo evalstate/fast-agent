@@ -2634,6 +2634,14 @@
     }
 
     var cost = [];
+    if (run.cost.withSuperseded) {
+      var combined = run.cost.withSuperseded;
+      cost.push(
+        "Recorded model cost including superseded attempts: " + (combined.lowerBound ? "at least " : "") +
+          moneyExact(combined.total) + ". Cost was recorded for " + combined.costed + " of " + combined.trials +
+          " superseded attempts. This excludes infrastructure charges."
+      );
+    }
     if (run.cost.computed) {
       var c = run.cost.computed;
       cost.push(

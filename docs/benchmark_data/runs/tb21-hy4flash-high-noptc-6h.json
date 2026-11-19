@@ -2451,6 +2451,7 @@
   "cost": {
     "total_usd": 3.85,
     "total_usd_exact": 3.84648,
+    "scored_total_usd_exact": 3.83656,
     "trials_with_cost": 445,
     "trials": 445,
     "excluded_trials_with_cost": 3,
@@ -2475,7 +2476,7 @@
     "Modified Terminal-Bench 2.1 fixed-QEMU snapshot (bench-run revision qemu-fixed-6h-v1), 89 tasks \u00d7 5 attempts and a six-hour agent deadline. Not an unmodified leaderboard evaluation.",
     "HF Jobs (cpu-basic/upgrade; total concurrency 25), Harbor 271f0a31, and the published fast-agent-mcp 0.10.61 wheel. Tencent HY-4-Flash Dev through Tencent Eval, high reasoning, direct tools (ptc=off). The earlier written-off concurrency-40 cohort was not pooled.",
     "Twenty-one designated full-trial infrastructure replacements: six connection errors, four nonzero agent exits, four sandbox errors, four agent setup timeouts, two remote protocol errors and one verifier timeout. All original verdicts and designated replacement outcomes are retained; no outcome-based substitutions. Score was 356/445 as run and 373/445 after replacements, before integrity review.",
-    "Harbor recorded at least $3.85 at the configured rates ($0.035 / $0.0015 / $0.1405 per million input / cached input / output tokens), including the observed cost of replaced attempts. Usage was incomplete, and this is not a billed total."
+    "Harbor model costs use the configured rates ($0.035 / $0.0015 / $0.1405 per million input / cached input / output tokens), not an invoice."
   ],
   "scan": {
     "version": "0.8.24",

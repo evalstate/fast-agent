@@ -307,7 +307,8 @@
     },
     "tb21-hy4flash-high-noptc-6h": {
       "family": "hunyuan",
-      "status": "6h timeout"
+      "status": "6h timeout",
+      "costFrom": "scored"
     }
   },
   "claims": [

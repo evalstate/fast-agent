@@ -273,6 +273,16 @@ def _curated_runs(
                 "basis": repriced["basis"],
                 **{k: repriced[k] for k in ("source", "note", "trials")},
             }
+        elif curation.get("costFrom") == "scored":
+            cost["total"] = round(raw["cost"]["scored_total_usd_exact"], 2)
+            cost["basis"] = "recorded model cost for scored trials"
+            cost["lowerBound"] = cost["coverage"] < raw["slots"]
+            cost["withSuperseded"] = {
+                "total": cost["recorded"],
+                "costed": raw["cost"]["excluded_trials_with_cost"],
+                "trials": len(raw["excluded_trials"]),
+                "lowerBound": raw["cost"].get("lower_bound", False),
+            }
         elif curation.get("costFrom") == "published":
             cost["total"] = round(published, 2)
             cost["basis"] = "published leaderboard total"
