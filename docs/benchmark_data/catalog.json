@@ -57,6 +57,12 @@
       "mark": "qwen.svg"
     },
     {
+      "id": "hunyuan",
+      "name": "Hunyuan",
+      "maker": "Tencent",
+      "mark": "hunyuan.svg"
+    },
+    {
       "id": "muse",
       "name": "Muse",
       "maker": "Meta",
@@ -298,6 +304,10 @@
     "kimik31pro-high-6h": {
       "family": "kimi",
       "status": "PTC"
+    },
+    "tb21-hy4flash-high-noptc-6h": {
+      "family": "hunyuan",
+      "status": "6h timeout"
     }
   },
   "claims": [
@@ -509,6 +519,7 @@
     "Gemini": "gemini",
     "Qwen": "qwen",
     "Muse": "muse",
+    "Tencent HY-": "hunyuan",
     "Kimi": "kimi"
   }
 }
