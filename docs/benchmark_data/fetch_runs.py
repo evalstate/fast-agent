@@ -1319,6 +1319,10 @@ def write_moments(
     import moments
 
     inputs, extra, expect = scan_inputs
+    if "bucket" in run:
+        # The viewer pins trace files without following symlinks. Bucket caches
+        # can be symlinked to another drive, so pass their canonical paths.
+        inputs = [str(Path(path).resolve()) for path in inputs]
     tmp = Path(tempfile.mkdtemp(prefix="fa-highlights-"))
     try:
         target = tmp / "hl"

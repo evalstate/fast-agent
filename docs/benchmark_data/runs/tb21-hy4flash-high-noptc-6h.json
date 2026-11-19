@@ -2593,7 +2593,7 @@
           "rewarded": 0
         },
         "recalled": {
-          "trials": 21,
+          "trials": 22,
           "rewarded": 11
         },
         "probed": {
@@ -2798,7 +2798,9 @@
         "--min-trials",
         "5",
         "--rules",
-        "docs/benchmark_data/atif-rules.json"
+        "docs/benchmark_data/atif-rules.json",
+        "--image-model",
+        "codexresponses.gpt-6-luna?reasoning=medium"
       ],
       "rules_sha256": "b176f5133ccc1c4cb3b570a28c9dd8b0f695be7f5ad07ec1fd7bf245268a68a6"
     },
@@ -2951,7 +2953,7 @@
   },
   "review": {
     "note": "Recorded verifier results are preserved. The published score excludes ten passing trials under the TB2.1 integrity review policy.",
-    "coverage": "atif-scan 0.8.24 (e548354), basic scan with the TB2.1 publish-side rules. All 445 scored trials had trajectories; three of 21 replaced originals had traces, and the other 18 retain their available evidence. Twelve verifier passes had high or critical findings: ten were disqualified and two cleared. The scanner marked evidence incomplete on 52 verifier passes; this is not full behavioural clearance.",
+    "coverage": "atif-scan 0.8.24 (e548354), image-assisted scan with the TB2.1 publish-side rules. Three images that blocked checks were transcribed; the review decisions did not change. All 445 scored trials had trajectories; three of 21 replaced originals had traces, and the other 18 retain their available evidence. Twelve verifier passes had high or critical findings: ten were disqualified and two cleared. The scanner marked evidence incomplete on 52 verifier passes; this is not full behavioural clearance.",
     "recorded_passes": 373,
     "recorded_score": 83.82,
     "disqualified": [
