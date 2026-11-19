@@ -1,7 +1,7 @@
 import base64
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from mcp_types import (
     BlobResourceContents,
@@ -79,7 +79,7 @@ def to_any_url(value: str | AnyUrl) -> AnyUrl:
 
 def create_resource_uri(path: str) -> str:
     """Create a resource URI from a path"""
-    return f"resource://fast-agent/{Path(path).name}"
+    return f"resource://fast-agent/{quote(Path(path).name, safe='')}"
 
 
 def create_embedded_resource(
@@ -121,4 +121,4 @@ def extract_title_from_uri(uri: AnyUrl | str) -> str:
     """Extract a readable title from a URI."""
     uri_str = str(uri)
     path = urlsplit(uri_str).path
-    return Path(path).name if path else uri_str
+    return unquote(Path(path).name) if path else uri_str
