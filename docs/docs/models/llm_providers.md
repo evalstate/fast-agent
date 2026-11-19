@@ -46,6 +46,7 @@ The `default_headers` option is available for OpenAI-compatible providers (inclu
 | [DeepSeek](providers/deepseek/) | `deepseek` | `DEEPSEEK_API_KEY` | Native stateless Responses API; V4 Flash, experimental Flash Vision, and V4 Pro |
 | Z.ai | `zai` | `ZAI_API_KEY` | Native GLM Chat Completions API |
 | Moonshot | `moonshot` | `MOONSHOT_API_KEY` | Native Kimi Chat Completions API |
+| [Tencent Eval](providers/tencent-eval/) | `tencent-eval` | `TENCENT_EVAL_API_KEY` or `HY4_API_KEY` | Native Hy4-flash evaluation Chat Completions API (direct selection only; off model picker) |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | Additional provider; DashScope compatible-mode endpoint |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | Additional provider; routed upstream models |
 | Hugging Face | `hf` or `huggingface` | `HF_TOKEN` | Inference Providers router and HF MCP auth |
@@ -69,5 +70,6 @@ See [Additional Providers](providers/additional/) for the long-tail reference wi
 - [DeepSeek](providers/deepseek/) for the native stateless Responses route, reasoning, tools, structured output, and web search.
 - [Z.ai](providers/zai/) for native GLM models, reasoning streams, tools, and structured output.
 - [Moonshot](providers/moonshot/) for native Kimi K3 reasoning, streaming, tools, structured output, and vision.
+- [Tencent Eval](providers/tencent-eval/) for native `hy4-flash-dev` reasoning, streaming, tools, structured output, vision, and automatic prompt caching.
 - [Hugging Face](providers/huggingface/) for Inference Providers routing, curated aliases, and HF MCP authentication.
 - [Additional Providers](providers/additional/) for Groq, Aliyun, OpenRouter, Open Responses, TensorZero, and generic OpenAI-compatible endpoints.

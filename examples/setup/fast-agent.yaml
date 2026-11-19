@@ -116,6 +116,12 @@ anthropic:
 #   # base_url: "https://api.moonshot.ai/v1"
 #   # default_model: "kimi-k3.1-pro"
 
+# Native Tencent Eval Chat Completions provider (direct selection only; off picker):
+# tencent-eval:
+#   api_key: "${TENCENT_EVAL_API_KEY}" # Also falls back to HY4_API_KEY
+#   # base_url: "https://eval.hunyuan.tencent.com/openapi/v2/data"
+#   # default_model: "hy4-flash-dev"
+
 # Experimental Grok 4.5/4.6 Responses streaming:
 # xai:
 #   reasoning_summary: concise

@@ -153,6 +153,10 @@ _PROVIDER_CLASS_PATHS: dict[Provider, tuple[str, str]] = {
     ),
     Provider.ZAI: ("fast_agent.llm.provider.openai.llm_zai", "ZaiLLM"),
     Provider.MOONSHOT: ("fast_agent.llm.provider.openai.llm_moonshot", "MoonshotLLM"),
+    Provider.TENCENT_EVAL: (
+        "fast_agent.llm.provider.openai.llm_tencent_eval",
+        "TencentEvalLLM",
+    ),
     Provider.GENERIC: ("fast_agent.llm.provider.openai.llm_generic", "GenericLLM"),
     Provider.GOOGLE_OAI: ("fast_agent.llm.provider.openai.llm_google_oai", "GoogleOaiLLM"),
     Provider.GOOGLE: ("fast_agent.llm.provider.google.llm_google_native", "GoogleNativeLLM"),

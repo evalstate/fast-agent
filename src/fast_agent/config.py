@@ -9,7 +9,7 @@ import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from mcp_types import Implementation
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
@@ -66,6 +66,7 @@ from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.transports import McpClientTransport
 
 MOONSHOT_DEFAULT_MODEL = "kimi-k3.1-pro"
+TENCENT_EVAL_DEFAULT_MODEL = "hy4-flash-dev"
 HUGGINGFACE_DEFAULT_MODEL = "moonshotai/Kimi-K3.1-Pro:together"
 
 
@@ -1604,6 +1605,23 @@ class MoonshotSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class TencentEvalSettings(BaseModel):
+    """Settings for using Tencent Eval models in the fast-agent application."""
+
+    api_key: str | None = Field(default=None, description="Tencent Eval API key")
+    base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_model: str | None = Field(
+        default=TENCENT_EVAL_DEFAULT_MODEL,
+        description="Default model when Tencent Eval provider is selected without an explicit model",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class GoogleSettings(BaseModel):
     """Settings for using Google models in the fast-agent application."""
 
@@ -2202,6 +2220,33 @@ def deep_merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+_PROVIDER_SECTION_ALIASES: Final[dict[str, str]] = {
+    "tencent-eval": "tencent_eval",
+}
+
+
+def _normalize_provider_section_aliases(values: Any) -> Any:
+    """Normalize aliased provider section names and merge mixed spellings."""
+    if not isinstance(values, dict):
+        return values
+
+    if not any(alias in values for alias in _PROVIDER_SECTION_ALIASES):
+        return values
+
+    normalized: dict[str, Any] = {}
+    for key, value in values.items():
+        target = _PROVIDER_SECTION_ALIASES.get(key, key)
+        if target in normalized:
+            existing = normalized[target]
+            if isinstance(existing, dict) and isinstance(value, dict):
+                normalized[target] = deep_merge(existing, value)
+            elif value is not None:
+                normalized[target] = value
+        else:
+            normalized[target] = value
+    return normalized
+
+
 def load_yaml_mapping(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
         return {}
@@ -2215,7 +2260,7 @@ def load_yaml_mapping(path: Path | None) -> dict[str, Any]:
         raise ConfigFileError(f"Failed to parse YAML file: {path}", str(exc)) from exc
     if not isinstance(payload, dict):
         return {}
-    return resolve_env_vars(payload)
+    return _normalize_provider_section_aliases(resolve_env_vars(payload))
 
 
 def load_implicit_settings(
@@ -2494,6 +2539,9 @@ def _migrate_legacy_mcp_settings_values(values: Any) -> Any:
     return normalized
 
 
+DEFAULT_SESSION_HISTORY_WINDOW: Final = 30
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -2532,6 +2580,7 @@ class Settings(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def _migrate_legacy_mcp_settings(cls, values: Any) -> Any:
+        values = _normalize_provider_section_aliases(values)
         if isinstance(values, dict):
             removed = sorted({"mcp_ui_mode", "mcp_ui_output_dir"} & values.keys())
             if removed:
@@ -2581,8 +2630,8 @@ class Settings(BaseSettings):
     session_history: bool = True
     """Persist session history in the environment sessions folder (default: True)."""
 
-    session_history_window: int = 20
-    """Maximum number of sessions to keep in the rolling window (default: 20)."""
+    session_history_window: int = DEFAULT_SESSION_HISTORY_WINDOW
+    """Maximum number of sessions to keep in the rolling window (0 disables pruning)."""
 
     git_aware: bool = False
     """Persist git repository provenance in session snapshots and trace exports."""
@@ -2621,6 +2670,9 @@ class Settings(BaseSettings):
 
     moonshot: MoonshotSettings | None = None
     """Settings for using Moonshot models in the fast-agent application"""
+
+    tencent_eval: TencentEvalSettings | None = None
+    """Settings for using Tencent Eval models in the fast-agent application"""
 
     google: GoogleSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""

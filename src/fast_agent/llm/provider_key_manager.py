@@ -21,6 +21,10 @@ PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
     "openresponses": "OPENRESPONSES_API_KEY",
     "codexresponses": "CODEX_API_KEY",
     "metaai": "META_AI_API_KEY",
+    "tencent-eval": "TENCENT_EVAL_API_KEY",
+}
+PROVIDER_ENVIRONMENT_FALLBACK_MAP: dict[str, tuple[str, ...]] = {
+    "tencent-eval": ("HY4_API_KEY",),
 }
 PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     # HuggingFace historically used "huggingface" (full name) in config files,
@@ -30,6 +34,7 @@ PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     # Responses shares OpenAI credentials; allow reading openai.api_key when
     # responses.api_key is omitted.
     "responses": ("openai",),
+    "tencent-eval": ("tencent-eval", "tencent_eval"),
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
 API_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"anthropic-vertex"})
@@ -76,10 +81,11 @@ class ProviderKeyManager:
 
     @staticmethod
     def get_env_var(provider_name: str) -> str | None:
-        env_key_name = ProviderKeyManager.get_env_key_name(provider_name)
-        if not env_key_name:
-            return None
-        return os.getenv(env_key_name)
+        for env_key_name in ProviderKeyManager.get_env_key_names(provider_name):
+            value = os.getenv(env_key_name)
+            if value:
+                return value
+        return None
 
     @staticmethod
     def get_env_key_name(provider_name: str) -> str | None:
@@ -90,6 +96,18 @@ class ProviderKeyManager:
             normalized_provider,
             f"{normalized_provider.upper()}_API_KEY",
         )
+
+    @staticmethod
+    def get_env_key_names(provider_name: str) -> tuple[str, ...]:
+        normalized_provider = strip_casefold(provider_name)
+        primary = ProviderKeyManager.get_env_key_name(normalized_provider)
+        if not primary:
+            return ()
+        names = [primary]
+        for fallback in PROVIDER_ENVIRONMENT_FALLBACK_MAP.get(normalized_provider, ()):
+            if fallback not in names:
+                names.append(fallback)
+        return tuple(names)
 
     @staticmethod
     def get_config_file_key(provider_name: str, config: object) -> str | None:

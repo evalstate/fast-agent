@@ -441,6 +441,12 @@ class ModelDatabase:
         allowed_efforts=["low", "high", "max"],
         default=ReasoningEffortSetting(kind="effort", value="max"),
     )
+    HY4_FLASH_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "high"],
+        allow_toggle_disable=True,
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
 
     # Groq exposes reasoning as a binary toggle: `reasoning_effort="default"`
     # (thinking on) or `reasoning_effort="none"` (thinking off). Standard effort
@@ -1373,6 +1379,18 @@ class ModelDatabase:
         fast=True,
     )
 
+    HY4_FLASH_DEV = ModelParameters(
+        context_window=960000,
+        max_output_tokens=65536,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=HY4_FLASH_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.TENCENT_EVAL,
+        fast=True,
+    )
+
     MINIMAX_21 = ModelParameters(
         context_window=202752,
         max_output_tokens=131072,
@@ -1658,6 +1676,8 @@ class ModelDatabase:
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
         "glm-5.3": GLM_5_3,
         "glm-5.3-flash": GLM_5_3_FLASH,
+        # Tencent Eval models
+        "hy4-flash-dev": HY4_FLASH_DEV,
         # Google Gemini Models (vanilla aliases and versioned)
         "gemini-4-argon": GEMINI_4_STANDARD,
         "gemini-4-hydrogen": _with_fast(GEMINI_4_HYDROGEN),

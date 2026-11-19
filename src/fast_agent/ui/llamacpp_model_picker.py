@@ -1,16 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from prompt_toolkit.application import Application
-from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.data_structures import Point
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.margins import ScrollbarMargin
@@ -25,6 +24,7 @@ if TYPE_CHECKING:
     from fast_agent.ui.model_picker_common import ModelAvailability
 
 from fast_agent.ui.picker_theme import build_picker_style
+from fast_agent.ui.single_list_picker_layout import picker_terminal_size, truncate_picker_text
 
 type LlamaCppPickerAction = Literal[
     "start_now",
@@ -115,7 +115,7 @@ class _LlamaCppModelPicker:
         self.model_window = Window(
             self.model_control,
             wrap_lines=False,
-            height=Dimension.exact(self.LIST_VISIBLE_ROWS),
+            height=self._list_height,
             dont_extend_height=True,
             ignore_content_width=True,
             always_hide_cursor=True,
@@ -124,31 +124,35 @@ class _LlamaCppModelPicker:
         self.action_window = Window(
             self.action_control,
             wrap_lines=False,
-            height=Dimension.exact(self.LIST_VISIBLE_ROWS),
+            height=self._list_height,
             dont_extend_height=True,
             ignore_content_width=True,
             always_hide_cursor=True,
         )
         details_window = Window(
             self.details_control,
-            height=Dimension.exact(7),
+            height=self._details_height,
             dont_extend_height=True,
         )
+        wide = Condition(lambda: not self._is_narrow())
+        models_focused = Condition(self._models_focused)
         columns = VSplit(
             [
-                Frame(self.model_window, title="Discovered llama.cpp models"),
-                Frame(
-                    self.action_window,
-                    title="Actions",
-                    width=Dimension.exact(self.ACTION_PANEL_WIDTH),
+                ConditionalContainer(
+                    Frame(self.model_window, title=self._model_frame_title),
+                    wide | models_focused,
                 ),
-            ],
-            padding=1,
+                ConditionalContainer(Window(width=1), wide),
+                ConditionalContainer(
+                    Frame(self.action_window, title="Actions", width=self._action_frame_width),
+                    wide | ~models_focused,
+                ),
+            ]
         )
         body = HSplit(
             [
                 columns,
-                Window(height=1, char="─", style="class:muted"),
+                Window(height=Dimension(preferred=1, max=1), char="─", style="class:muted"),
                 details_window,
             ]
         )
@@ -174,13 +178,26 @@ class _LlamaCppModelPicker:
         return self._LAUNCH_ACTION_OPTIONS
 
     def _terminal_cols(self) -> int:
-        app = get_app_or_none()
-        if app is not None:
-            try:
-                return max(1, app.output.get_size().columns)
-            except Exception:
-                pass
-        return max(1, shutil.get_terminal_size((100, 20)).columns)
+        return picker_terminal_size().columns
+
+    def _is_narrow(self) -> bool:
+        return self._terminal_cols() < 72
+
+    def _details_height(self) -> Dimension:
+        # Leave room for the frame, separator, and up to three list rows.
+        rows = min(4 if self._is_narrow() else 7, max(0, picker_terminal_size().rows - 6))
+        return Dimension(preferred=rows, max=rows)
+
+    def _list_height(self) -> Dimension:
+        available = picker_terminal_size().rows - 3 - self._details_height().preferred
+        rows = min(self.LIST_VISIBLE_ROWS, max(1, available))
+        return Dimension(preferred=rows, max=rows)
+
+    def _action_frame_width(self) -> Dimension:
+        return Dimension() if self._is_narrow() else Dimension.exact(self.ACTION_PANEL_WIDTH)
+
+    def _model_frame_title(self) -> str:
+        return truncate_picker_text("Discovered llama.cpp models", self._terminal_cols() - 6)
 
     def _model_cursor_position(self) -> Point | None:
         return Point(x=0, y=self.state.model_index)
@@ -219,18 +236,10 @@ class _LlamaCppModelPicker:
     def _models_focused(self) -> bool:
         return self.state.focus == "models"
 
-    @staticmethod
-    def _truncate_picker_text(value: str, width: int) -> str:
-        if width <= 0:
-            return ""
-        if len(value) <= width:
-            return value
-        if width == 1:
-            return "…"
-        return f"{value[: width - 1]}…"
-
     def _model_panel_width(self) -> int:
-        return max(34, self._terminal_cols() - self.ACTION_PANEL_WIDTH - 8)
+        cols = self._terminal_cols()
+        frame_width = cols if self._is_narrow() else cols - self.ACTION_PANEL_WIDTH - 1
+        return frame_width - 5  # Frame borders, scrollbar, and cursor.
 
     @staticmethod
     def _training_context_label(training_context_window: int | None) -> str:
@@ -290,14 +299,13 @@ class _LlamaCppModelPicker:
             with suppress(Exception):
                 self.app.invalidate()
 
-    @classmethod
+    @staticmethod
     def _model_row_label(
-        cls,
         model: LlamaCppModelListing,
         *,
         width: int,
     ) -> str:
-        return cls._truncate_picker_text(model.model_id, width)
+        return truncate_picker_text(model.model_id, width)
 
     def _create_key_bindings(self) -> KeyBindings:
         kb = KeyBindings()
@@ -406,7 +414,9 @@ class _LlamaCppModelPicker:
                 availability="active",
             )
             cursor = "❯ " if selected and not self._models_focused() else "  "
-            fragments.append((style, f"{cursor}{action.label}\n"))
+            frame_width = self._terminal_cols() if self._is_narrow() else self.ACTION_PANEL_WIDTH
+            label = truncate_picker_text(action.label, frame_width - 4)
+            fragments.append((style, f"{cursor}{label}\n"))
         return fragments
 
     def _render_details(self) -> StyleAndTextTuples:
@@ -419,6 +429,23 @@ class _LlamaCppModelPicker:
             "",
         )
         runtime_context = self._runtime_context_label(model.model_id)
+        if self._is_narrow():
+            width = self._terminal_cols()
+            keys = (
+                "Enter action · Esc quit"
+                if self._models_focused()
+                else "Enter run · ← back · Esc quit"
+            )
+            return [
+                ("", truncate_picker_text(model.model_id, width) + "\n"),
+                (
+                    "class:focus",
+                    truncate_picker_text(f"Ctx: {training_context} / {runtime_context}", width)
+                    + "\n",
+                ),
+                ("class:muted", truncate_picker_text(action.label.rstrip(), width) + "\n"),
+                ("class:muted", truncate_picker_text(keys, width)),
+            ]
         focus_hint = "models" if self._models_focused() else "actions"
         return [
             ("", f"{model.model_id}\n"),

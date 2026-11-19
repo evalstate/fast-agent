@@ -206,18 +206,18 @@ def _last_user_prompt(
 
 def get_session_history_window() -> int:
     """Return the configured session history window size."""
-    try:
-        from fast_agent.config import get_settings
+    from fast_agent.config import DEFAULT_SESSION_HISTORY_WINDOW, get_settings
 
+    try:
         settings = get_settings()
         value = settings.session_history_window
         if isinstance(value, bool):
-            return 20
+            return DEFAULT_SESSION_HISTORY_WINDOW
         if isinstance(value, int):
             return value
         return int(value)
     except Exception:
-        return 20
+        return DEFAULT_SESSION_HISTORY_WINDOW
 
 
 def apply_session_window(

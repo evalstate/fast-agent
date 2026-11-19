@@ -12,18 +12,25 @@ Testing notes:
 
 from __future__ import annotations
 
+import asyncio
+import io
 import types
 from typing import Any, cast
 
-from prompt_toolkit.data_structures import Point
+import pytest
+from prompt_toolkit.application import create_app_session
+from prompt_toolkit.data_structures import Point, Size
+from prompt_toolkit.input import create_pipe_input
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.layout import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.output.vt100 import Vt100_Output
 
 from fast_agent.llm.model_selection import CatalogModelEntry
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker import (
+    ModelPickerResult,
     _find_initial_model_index,
     _model_availability_display,
     _SplitListPicker,
@@ -561,3 +568,79 @@ def test_snapshot_adds_anthropic_vertex_group_for_env_only_setup(monkeypatch) ->
 
     assert option.active is True
     assert all(entry.model.startswith("anthropic-vertex.") for entry in option.curated_entries)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("cols", "rows"), [(40, 10), (40, 14), (40, 18), (32, 16), (60, 16), (100, 10), (100, 24)]
+)
+async def test_model_picker_renders_at_terminal_size(cols: int, rows: int) -> None:
+    stdout = io.StringIO()
+    output = Vt100_Output(stdout, lambda: Size(rows=rows, columns=cols), enable_cpr=False)
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=output):
+        picker = _SplitListPicker(config_path=None, config_payload={}, initial_provider="generic")
+        visible: list[Window] = []
+
+        def capture() -> None:
+            if not picker.app.is_done:
+                visible.extend(picker.app.layout.visible_windows)
+                pipe.send_text("q")
+
+        picker.app.after_render += lambda _: capture()
+        assert await asyncio.wait_for(picker.run_async(), timeout=5) is None
+
+    assert "Window too small" not in stdout.getvalue()
+    assert "Providers" in stdout.getvalue()
+    assert picker.provider_window in visible
+    assert (picker.model_window in visible) == (cols >= 72)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial_model", [None, "generic.llama3.2"])
+async def test_narrow_model_picker_drills_down_and_returns_selection(
+    initial_model: str | None,
+) -> None:
+    stdout = io.StringIO()
+    output = Vt100_Output(stdout, lambda: Size(rows=14, columns=40), enable_cpr=False)
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=output):
+        picker = _SplitListPicker(
+            config_path=None,
+            config_payload={},
+            initial_provider="generic",
+            initial_model_spec=initial_model,
+        )
+        picker.app.ttimeoutlen = 0.01  # Flush a standalone Escape promptly.
+        steps = iter(
+            ([(picker.model_window, "\x1b[D")] if initial_model else [])
+            + [
+                (picker.provider_window, "\r"),
+                (picker.model_window, "\x1b[D"),
+                (picker.provider_window, "\x1b[C"),
+                (picker.model_window, "\x1b"),
+                (picker.provider_window, "\t"),
+                (picker.model_window, "\x7f"),
+                (picker.provider_window, "\x1b[Z"),
+                (picker.model_window, "\r"),
+            ]
+        )
+
+        def check_pane_and_send_key() -> None:
+            if picker.app.is_done:
+                return
+            expected, key = next(steps)
+            visible = picker.app.layout.visible_windows
+            assert picker.app.layout.has_focus(expected)
+            assert [
+                window
+                for window in visible
+                if window in (picker.provider_window, picker.model_window)
+            ] == [expected]
+            pipe.send_text(key)
+
+        picker.app.after_render += lambda _: check_pane_and_send_key()
+        result = await asyncio.wait_for(picker.run_async(), timeout=5)
+
+    assert isinstance(result, ModelPickerResult)
+    assert result.selected_model == GENERIC_CUSTOM_MODEL_SENTINEL
+    assert "Window too small" not in stdout.getvalue()
+    assert "Models — Generic" in stdout.getvalue()

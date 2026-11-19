@@ -148,6 +148,7 @@
 | `o4-mini-2025-04-16` | `responses` | Text, Vision, Document | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `o4-mini-2025-04-16?reasoning=medium` | — | — |
 | `o4-mini` | `responses` | Text, Vision, Document | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `o4-mini?reasoning=medium` | — | — |
 | `responses.o3-pro` | `responses` | Text | `json` (schema) | — | — | — |
+| `hy4-flash-dev` | `tencent-eval` | Text, Vision | `json` (schema) | effort: `none`, `high`, `off`<br>Example: `hy4-flash-dev?reasoning=high` | — | — |
 | `grok43` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `grok43?reasoning=high` | — | — |
 | `grok45` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`<br>Example: `grok45?reasoning=high` | — | — |
 | `grok46` | `xai` | Text, Vision | `json` (schema) | effort: `low`, `medium`, `high`, `xhigh`<br>Example: `grok46?reasoning=high` | — | — |
