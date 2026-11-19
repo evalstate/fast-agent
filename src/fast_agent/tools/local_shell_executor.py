@@ -771,7 +771,7 @@ class LocalEnvironment(LocalShellExecutor):
     async def write_text(self, path: str, content: str) -> None:
         resolved = self._resolve_filesystem_path(path)
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
+        resolved.write_text(content, encoding="utf-8", newline="")
 
     async def read_bytes(self, path: str) -> bytes:
         return self._resolve_filesystem_path(path).read_bytes()

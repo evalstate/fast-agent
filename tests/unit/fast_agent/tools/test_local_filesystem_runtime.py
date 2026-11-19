@@ -709,6 +709,18 @@ async def test_write_text_file_writes_file_successfully(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["first\nsecond\n", "first\r\nsecond\r\n", "first\rsecond\r"])
+async def test_write_text_file_preserves_newlines(tmp_path: Path, content: str) -> None:
+    runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))
+    target = tmp_path / "line-endings.txt"
+
+    result = await runtime.write_text_file({"path": str(target), "content": content})
+
+    assert result.is_error is False
+    assert target.read_bytes() == content.encode("utf-8")
+
+
+@pytest.mark.asyncio
 async def test_write_text_file_creates_parent_directories(tmp_path: Path) -> None:
     runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))
     output_file = tmp_path / "nested" / "dir" / "output.txt"
