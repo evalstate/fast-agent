@@ -1,6 +1,7 @@
 import base64
 import logging
-from pathlib import Path
+from io import BytesIO
+from pathlib import Path, PureWindowsPath
 from random import Random
 
 import pytest
@@ -197,7 +198,8 @@ def test_attach_media_file_uri_preserves_nonlocal_authority(
 
 
 @pytest.mark.asyncio
-async def test_attach_media_local_png_stages_image_content(tmp_path: Path) -> None:
+@pytest.mark.parametrize("absolute", [False, True])
+async def test_attach_media_local_png_stages_image_content(tmp_path: Path, absolute: bool) -> None:
     image_path = tmp_path / "pixel.png"
     image_path.write_bytes(_PNG_BYTES)
     runtime = LocalFilesystemRuntime(
@@ -207,7 +209,7 @@ async def test_attach_media_local_png_stages_image_content(tmp_path: Path) -> No
         model_info=_model_info("image/png"),
     )
 
-    result = await runtime.attach_media({"source": "pixel.png"})
+    result = await runtime.attach_media({"source": str(image_path) if absolute else "pixel.png"})
 
     assert result.is_error is False
     assert result.content is not None
@@ -938,3 +940,43 @@ def test_attach_media_tool_description_conditional() -> None:
     gemini_named_tool = _tool_by_name(gemini_named_runtime, "attach_media")
     assert gemini_named_tool is not None
     assert "Gemini YouTube links" in gemini_named_tool.description
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("source", [r"C:\assets\pixel.png", "C:/assets/pixel.png"])
+async def test_attach_media_accepts_windows_absolute_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, source: str
+) -> None:
+    image_path = tmp_path / "pixel.png"
+    image_path.write_bytes(_PNG_BYTES)
+
+    class WindowsFilesystemPath(PureWindowsPath):
+        def expanduser(self) -> "WindowsFilesystemPath":
+            return self
+
+        def resolve(self) -> Path:
+            return image_path
+
+    def filesystem_path(value: str) -> Path | WindowsFilesystemPath:
+        return WindowsFilesystemPath(value) if value == source else Path(value)
+
+    # Use pathlib's Windows parser on every host, mapping only filesystem
+    # resolution to a real PNG. The public tool, classification and staging run normally.
+    monkeypatch.setattr(attach_media, "Path", filesystem_path)
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_attach_media="on",
+        working_directory=tmp_path,
+        model_info=_model_info("image/png"),
+    )
+
+    result = await runtime.attach_media({"source": source})
+
+    assert result.is_error is False
+    pending = runtime.consume_pending_media_attachments()
+    assert len(pending) == 1
+    assert isinstance(pending[0], ImageContent)
+    assert pending[0].mime_type == "image/png"
+    with Image.open(BytesIO(base64.b64decode(pending[0].data))) as staged:
+        assert staged.size == (1, 1)
+        assert staged.convert("RGBA").tobytes() == bytes([0, 0, 0, 255])
