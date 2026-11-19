@@ -841,3 +841,16 @@ async def test_mcp_agent_reads_environment_skills_with_environment_read_tool() -
     assert "Use alpha." in _text(read)
 
     await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", ["first\nsecond\n", "first\r\nsecond\r\n", "first\rsecond\r"])
+async def test_local_environment_write_text_preserves_newlines(
+    tmp_path: Path, content: str
+) -> None:
+    env = LocalEnvironment(logger=logging.getLogger("test-local-env"), working_directory=tmp_path)
+    target = tmp_path / "line-endings.txt"
+
+    await env.write_text(str(target), content)
+
+    assert target.read_bytes() == content.encode("utf-8")
