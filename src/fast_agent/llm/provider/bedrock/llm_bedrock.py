@@ -340,23 +340,30 @@ def _json_tool_calls_from_pattern(
 
 
 def _single_json_tool_call(text_content: str) -> list[dict[str, Any]] | None:
-    pattern = r'\{[^}]*"name"[^}]*"arguments"[^}]*\}'
-    match = re.search(pattern, text_content, re.DOTALL)
-    if match is None:
-        return None
+    decoder = json.JSONDecoder()
+    search_start = 0
+    while (object_start := text_content.find("{", search_start)) != -1:
+        try:
+            tool_call, end_index = decoder.raw_decode(text_content, object_start)
+        except json.JSONDecodeError:
+            search_start = object_start + 1
+            continue
 
-    tool_call_payload = _extract_tool_call_payload(json.loads(match.group(0)))
-    if tool_call_payload is None:
-        return None
+        if isinstance(tool_call, dict) and "arguments" in tool_call:
+            tool_call_payload = _extract_tool_call_payload(tool_call)
+            if tool_call_payload is not None:
+                name_value, arguments = tool_call_payload
+                return [
+                    _system_prompt_tool_call(
+                        name_value,
+                        arguments,
+                        f"system_prompt_{name_value}",
+                    )
+                ]
 
-    name_value, arguments = tool_call_payload
-    return [
-        _system_prompt_tool_call(
-            name_value,
-            arguments,
-            f"system_prompt_{name_value}",
-        )
-    ]
+        search_start = end_index
+
+    return None
 
 
 def _custom_tag_tool_call(text_content: str) -> list[dict[str, Any]] | None:
