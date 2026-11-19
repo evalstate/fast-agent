@@ -104,8 +104,8 @@ def test_marketplace_rejects_url_paths_that_normalization_would_change(path: str
     assert parse_marketplace_payload([{"name": "hello", "repo_url": url}]) == []
 
 
-@pytest.mark.parametrize("encoded_path", ["skills/%FF", "skills/%C3%28"])
-def test_marketplace_rejects_invalid_utf8_url_paths(encoded_path: str) -> None:
+@pytest.mark.parametrize("encoded_path", ["skills/%FF", "skills/%C3%28", "skills/null%00byte"])
+def test_marketplace_rejects_invalid_utf8_or_nul_url_paths(encoded_path: str) -> None:
     url = f"https://github.com/example/skills/tree/main/{encoded_path}"
     assert source_urls.parse_github_url(url) is None
     assert parse_marketplace_payload([{"name": "hello", "repo_url": url}]) == []
@@ -126,3 +126,16 @@ def test_marketplace_candidate_path_encoding_is_stable(kind: str) -> None:
         ]
     else:
         assert source_urls.normalize_marketplace_url(url) == url
+
+
+def test_marketplace_registry_urls_preserve_encoded_segments() -> None:
+    trailing_space_tree = "https://github.com/example/skills/tree/main/registries/partners%20"
+    assert source_urls.candidate_marketplace_urls(trailing_space_tree) == [
+        "https://raw.githubusercontent.com/example/skills/main/registries/partners%20/.claude-plugin/marketplace.json",
+        "https://raw.githubusercontent.com/example/skills/main/registries/partners%20/marketplace.json",
+    ]
+
+    encoded_dot_raw = (
+        "https://raw.githubusercontent.com/example/skills/main/dir/%2E%2E/marketplace.json"
+    )
+    assert source_urls.normalize_marketplace_url(encoded_dot_raw) == encoded_dot_raw

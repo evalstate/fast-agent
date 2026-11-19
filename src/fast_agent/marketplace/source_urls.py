@@ -72,8 +72,8 @@ def normalize_marketplace_url(url: str) -> str:
         )
         is_raw_github = is_github_raw_host(parsed.netloc)
         if is_github_blob or is_raw_github:
-            parsed_source = parse_github_url(normalized)
-            return _github_raw_content_url(parsed_source) or normalized
+            parsed_source = _parse_github_url_raw(normalized)
+            return _github_raw_content_url_encoded(parsed_source) or normalized
     return normalized
 
 
@@ -104,13 +104,16 @@ def github_raw_file_url(
     return f"https://{GITHUB_RAW_HOST}/{org}/{repo}/{ref}/{quote(repo_path, safe='/')}"
 
 
-def _github_raw_content_url(parsed_source: ParsedGitHubUrl | None) -> str | None:
+def _github_raw_content_url_encoded(parsed_source: ParsedGitHubUrl | None) -> str | None:
     if parsed_source is None or parsed_source.repo_ref is None:
         return None
-    return github_raw_file_url(
-        repo_url=parsed_source.repo_url,
-        repo_ref=parsed_source.repo_ref,
-        repo_path=parsed_source.repo_path,
+    parsed_repo = urlparse(parsed_source.repo_url)
+    repo_parts = parsed_repo.path.strip("/").split("/")
+    if not is_github_web_host(parsed_repo.netloc) or len(repo_parts) != 2:
+        return None
+    org, repo = repo_parts
+    return (
+        f"https://{GITHUB_RAW_HOST}/{org}/{repo}/{parsed_source.repo_ref}/{parsed_source.repo_path}"
     )
 
 
@@ -146,7 +149,7 @@ def _candidate_github_marketplace_urls(normalized: str, parsed: "ParseResult") -
 
     org, repo = parts[:2]
     if len(parts) >= 4 and parts[2] in {"tree", "blob"}:
-        parsed_source = parse_github_url(normalized)
+        parsed_source = _parse_github_url_raw(normalized)
         if parsed_source is not None and parsed_source.repo_ref is not None:
             return _github_marketplace_candidates(
                 org,
@@ -182,14 +185,11 @@ def candidate_marketplace_urls(url: str) -> list[str]:
 
 def _github_marketplace_candidates(org: str, repo: str, ref: str, base_path: str) -> list[str]:
     suffixes = _marketplace_path_candidates(base_path)
-    return [
-        f"https://{GITHUB_RAW_HOST}/{org}/{repo}/{ref}/{quote(suffix, safe='/')}"
-        for suffix in suffixes
-    ]
+    return [f"https://{GITHUB_RAW_HOST}/{org}/{repo}/{ref}/{suffix}" for suffix in suffixes]
 
 
 def _marketplace_path_candidates(base_path: str) -> list[str]:
-    cleaned = base_path.strip("/")
+    cleaned = base_path.strip().strip("/")
     if not cleaned:
         return [".claude-plugin/marketplace.json", "marketplace.json"]
 
@@ -259,7 +259,7 @@ def _split_github_ref_at_source_path_anchor(
     return None
 
 
-def parse_github_url(url: str | None) -> ParsedGitHubUrl | None:
+def _parse_github_url_raw(url: str | None) -> ParsedGitHubUrl | None:
     normalized = strip_str_to_none(url)
     if normalized is None:
         return None
@@ -275,6 +275,24 @@ def parse_github_url(url: str | None) -> ParsedGitHubUrl | None:
     return None
 
 
+def parse_github_url(url: str | None) -> ParsedGitHubUrl | None:
+    parsed = _parse_github_url_raw(url)
+    if parsed is None:
+        return None
+    try:
+        decoded_path = unquote(parsed.repo_path, errors="strict")
+    except UnicodeDecodeError:
+        return None
+    if "\x00" in decoded_path or decoded_path != decoded_path.strip() or "\\" in decoded_path:
+        # Repository path normalization or NUL bytes would invalidate or alter the path.
+        return None
+    return ParsedGitHubUrl(
+        repo_url=parsed.repo_url,
+        repo_ref=parsed.repo_ref,
+        repo_path=decoded_path,
+    )
+
+
 def _parsed_github_source(
     repo_parts: "Sequence[str]",
     ref_and_path_parts: "Sequence[str]",
@@ -286,17 +304,10 @@ def _parsed_github_source(
         return None
     org, repo = repo_parts[:2]
     ref, repo_path = split_ref
-    try:
-        decoded_path = unquote(repo_path, errors="strict")
-    except UnicodeDecodeError:
-        return None
-    if decoded_path != decoded_path.strip() or "\\" in decoded_path:
-        # Repository path normalization would select a different path.
-        return None
     return ParsedGitHubUrl(
         repo_url=f"https://github.com/{org}/{repo}",
         repo_ref=ref,
-        repo_path=decoded_path,
+        repo_path=repo_path,
     )
 
 
