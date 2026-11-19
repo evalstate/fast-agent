@@ -792,6 +792,20 @@ def generate_ptc_config_snippet() -> str:
     return "".join(lines)
 
 
+def generate_session_history_config_snippet() -> str:
+    """Generate session history defaults from the settings model."""
+    from fast_agent.config import Settings
+
+    fields = Settings.model_fields
+    return (
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: Settings -->\n\n"
+        "```yaml\n"
+        f"session_history: {_yaml_scalar(fields['session_history'].default)}\n"
+        f"session_history_window: {_yaml_scalar(fields['session_history_window'].default)}\n"
+        "```\n"
+    )
+
+
 def generate_copilot_config_snippet() -> str:
     """Generate Copilot defaults from the settings model."""
     from fast_agent.config import CopilotSettings
@@ -1670,6 +1684,10 @@ def main() -> int:
         )
         _write(GENERATED_DIR / "copilot_config_snippet.md", generate_copilot_config_snippet())
         _write(GENERATED_DIR / "ptc_config_snippet.md", generate_ptc_config_snippet())
+        _write(
+            GENERATED_DIR / "session_history_config_snippet.md",
+            generate_session_history_config_snippet(),
+        )
         _write(GENERATED_DIR / "ptc_model_defaults.md", generate_ptc_model_defaults_snippet())
         _write(
             GENERATED_DIR / "compaction_settings_reference.md",

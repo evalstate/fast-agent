@@ -2539,6 +2539,9 @@ def _migrate_legacy_mcp_settings_values(values: Any) -> Any:
     return normalized
 
 
+DEFAULT_SESSION_HISTORY_WINDOW: Final = 30
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -2627,8 +2630,8 @@ class Settings(BaseSettings):
     session_history: bool = True
     """Persist session history in the environment sessions folder (default: True)."""
 
-    session_history_window: int = 20
-    """Maximum number of sessions to keep in the rolling window (default: 20)."""
+    session_history_window: int = DEFAULT_SESSION_HISTORY_WINDOW
+    """Maximum number of sessions to keep in the rolling window (0 disables pruning)."""
 
     git_aware: bool = False
     """Persist git repository provenance in session snapshots and trace exports."""

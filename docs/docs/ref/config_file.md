@@ -41,15 +41,15 @@ execution_engine: "asyncio"
 # Base directory for fast-agent runtime data
 home: ".fast-agent"
 
-# Session history storage (on/off)
-session_history: true
-
-# Session history rolling window (number of recent sessions to keep)
-session_history_window: 20
-
 # Persist git repository provenance in session snapshots and trace exports
 git_aware: false
 ```
+
+### Session history
+
+--8<-- "_generated/session_history_config_snippet.md"
+
+Set `session_history_window: 0` to disable automatic pruning.
 
 ### Programmatic tool calling (PTC)
 
