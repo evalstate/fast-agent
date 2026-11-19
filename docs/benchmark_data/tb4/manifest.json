@@ -1213,6 +1213,82 @@
         "Harbor's recorded cost is a list-price equivalent, not what GitHub Copilot billed. Four trials had provider retries with missing usage (five calls), so the recorded amount is a lower bound."
       ],
       "scan": true
+    },
+    {
+      "id": "tb4-sol62-high-ptc",
+      "harness": "fast-agent",
+      "model": "GPT-6.2 Sol",
+      "effort": "high",
+      "model_string": "copilot.gpt-6.2-sol?reasoning=high&ptc=on",
+      "date": "2026-11-19",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-sol62-high-ptc",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-sol62-high-fa060-ptc-r1 (cohort tb4-gpt62sol-high-copilot-fa060-ptc-001)"
+      },
+      "expected": {
+        "passes": 56,
+        "trials_with_cost": 95,
+        "total_cost_usd": 36.71,
+        "errors": {
+          "AgentSafetyRefusalError": 2
+        },
+        "harness_version": "0.10.60"
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "All verifier results are retained.",
+        "coverage": "atif-scan 0.8.24 (e548354), basic scan with the TB4 publish-side rules: all 95 trials had trajectories and no pass was flagged high or critical. Some checks remained undecided on all 56 passes; this is not full behavioural clearance.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), five attempts per task with each task's native deadline. Not a full-suite leaderboard result.",
+        "HF Jobs (cpu-basic/upgrade partitions), Harbor 271f0a31 and the published fast-agent-mcp 0.10.60 wheel. GPT-6.2 Sol through GitHub Copilot, high reasoning effort, PTC enabled. No whole-trial retries or replacements.",
+        "Two provider safety stops on mvcc-lsm-compaction are retained in the 95 trials. Both were verified; one earned reward and counts as a pass.",
+        "Harbor's recorded cost is a list-price equivalent, not what GitHub Copilot billed. Two trials have incomplete provider usage; the all-trial cost is a lower bound."
+      ],
+      "scan": true
+    },
+    {
+      "id": "tb4-gemini4neon-medium-ptc",
+      "harness": "fast-agent",
+      "model": "Gemini 4 Neon",
+      "effort": "medium",
+      "model_string": "copilot.gemini-4-neon?reasoning=medium&compact_at=300k&ptc=on",
+      "date": "2026-11-19",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-gemini4neon-medium-fa060-ptc-r1 (cohort tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001)"
+      },
+      "expected": {
+        "passes": 59,
+        "trials_with_cost": 95,
+        "total_cost_usd": 143.37,
+        "errors": {},
+        "harness_version": "0.10.60"
+      },
+      "published": null,
+      "review": {
+        "note": "All verifier results are retained.",
+        "coverage": "atif-scan 0.8.24 (e548354), basic scan with the TB4 publish-side rules: all 95 trials had trajectories and no pass was flagged high or critical. Some checks remained undecided on all 59 passes; this is not full behavioural clearance.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), five attempts per task with each task's native deadline. Not a full-suite leaderboard result.",
+        "HF Jobs (cpu-basic/upgrade partitions), Harbor 271f0a31 and the published fast-agent-mcp 0.10.60 wheel. Gemini 4 Neon through GitHub Copilot, medium reasoning effort, PTC enabled and a 300k-token compaction threshold. No whole-trial retries or replacements.",
+        "Harbor recorded cost on all 95 trials at the configured Gemini 4 Neon list rates ($3 / $0.15 / $15 per million input / cached input / output tokens). This is a list-price equivalent, not what GitHub Copilot billed."
+      ],
+      "scan": true
     }
   ]
 }

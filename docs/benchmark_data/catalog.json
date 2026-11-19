@@ -275,6 +275,16 @@
       "benchmark": "terminal-bench-4.0-subset",
       "family": "anthropic"
     },
+    "tb4-sol62-high-ptc": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "gpt-6",
+      "status": "PTC"
+    },
+    "tb4-gemini4neon-medium-ptc": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "gemini",
+      "status": "PTC"
+    },
     "tb4-glm53flash-max-ptc": {
       "benchmark": "terminal-bench-4.0-subset",
       "family": "glm",
