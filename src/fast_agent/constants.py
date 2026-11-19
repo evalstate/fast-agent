@@ -128,7 +128,7 @@ MAX_FOREGROUND_AUTO_AWAIT_SECONDS = 3600
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 16_000
 """Baseline byte limit for ACP terminal output when no model info exists."""
 
-DEFAULT_PTC_OUTPUT_BYTE_LIMIT = 48_000
+DEFAULT_PTC_OUTPUT_BYTE_LIMIT = 16_000
 """Default model-facing byte limit for PTC ``exec_sandbox`` tool results."""
 
 DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES = 2 * 1024 * 1024
