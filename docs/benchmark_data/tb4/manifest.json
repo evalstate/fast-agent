@@ -1289,6 +1289,44 @@
         "Harbor recorded cost on all 95 trials at the configured Gemini 4 Neon list rates ($3 / $0.15 / $15 per million input / cached input / output tokens). This is a list-price equivalent, not what GitHub Copilot billed."
       ],
       "scan": true
+    },
+    {
+      "id": "tb4-gemini4hydrogen-high-ptc",
+      "harness": "fast-agent",
+      "model": "Gemini 4 Hydrogen",
+      "effort": "high",
+      "model_string": "copilot.gemini-4-hydrogen?reasoning=high&ptc=on",
+      "date": "2026-11-19",
+      "timeout": "standard",
+      "tasks_file": "subset.json",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb4/19-task-v1/tb4-gemini4hydrogen-high-ptc",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb4-gemini4hydrogen-high-fa061-ptc-r1 (cohort tb4-gemini4hydrogen-high-copilot-fa061-ptc-001)"
+      },
+      "expected": {
+        "passes": 53,
+        "trials_with_cost": 95,
+        "total_cost_usd": 121.91,
+        "errors": {},
+        "harness_version": "0.10.61"
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "No verifier passes were disqualified.",
+        "coverage": "atif-scan 0.8.24 (e548354), basic scan with the TB4 publish-side rules: all 95 scored trials and the original verifier timeout had trajectories. No passing trial was flagged high or critical. Some checks remained undecided on all 53 passes; this is not full behavioural clearance.",
+        "cleared": [],
+        "disqualified": []
+      },
+      "notes": [
+        "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), five attempts per task with each task's native deadline. Not a full-suite leaderboard result.",
+        "HF Jobs (cpu-basic/upgrade partitions), Harbor 271f0a31 and the published fast-agent-mcp 0.10.61 wheel. Gemini 4 Hydrogen through GitHub Copilot, high reasoning effort, PTC enabled. No whole-trial retries or replacements.",
+        "One vpp-loss-divergence verifier timed out in the original run. A verifier-only replay scored the exact same agent artifacts with the same verifier image and 900-second deadline, and passed. No model was rerun; the original timeout is preserved. As run: 52/95; after the regrade: 53/95.",
+        "Harbor recorded cost at the configured Gemini 4 Hydrogen list rates ($1.50 / $0.075 / $7.50 per million input / cached input / output tokens), not what GitHub Copilot billed. One trial had incomplete provider usage, so the total is a lower bound."
+      ],
+      "scan": true
     }
   ]
 }

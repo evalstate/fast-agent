@@ -285,6 +285,11 @@
       "family": "gemini",
       "status": "PTC"
     },
+    "tb4-gemini4hydrogen-high-ptc": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "gemini",
+      "status": "PTC"
+    },
     "tb4-glm53flash-max-ptc": {
       "benchmark": "terminal-bench-4.0-subset",
       "family": "glm",
