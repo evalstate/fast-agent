@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Final
 
 from fast_agent.mcp.common import get_resource_name, is_namespaced_name
@@ -51,6 +51,10 @@ _RESULT_FRAMING_BYTES = 512
 """Room left for exec_sandbox's own framing (status header, ``Output:``) around the text."""
 _FULL_STUBS_BYTE_BUDGET = 8000
 """Full definitions after the top match stop here; further matches are compact signatures."""
+_CELL_SEARCH_BYTE_BUDGET = 20_000
+"""Shared byte budget across all ``search_tools`` calls in one ``exec_sandbox`` cell."""
+_COMPACT_FALLBACK_BYTE_BUDGET = 1_000
+"""Room kept for compact 1-line signatures and a refinement hint once the cell budget is reached."""
 _TOP_STUB_BYTE_LIMIT = 12_000
 """The top match is shown in full up to this size; larger definitions lose their docstring."""
 _K1 = 1.2
@@ -72,6 +76,19 @@ _CJK = "\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff"
 _WORD = re.compile(rf"[{_CJK}]|[^\W\d_{_CJK}]+|\d+")
 _ASCII_PART = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+")
 _COMPACT_HEADING = "\n# Additional matches (search exact name for full stub):"
+_CELL_BUDGET_COMPACT_HEADING = (
+    "\n# Additional matches (cell search budget reached; refine the query or call "
+    'search_tools(query="<exact_name>") for full stubs):'
+)
+
+
+@dataclass(slots=True)
+class CellSearchState:
+    """Per-cell state shared across ``search_tools`` calls in one ``exec_sandbox`` run."""
+
+    seen_full: set[str] = field(default_factory=set)
+    bytes_used: int = 0
+    cell_budget: int = _CELL_SEARCH_BYTE_BUDGET
 
 
 def tokenize(text: str) -> list[str]:
@@ -308,11 +325,14 @@ def search_tools(
     exclude: list[str] | tuple[str, ...] | set[str] | frozenset[str] | None = None,
     offset: int = 0,
     byte_limit: int | None = None,
+    cell_state: CellSearchState | None = None,
 ) -> str:
     """Run a ``search_tools`` call from sandbox code against ``catalog``.
 
     ``byte_limit`` is how much of an ``exec_sandbox`` result the model sees; the text returned
-    fits inside it with room for the result's framing.
+    fits inside it with room for the result's framing. When ``cell_state`` is provided, sibling
+    calls in the same ``exec_sandbox`` run share a byte budget and skip repeating full stubs
+    already emitted earlier in that run.
     """
     if query is not None and not isinstance(query, str):
         raise TypeError("search_tools() query must be a str or None")
@@ -325,11 +345,44 @@ def search_tools(
     excluded = _excluded_names(exclude)
     limit = min(max(limit, 1), MAX_LIMIT)
     budget = _SEARCH_RESULT_BYTE_LIMIT
+    max_result_budget: int | None = None
     if byte_limit is not None:
         framing = min(_RESULT_FRAMING_BYTES, byte_limit // 2)
-        budget = max(0, min(budget, byte_limit - framing))
-    result = _search_result(catalog, query, server, limit, excluded, budget)
-    return _result_page(result, offset, budget)
+        max_result_budget = max(0, byte_limit - framing)
+        budget = min(budget, max_result_budget)
+    remaining_cell: int | None = None
+    cell_budget_active = False
+    if cell_state is not None:
+        cell_cap = (
+            min(cell_state.cell_budget, max_result_budget)
+            if max_result_budget is not None
+            else cell_state.cell_budget
+        )
+        remaining_cell = max(0, cell_cap - cell_state.bytes_used)
+        if cell_state.bytes_used > 0:
+            cell_budget_active = True
+            budget = min(budget, max(remaining_cell, _COMPACT_FALLBACK_BYTE_BUDGET))
+        else:
+            budget = min(budget, remaining_cell)
+    seen_full = cell_state.seen_full if cell_state is not None and offset == 0 else None
+    newly_shown_full: list[str] = []
+    result = _search_result(
+        catalog,
+        query,
+        server,
+        limit,
+        excluded,
+        budget,
+        seen_full=seen_full,
+        remaining_cell=remaining_cell if cell_budget_active else None,
+        newly_shown_full=newly_shown_full,
+    )
+    page = _result_page(result, offset, budget)
+    if cell_state is not None:
+        if offset == 0:
+            cell_state.seen_full.update(newly_shown_full)
+        cell_state.bytes_used += _size(page)
+    return page
 
 
 def _result_page(result: str, offset: int, budget: int) -> str:
@@ -354,6 +407,10 @@ def _search_result(
     limit: int,
     excluded: frozenset[str],
     budget: int,
+    *,
+    seen_full: set[str] | None = None,
+    remaining_cell: int | None = None,
+    newly_shown_full: list[str] | None = None,
 ) -> str:
     source = None
     if server is not None and server.strip():
@@ -402,7 +459,16 @@ def _search_result(
             catalog, query, source, excluded_hits=len(all_matches) if excluded else 0
         )
     note = f"# Note: {unavailable_tool_message(retired)}" if retired is not None else None
-    return _render_matches(matches, limit, source, budget, note)
+    return _render_matches(
+        matches,
+        limit,
+        source,
+        budget,
+        note,
+        seen_full=seen_full,
+        remaining_cell=remaining_cell,
+        newly_shown_full=newly_shown_full,
+    )
 
 
 def _retired_name(catalog: PtcCatalog, query: str) -> str | None:
@@ -515,34 +581,78 @@ def _no_matches(
 
 
 def _render_matches(
-    matches: list[_Match], limit: int, source: str | None, budget: int, note: str | None
+    matches: list[_Match],
+    limit: int,
+    source: str | None,
+    budget: int,
+    note: str | None,
+    *,
+    seen_full: set[str] | None = None,
+    remaining_cell: int | None = None,
+    newly_shown_full: list[str] | None = None,
 ) -> str:
     """Render full stubs, then compact signatures, within ``budget``; never part of a stub."""
     shown = matches[:limit]
+    already_shown = (
+        [
+            match.document.function.python_name
+            for match in shown
+            if match.document.function.python_name in seen_full
+        ]
+        if seen_full
+        else []
+    )
+    to_render = (
+        [match for match in shown if match.document.function.python_name not in seen_full]
+        if seen_full
+        else shown
+    )
     scope = f" (source: {source})" if source else ""
     total = _count(len(matches), "match", "matches")
     lines = [note] if note else []
     header_line = len(lines)
     lines.append(f"# search_tools: showing {len(shown)} of {total}{scope}")
+    if already_shown:
+        lines.append(f"# Already shown in this run: {', '.join(already_shown)}")
     # Keep room for the compact heading and the omitted-matches line.
+    compact_heading_reserve = (
+        max(_size(_COMPACT_HEADING), _size(_CELL_BUDGET_COMPACT_HEADING))
+        if remaining_cell is not None
+        else _size(_COMPACT_HEADING)
+    )
     room = (
         budget
         - _size("\n".join(lines))
-        - _size(_COMPACT_HEADING)
+        - compact_heading_reserve
         - _size(_omitted_line(len(matches), raise_limit=True))
         - 2
     )
-    full_room = min(room, _FULL_STUBS_BYTE_BUDGET)
+    full_room = (
+        min(room, _FULL_STUBS_BYTE_BUDGET, remaining_cell)
+        if remaining_cell is not None
+        else min(room, _FULL_STUBS_BYTE_BUDGET)
+    )
+    initial_full_room_cell_capped = (
+        remaining_cell is not None and min(room, remaining_cell) < _FULL_STUBS_BYTE_BUDGET
+    )
+    remaining_cell_left = remaining_cell
     compact: list[str] = []
-    compacting = False
+    compacting = remaining_cell is not None and remaining_cell <= 0
+    demoted_by_cell_budget = compacting
     skipped = 0
-    for index, match in enumerate(shown):
+    for index, match in enumerate(to_render):
         document = match.document
         block = f"\n# source: {document.source}\n{document.function.stub()}"
-        if index == 0:
+        if index == 0 and remaining_cell is None:
             block = _top_block(document, block, room)
         elif compacting or _size(block) + 1 > full_room:
             # Once one definition does not fit, the rest keep rank order as signatures.
+            if remaining_cell_left is not None and (
+                remaining_cell_left <= 0
+                or _size(block) + 1 > remaining_cell_left
+                or initial_full_room_cell_capped
+            ):
+                demoted_by_cell_budget = True
             compacting = True
             line = _signature_line(document.function, room)
             if line is None:
@@ -552,10 +662,15 @@ def _render_matches(
                 room -= _size(line) + 1
             continue
         lines.append(block)
-        room -= _size(block) + 1
-        full_room -= _size(block) + 1
+        if newly_shown_full is not None:
+            newly_shown_full.append(document.function.python_name)
+        block_size = _size(block) + 1
+        room -= block_size
+        full_room -= block_size
+        if remaining_cell_left is not None:
+            remaining_cell_left -= block_size
     if compact:
-        lines.append(_COMPACT_HEADING)
+        lines.append(_CELL_BUDGET_COMPACT_HEADING if demoted_by_cell_budget else _COMPACT_HEADING)
         lines.extend(compact)
     omitted = len(matches) - len(shown) + skipped
     if omitted:

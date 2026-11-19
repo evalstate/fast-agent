@@ -20,6 +20,7 @@ from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_com
 from fast_agent.constants import (
     DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
     DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS,
+    DEFAULT_PTC_OUTPUT_BYTE_LIMIT,
     MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
     MAX_PROCESS_POLL_WAIT_SECONDS,
 )
@@ -2059,6 +2060,9 @@ class ProgrammaticToolCallingSettings(BaseModel):
 
     max_memory_mb: int = Field(default=256, gt=0)
     """Sandbox memory limit per execution."""
+
+    output_byte_limit: int = Field(default=DEFAULT_PTC_OUTPUT_BYTE_LIMIT, ge=256)
+    """Model-facing byte limit for `exec_sandbox` tool results."""
 
     model_config = ConfigDict(extra="ignore")
 

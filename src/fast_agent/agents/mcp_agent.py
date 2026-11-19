@@ -63,6 +63,7 @@ from fast_agent.commands.model_capabilities import (
 )
 from fast_agent.config import MCPServerSettings, ShellSettings
 from fast_agent.constants import (
+    DEFAULT_PTC_OUTPUT_BYTE_LIMIT,
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     HUMAN_INPUT_TOOL_NAME,
     MAX_PROCESS_POLL_WAIT_SECONDS,
@@ -1472,6 +1473,16 @@ class McpAgent(ABC, ToolAgent):
         if model_override is not None:
             return calculate_terminal_output_limit_for_model(model_name)
         return shell_config.output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+    def _ptc_output_byte_limit(self) -> int:
+        ptc_config = (
+            self._context.config.ptc
+            if self._context is not None and self._context.config is not None
+            else None
+        )
+        if ptc_config is not None:
+            return ptc_config.output_byte_limit
+        return DEFAULT_PTC_OUTPUT_BYTE_LIMIT
 
     def _activate_shell_runtime(
         self,
@@ -2968,7 +2979,11 @@ class McpAgent(ABC, ToolAgent):
         result: CallToolResult,
     ) -> tuple[CallToolResult, ToolResultDisplayMetadata]:
         if not call.is_local_shell:
-            byte_limit = self._model_tool_output_byte_limit()
+            byte_limit = (
+                self._ptc_output_byte_limit()
+                if self._is_ptc_tool_call(call)
+                else self._model_tool_output_byte_limit()
+            )
             paged = (
                 page_read_text_file_result(result, tool_args=call.tool_args, byte_limit=byte_limit)
                 if self._is_runtime_read_text_file_call(call)
@@ -2985,6 +3000,14 @@ class McpAgent(ABC, ToolAgent):
             tool_args=call.tool_args,
         )
         return result, tool_result_display_metadata(result)
+
+    def _is_ptc_tool_call(self, call: PlannedMcpToolCall) -> bool:
+        ptc_runtime = self._programmatic_tool_runtime()
+        return (
+            ptc_runtime is not None
+            and call.namespaced_tool is None
+            and call.tool_name == ptc_runtime.tool_name
+        )
 
     def _is_runtime_read_text_file_call(self, call: PlannedMcpToolCall) -> bool:
         return (
@@ -3471,7 +3494,7 @@ class McpAgent(ABC, ToolAgent):
                 output_guidance=ptc_runtime.resolve_output_guidance(
                     model_params.ptc_output_guidance if model_params is not None else None
                 ),
-                result_byte_limit=self._model_tool_output_byte_limit(),
+                result_byte_limit=self._ptc_output_byte_limit(),
             )
         return ListToolsResult(tools=merged_tools)
 

@@ -23,7 +23,6 @@ from typing import TYPE_CHECKING, Any, Literal
 from mcp_types import CallToolResult, ContentBlock, TextContent, Tool
 
 from fast_agent.constants import (
-    DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     FAST_AGENT_PTC_CALLS,
     FAST_AGENT_PTC_VALUE,
     FAST_AGENT_SUBAGENT_RESULT_METADATA,
@@ -50,7 +49,12 @@ from fast_agent.ptc.output import (
     PtcOutputGuidance,
     shell_output_note,
 )
-from fast_agent.ptc.search import SEARCH_FUNCTION_NAME, SEARCH_STUBS, search_tools
+from fast_agent.ptc.search import (
+    SEARCH_FUNCTION_NAME,
+    SEARCH_STUBS,
+    CellSearchState,
+    search_tools,
+)
 from fast_agent.ptc.store import STORE_STUBS, SandboxStore
 from fast_agent.ptc.stubs import PtcFunction, build_functions, render_stubs, tool_ptc_options
 from fast_agent.ptc.syntax import describe_syntax_error
@@ -398,7 +402,7 @@ class ProgrammaticToolRuntime:
         self._tool_format: PtcToolFormat = "json"
         # Shell output guidance in effect: "off" unless sandbox code can run local shell commands.
         self._output_guidance: PtcOutputGuidance = "off"
-        self._result_byte_limit = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+        self._result_byte_limit = settings.output_byte_limit
         self._pool: AsyncMonty | None = None
         self._pool_stack = AsyncExitStack()
         self._store = SandboxStore()
@@ -441,7 +445,7 @@ class ProgrammaticToolRuntime:
         *,
         tool_format: PtcToolFormat = "json",
         output_guidance: PtcOutputGuidance = "off",
-        result_byte_limit: int = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+        result_byte_limit: int | None = None,
         file_read: bool = False,
         file_write: bool = False,
         sources: Mapping[str, str] | None = None,
@@ -476,7 +480,9 @@ class ProgrammaticToolRuntime:
         nested = [tool for tool in tools if self._is_nested(tool)]
         local_shell = any(_returns_shell_output(tool) for tool in nested)
         self._output_guidance = output_guidance if local_shell else "off"
-        self._result_byte_limit = result_byte_limit
+        self._result_byte_limit = (
+            self._settings.output_byte_limit if result_byte_limit is None else result_byte_limit
+        )
         self._direct_shell_tool = next(
             (tool.name for tool in direct if _returns_shell_output(tool)), None
         )
@@ -1235,8 +1241,10 @@ def _search_function(
 ) -> Callable[..., Awaitable[str]]:
     """The host side of ``search_tools``: answered from ``catalog``, recorded like a call.
 
-    ``byte_limit`` is how much of the run's result the model sees.
+    ``byte_limit`` is how much of the run's result the model sees. Sibling calls within one
+    ``exec_sandbox`` execution share per-cell deduplication and byte-budget state.
     """
+    cell_state = CellSearchState()
 
     async def call(*args: Any, **kwargs: Any) -> str:
         if args:
@@ -1248,7 +1256,7 @@ def _search_function(
         record["function"] = SEARCH_FUNCTION_NAME
         stats.calls.append(record)
         try:
-            text = search_tools(catalog, **kwargs, byte_limit=byte_limit)
+            text = search_tools(catalog, **kwargs, byte_limit=byte_limit, cell_state=cell_state)
         except Exception:
             record.update(status="raised", is_error=True)
             stats.failed.append(SEARCH_FUNCTION_NAME)
