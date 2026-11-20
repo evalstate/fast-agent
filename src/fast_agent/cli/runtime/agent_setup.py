@@ -1131,6 +1131,7 @@ async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) 
         or request.shell_runtime
         or request.no_shell
         or request.prefer_local_shell
+        or request.acp_client_tools is not None
         or request.ptc is not None
         or request.ptc_search is not None
         or request.ptc_search_forced
@@ -1148,6 +1149,8 @@ async def _apply_runtime_context_overrides(fast: Any, request: AgentRunRequest) 
         context.no_shell = True
     if request.prefer_local_shell and config is not None:
         config.shell_execution.prefer_local_shell = True
+    if request.acp_client_tools is not None and config is not None:
+        config.acp.use_client_tools = request.acp_client_tools
     if request.ptc is not None:
         context.ptc_enabled = request.ptc
     if request.ptc_search is not None:
@@ -1538,6 +1541,7 @@ async def _run_initialized_agent_request(
             port=request.port,
             instance_scope=request.instance_scope,
             permissions_enabled=serve_permissions_enabled,
+            use_client_tools=request.acp_client_tools,
             managed_mcp_agent_names=request.managed_mcp_agent_names,
         )
     else:

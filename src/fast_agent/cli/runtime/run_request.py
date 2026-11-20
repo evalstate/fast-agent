@@ -71,6 +71,7 @@ class AgentRunRequest:
     timeout_seconds: int | None = None
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
     prefer_local_shell: bool = False
+    acp_client_tools: bool | None = None
     attachments: list[str] | None = None
     managed_mcp_agent_names: list[str] | None = None
     environment: str | None = None
@@ -216,6 +217,7 @@ class AgentRunRequest:
             "subagent_model": self.subagent_model,
             "model_base_url": self.model_base_url,
             "prefer_local_shell": self.prefer_local_shell,
+            "acp_client_tools": self.acp_client_tools,
             "mode": self.mode,
             "transport": self.transport,
             "host": self.host,

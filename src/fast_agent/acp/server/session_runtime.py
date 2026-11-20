@@ -110,6 +110,7 @@ class SessionRuntimeHost(Protocol):
     _protocol_version: int | None
     primary_agent_name: str | None
     _permissions_enabled: bool
+    _use_client_tools: bool
 
     def _resolve_primary_agent_name(self, instance: AgentInstance) -> str | None: ...
 
@@ -1062,7 +1063,8 @@ class ACPServerSessionRuntime:
     ) -> None:
         session_state = initialization.session_state
         if (
-            not self._host._connection
+            not self._host._use_client_tools
+            or not self._host._connection
             or not self._host._client_supports_terminal
             or session_state.terminal_runtime is not None
         ):
@@ -1113,7 +1115,8 @@ class ACPServerSessionRuntime:
     ) -> None:
         session_state = initialization.session_state
         if (
-            not self._host._connection
+            not self._host._use_client_tools
+            or not self._host._connection
             or not (self._host._client_supports_fs_read or self._host._client_supports_fs_write)
             or session_state.filesystem_runtime is not None
         ):

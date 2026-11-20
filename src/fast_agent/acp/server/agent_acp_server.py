@@ -111,6 +111,7 @@ class AgentACPServer(UnsupportedACPMethods, ACPAgent):
         server_version: str | None = None,
         skills_directory_override: Sequence[str | Path] | str | Path | None = None,
         permissions_enabled: bool = True,
+        use_client_tools: bool = False,
         load_card_callback: Callable[[str, str | None], Awaitable[AgentCardLoadResult]]
         | None = None,
         attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
@@ -131,6 +132,7 @@ class AgentACPServer(UnsupportedACPMethods, ACPAgent):
             server_version: Version of the server (defaults to fast-agent version)
             skills_directory_override: Optional skills directory override (relative to session cwd)
             permissions_enabled: Whether to request tool permissions from client (default: True)
+            use_client_tools: Opt in to delegating shell/filesystem tools to client-advertised ACP capabilities (default: False)
             load_card_callback: Optional callback to load AgentCards at runtime
             attach_agent_tools_callback: Optional callback to attach agent tools at runtime
             detach_agent_tools_callback: Optional callback to detach agent tools at runtime
@@ -152,6 +154,7 @@ class AgentACPServer(UnsupportedACPMethods, ACPAgent):
         self.server_name = server_name
         self._skills_directory_override = skills_directory_override
         self._permissions_enabled = permissions_enabled
+        self._use_client_tools = use_client_tools
         # Use provided version or get fast-agent version
         if server_version is None:
             try:

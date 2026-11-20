@@ -374,6 +374,7 @@ class FastAgentRunMixin:
         server_description: str | None = None,
         instance_scope: str | None = None,
         permissions_enabled: bool = True,
+        use_client_tools: bool | None = None,
         managed_mcp_agent_names: list[str] | None = None,
     ) -> None:
         """
@@ -396,6 +397,7 @@ class FastAgentRunMixin:
             instance_scope=instance_scope,
         )
         self.args.permissions_enabled = permissions_enabled
+        self.args.use_client_tools = use_client_tools
         self.args.quiet = bool(getattr(original_args, "quiet", False))
         if uses_protocol_stdio(transport):
             self.args.quiet = True

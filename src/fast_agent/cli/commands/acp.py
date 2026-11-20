@@ -64,6 +64,7 @@ def _build_run_request(
     reload: bool,
     watch: bool,
     prefer_local_shell: bool = False,
+    acp_client_tools: bool | None = None,
     missing_shell_cwd: serve.MissingShellCwdPolicy | None = None,
     no_shell: bool = False,
     workspace: Path | None = None,
@@ -105,6 +106,7 @@ def _build_run_request(
         subagents=subagents,
         subagent_model=subagent_model,
         prefer_local_shell=prefer_local_shell,
+        acp_client_tools=acp_client_tools,
         mode="serve",
         transport=serve.ServeTransport.ACP.value,
         host=host,
@@ -160,12 +162,20 @@ def run_acp(
     no_shell: bool = CommonAgentOptions.no_shell(),
     subagents: bool | None = CommonAgentOptions.subagents(),
     subagent_model: str | None = CommonAgentOptions.subagent_model(),
+    acp_client_tools: bool | None = typer.Option(
+        None,
+        "--acp-client-tools/--no-acp-client-tools",
+        help=(
+            "Opt in to delegating shell and filesystem tools to client-advertised ACP "
+            "capabilities (default: use fast-agent native shell, filesystem, and PTC tools)"
+        ),
+    ),
     prefer_local_shell: bool = typer.Option(
         False,
         "--prefer-local-shell",
         help=(
-            "In ACP shell mode, use fast-agent's local shell runtime instead of the "
-            "ACP client's terminal capability"
+            "When --acp-client-tools is enabled in ACP shell mode, keep fast-agent's local "
+            "shell runtime instead of the ACP client's terminal capability"
         ),
     ),
     no_permissions: bool = typer.Option(
@@ -215,6 +225,7 @@ def run_acp(
         subagents=subagents,
         subagent_model=subagent_model,
         prefer_local_shell=prefer_local_shell,
+        acp_client_tools=acp_client_tools,
         no_permissions=no_permissions,
         resume=resume,
         reload=reload,
