@@ -277,3 +277,34 @@ def test_per_image_byte_cap_shrinks_oversized_image() -> None:
     raw = base64.b64decode(url.split(",", 1)[1])
     assert len(raw) <= 120_000
     assert report.changed
+
+
+def test_max_request_bytes_default_and_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HF_MAX_REQUEST_BYTES", raising=False)
+    assert _llm(HuggingFaceSettings())._image_budget().max_request_bytes == 10_485_760
+
+    monkeypatch.setenv("HF_MAX_REQUEST_BYTES", "16777216")
+    assert _llm(HuggingFaceSettings())._image_budget().max_request_bytes == 16_777_216
+
+    # Explicit config setting takes precedence over environment variable, even when equal to default.
+    monkeypatch.setenv("HF_MAX_REQUEST_BYTES", "0")
+    assert _llm(HuggingFaceSettings())._image_budget().max_request_bytes is None
+    assert (
+        _llm(HuggingFaceSettings(max_request_bytes=10_485_760))._image_budget().max_request_bytes
+        == 10_485_760
+    )
+    assert (
+        _llm(HuggingFaceSettings(max_request_bytes=6_000_000))._image_budget().max_request_bytes
+        == 6_000_000
+    )
+
+    # "none" / "0" / "off" disable the budget via environment variable.
+    for disable_value in ("none", "0", "off"):
+        monkeypatch.setenv("HF_MAX_REQUEST_BYTES", disable_value)
+        assert _llm(HuggingFaceSettings())._image_budget().max_request_bytes is None
+
+    # Invalid or negative values warn and fall back to default.
+    for invalid_value in ("not-a-number", "-10"):
+        monkeypatch.setenv("HF_MAX_REQUEST_BYTES", invalid_value)
+        with pytest.warns(UserWarning, match="HF_MAX_REQUEST_BYTES"):
+            assert _llm(HuggingFaceSettings())._image_budget().max_request_bytes == 10_485_760

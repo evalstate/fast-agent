@@ -566,7 +566,7 @@ These limits apply to raw model strings and routes selected with
 
 ## Inline images and the request size limit
 
-The router rejects request bodies larger than about 5 MB with HTTP 413. Image-heavy
+Upstream inference providers reject oversized request bodies with HTTP 413. Image-heavy
 turns (document scans, video frames) can reach that quickly, because every image in
 the history is resent on each turn. Fast-agent fits inline images to the limit when
 it builds each request; the conversation history is never changed:
@@ -575,17 +575,20 @@ it builds each request; the conversation history is never changed:
    downscaled. Images larger than `image_reencode_min_bytes` (default 300 KB) are
    re-encoded as the smaller of their own format and JPEG; images with transparency
    stay PNG. The result is deterministic, so repeated turns keep a stable prompt prefix.
-2. If the request is still larger than `max_request_bytes` (default 4.5 MiB), the oldest
-   images are replaced with a short text placeholder until it fits.
+2. If the request is still larger than `max_request_bytes` (default 10 MiB, or
+   `HF_MAX_REQUEST_BYTES`), the oldest images are replaced with a short text placeholder
+   until it fits.
 3. If the router still answers 413, the request is resent once with the images trimmed
    to half its size.
 
 This applies to the Hugging Face router only; requests to a custom `hf.base_url`
-endpoint are sent unchanged.
+endpoint are sent unchanged. You can also set `HF_MAX_REQUEST_BYTES` in the environment
+(an integer byte limit, or `none`/`0` to disable) when `hf.max_request_bytes` is not
+explicitly configured.
 
 ```yaml
 hf:
   # image_max_dimension: 2048       # null disables downscaling
   # image_reencode_min_bytes: 300000 # null disables re-encoding
-  # max_request_bytes: 4718592      # null disables the budget
+  # max_request_bytes: 10485760     # null disables the budget (env: HF_MAX_REQUEST_BYTES)
 ```

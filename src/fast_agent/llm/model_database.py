@@ -1391,6 +1391,20 @@ class ModelDatabase:
         fast=True,
     )
 
+    HY4_HF = ModelParameters(
+        ptc_enabled=True,
+        context_window=1_048_576,
+        max_output_tokens=65536,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=HY4_FLASH_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.HUGGINGFACE,
+    )
+
+    HY4_FLASH_HF = HY4_HF.model_copy(update={"fast": True})
+
     MINIMAX_21 = ModelParameters(
         context_window=202752,
         max_output_tokens=131072,
@@ -1678,6 +1692,8 @@ class ModelDatabase:
         "glm-5.3-flash": GLM_5_3_FLASH,
         # Tencent Eval models
         "hy4-flash-dev": HY4_FLASH_DEV,
+        "tencent/hy4": HY4_HF,
+        "tencent/hy4-flash": HY4_FLASH_HF,
         # Google Gemini Models (vanilla aliases and versioned)
         "gemini-4-argon": GEMINI_4_STANDARD,
         "gemini-4-hydrogen": _with_fast(GEMINI_4_HYDROGEN),
@@ -1839,6 +1855,8 @@ class ModelDatabase:
         (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-small"): (
             "thinkingmachines/Inkling-2-Small"
         ),
+        (Provider.HUGGINGFACE, "tencent/hy4"): "tencent/Hy4",
+        (Provider.HUGGINGFACE, "tencent/hy4-flash"): "tencent/Hy4-flash",
     }
 
     @classmethod

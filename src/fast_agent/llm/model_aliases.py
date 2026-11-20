@@ -126,6 +126,8 @@ BUILTIN_MODEL_ALIASES: Final[dict[str, str]] = {
     "glm": "hf.zai-org/GLM-5.3:zai-org",
     "glm53": "hf.zai-org/GLM-5.3:zai-org",
     "glm53flash": "hf.zai-org/GLM-5.3-Flash:zai-org",
+    "hy4": "hf.tencent/Hy4:tencent",
+    "hy4-flash": "hf.tencent/Hy4-flash:tencent",
     "zaiglm": "zai.glm-5.3",
     "zaiglm52": "zai.glm-5.2",
     "zaiglm53": "zai.glm-5.3",
