@@ -84,6 +84,7 @@ class AgentRunRequest:
     ptc: bool | None = None
     ptc_search: bool | None = None
     force_model_picker: bool = False
+    ptc_search_forced: bool = False
 
     def __post_init__(self) -> None:
         self._validate_environment_options()
@@ -233,4 +234,5 @@ class AgentRunRequest:
             "ptc": self.ptc,
             "ptc_search": self.ptc_search,
             "force_model_picker": self.force_model_picker,
+            "ptc_search_forced": self.ptc_search_forced,
         }

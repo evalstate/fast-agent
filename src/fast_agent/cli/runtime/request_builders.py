@@ -535,10 +535,19 @@ def build_agent_run_request(
     ptc: bool | None = None,
     ptc_all: bool = False,
     force_model_picker: bool = False,
+    ptc_search: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     if ptc is False and ptc_all:
         raise typer.BadParameter("Cannot combine --ptc-all with --no-ptc.", param_hint="--ptc-all")
+    if ptc is False and ptc_search:
+        raise typer.BadParameter(
+            "Cannot combine --ptc-search with --no-ptc.", param_hint="--ptc-search"
+        )
+    if ptc_all and ptc_search:
+        raise typer.BadParameter(
+            "Cannot combine --ptc-all with --ptc-search.", param_hint="--ptc-search"
+        )
 
     validate_no_home_conflicts(
         no_home=no_home,
@@ -647,8 +656,9 @@ def build_agent_run_request(
         subagents=True if subagent_model is not None else subagents,
         subagent_model=subagent_model,
         model_base_url=model_base_url,
-        ptc=True if ptc_all else ptc,
-        ptc_search=False if ptc_all else None,
+        ptc=True if (ptc_all or ptc_search) else ptc,
+        ptc_search=False if ptc_all else (True if ptc_search else None),
+        ptc_search_forced=bool(ptc_search),
         force_model_picker=force_model_picker,
     )
 
@@ -719,6 +729,7 @@ def build_command_run_request(
     ptc: bool | None = None,
     ptc_all: bool = False,
     force_model_picker: bool = False,
+    ptc_search: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(
@@ -789,4 +800,5 @@ def build_command_run_request(
         ptc=ptc,
         ptc_all=ptc_all,
         force_model_picker=force_model_picker,
+        ptc_search=ptc_search,
     )

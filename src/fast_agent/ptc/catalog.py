@@ -27,7 +27,9 @@ if TYPE_CHECKING:
     from fast_agent.ptc.stubs import PtcFunction
 
 PTC_SEARCH_EXTRA_THRESHOLD: Final = 3
-"""Tool search starts deferring definitions when more extra functions than this are present."""
+"""Legacy extra-function count threshold (superseded by PTC_SEARCH_EXTRA_BYTE_THRESHOLD)."""
+PTC_SEARCH_EXTRA_BYTE_THRESHOLD: Final = 32_768
+"""Tool search starts deferring definitions when extra function stubs exceed this byte budget (~30 typical tools)."""
 BUILTIN_SOURCE: Final = "builtin"
 LOCAL_SOURCE: Final = "local"
 CARD_SOURCE: Final = "card"

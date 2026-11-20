@@ -28,6 +28,7 @@ _OPTIONS_WITHOUT_VALUES = {
     "--ptc",
     "--no-ptc",
     "--ptc-all",
+    "--ptc-search",
     "-x",
 }
 

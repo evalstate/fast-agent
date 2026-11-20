@@ -2037,6 +2037,7 @@ class McpAgent(ABC, ToolAgent):
             )
         self._ptc_runtime.function_names = self._ptc.function_names
         self._ptc_runtime.search_enabled = self._ptc_search_setting()
+        self._ptc_runtime.search_forced = self._context.ptc_search_forced
         return self._ptc_runtime
 
     @property

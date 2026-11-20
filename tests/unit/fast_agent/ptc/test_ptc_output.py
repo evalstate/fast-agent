@@ -136,7 +136,9 @@ def test_guidance_only_adds_its_note(
 ) -> None:
     tools = _shell(tmp_path, profile).tools
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
-    off = _description(runtime, tools, tool_format=tool_format, output_guidance="off")
+    off = _description(
+        runtime, tools, tool_format=tool_format, output_guidance="off", result_byte_limit=33_000
+    )
     on = _description(
         runtime, tools, tool_format=tool_format, output_guidance=guidance, result_byte_limit=33_000
     )

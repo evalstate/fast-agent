@@ -41,6 +41,7 @@ def test_go_ptc_all_enables_ptc_without_search(
         (["--ptc-all", "-m", "hi"], True, False),
         (["--ptc-all", "--message", "hi"], True, False),
         (["--message", "hi", "--ptc-all"], True, False),
+        (["--message", "hi", "--ptc-search"], True, True),
         (["--ptc", "-m", "hi"], True, None),
         (["--no-ptc", "-m", "hi"], False, None),
     ],
@@ -76,6 +77,28 @@ def test_go_ptc_all_conflicts_with_no_ptc() -> None:
     assert isinstance(result.exception, typer.BadParameter)
     assert result.exception.param_hint == "--ptc-all"
     assert result.exception.message == "Cannot combine --ptc-all with --no-ptc."
+
+
+def test_go_ptc_search_conflicts_with_no_ptc() -> None:
+    result = CliRunner().invoke(
+        go_command.app,
+        ["--message", "hi", "--ptc-search", "--no-ptc"],
+        standalone_mode=False,
+    )
+    assert isinstance(result.exception, typer.BadParameter)
+    assert result.exception.param_hint == "--ptc-search"
+    assert result.exception.message == "Cannot combine --ptc-search with --no-ptc."
+
+
+def test_go_ptc_search_conflicts_with_ptc_all() -> None:
+    result = CliRunner().invoke(
+        go_command.app,
+        ["--message", "hi", "--ptc-all", "--ptc-search"],
+        standalone_mode=False,
+    )
+    assert isinstance(result.exception, typer.BadParameter)
+    assert result.exception.param_hint == "--ptc-search"
+    assert result.exception.message == "Cannot combine --ptc-all with --ptc-search."
 
 
 def test_ptc_settings_enable_search_by_default() -> None:

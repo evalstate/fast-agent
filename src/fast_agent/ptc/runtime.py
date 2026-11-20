@@ -33,7 +33,7 @@ from fast_agent.mcp.tool_result_metadata import (
     url_elicitation_required_payloads,
 )
 from fast_agent.ptc.catalog import (
-    PTC_SEARCH_EXTRA_THRESHOLD,
+    PTC_SEARCH_EXTRA_BYTE_THRESHOLD,
     PtcCatalog,
     PtcNameLedger,
     SourceRoster,
@@ -135,8 +135,9 @@ PTC_BATCHING_INSTRUCTION = PTC_BATCHING_INSTRUCTION_TEMPLATE.format(tool=PTC_TOO
 # checked against Monty: models act on it literally.
 _INSTRUCTIONS = """\
 Run a Python script in a sandbox: a restricted Python 3.14 interpreter (Monty), separate from \
-the machine's Python. Only `print()` output and the final expression value come back to you: \
-filter and aggregate large results in code.
+the machine's Python. Only `print()` output and the final expression value come back to you \
+(capped at about {output_limit}; longer output loses its middle): compute counts, sorts, \
+filters, and compact per-item summaries in code rather than printing raw dumps.
 {input_note}\
 - Sandbox Python: the only importable modules are asyncio, base64, binascii, bisect, \
 collections, copy, csv, dataclasses, datetime, decimal, fnmatch, functools, hashlib, itertools, json, \
@@ -148,7 +149,7 @@ environment variables. Unsupported syntax: class inheritance, `@staticmethod`/`@
 {functions_note}\
 {search_note}\
 - Independent calls can run concurrently: `a, b = await asyncio.gather(f(x=1), g(y=2))` \
-(asyncio is pre-imported). `settle(aw)` returns an exception instead of raising, so \
+(asyncio, collections, datetime, itertools, json, math and re are pre-imported). `settle(aw)` returns an exception instead of raising, so \
 `await asyncio.gather(*[settle(f(x=x)) for x in xs])` collects every result \
 (`return_exceptions=` is unsupported).
 {shell_batch_note}\
@@ -162,10 +163,16 @@ the final expression to see them; printed handles are not attached. A structured
 such blocks is `{{"structured_content": ..., "content": [...]}}`.
 - {store_note}{type_check_note}
 """
-# Helpers defined in every sandbox session before model code runs. asyncio is pre-imported
-# because models routinely call asyncio.gather without importing it.
+# Helpers defined in every sandbox session before model code runs. Common data/async
+# modules are pre-imported because models routinely use them without importing in fresh runs.
 _PRELUDE = """\
 import asyncio
+import collections
+import datetime
+import itertools
+import json
+import math
+import re
 
 
 async def settle(awaitable):
@@ -263,7 +270,7 @@ _MISSING_BUILTIN = re.compile(
     rf"AttributeError: (?:type object '{_BUILTIN_TYPES}'|'{_BUILTIN_TYPES}' object) "
     r"has no attribute"
 )
-_MISSING_MODULE = re.compile(r"Cannot resolve imported module `|No module named '")
+_MISSING_MODULE = re.compile(r"(?:Cannot resolve imported module `|No module named ')([^'`\n]+)")
 # A literal list inside `gather(*[... for x in [...]])` whose comprehension `]` was dropped.
 _GATHER_BRACKETS = re.compile(r"closing parenthesis '\)' does not match opening parenthesis '\['")
 _GATHER_HINT = (
@@ -394,6 +401,8 @@ class ProgrammaticToolRuntime:
         self.tool_name = PTC_TOOL_NAME
         # Defer extra function definitions behind search_tools; the agent applies CLI overrides.
         self.search_enabled = settings.search
+        # When True (e.g. --ptc-search), defer extra functions even below the stub byte budget.
+        self.search_forced = False
         self._direct_patterns = list(settings.direct_tools)
         self._warned_patterns: set[str] = set()
         self._ledger = ledger if ledger is not None else PtcNameLedger()
@@ -529,8 +538,12 @@ class ProgrammaticToolRuntime:
             if not is_builtin_tool(tools[function.tool_name])
             and function.tool_name not in direct_names
         ]
+        extra_stub_bytes = sum(len(functions[name].stub().encode("utf-8")) for name in extras)
         search_active = (
-            self.search_enabled and canonical and len(extras) > PTC_SEARCH_EXTRA_THRESHOLD
+            self.search_enabled
+            and canonical
+            and bool(extras)
+            and (self.search_forced or extra_stub_bytes > PTC_SEARCH_EXTRA_BYTE_THRESHOLD)
         )
         deferred = frozenset(extras) if search_active else frozenset()
         stubs = render_stubs(functions)
@@ -637,6 +650,7 @@ class ProgrammaticToolRuntime:
         shared = ", ".join(f"`{name}`" for name in catalog.shared_functions)
         shell = catalog.shell_function
         return _INSTRUCTIONS.format(
+            output_limit=f"{max(1, round(self._result_byte_limit / 1000))} KB",
             shell_exit_note=_SHELL_EXIT_NOTE if shell else "",
             functions_note=self._functions_note(catalog),
             search_note=_SEARCH_NOTE if catalog.search_active else "",
@@ -1222,7 +1236,38 @@ def _argument_type_hints(detail: str, catalog: PtcCatalog) -> str:
 
 def _sandbox_gap_hint(detail: str, catalog: PtcCatalog) -> str:
     """Point code that hit a missing built-in method or module at the system Python."""
-    if not (_MISSING_BUILTIN.search(detail) or _MISSING_MODULE.search(detail)):
+    if "gather() does not yet support keyword arguments" in detail:
+        return (
+            "\nHint: `asyncio.gather()` does not accept `return_exceptions=`; wrap each "
+            "awaitable with `settle(...)` instead: "
+            "`await asyncio.gather(*[settle(f(...)) for ...])`."
+        )
+    if (
+        "async with" in detail
+        or "has no member `Semaphore`" in detail
+        or "no attribute 'Semaphore'" in detail
+    ):
+        return (
+            "\nHint: `async with` and `asyncio.Semaphore` are not supported in the sandbox; "
+            "throttle concurrency by batching calls into chunks with `asyncio.gather(...)`."
+        )
+    mod_match = _MISSING_MODULE.search(detail)
+    if mod_match is not None:
+        mod_name = mod_match.group(1).split(".")[0]
+        sources = {s.casefold(): s for s in catalog.sources.values()}
+        if mod_name.casefold() in sources:
+            src = sources[mod_name.casefold()]
+            if catalog.search_active:
+                return (
+                    f"\nHint: `{mod_name}` is a tool source, not an importable module. "
+                    f'Discover its functions with `await search_tools(server="{src}")` '
+                    "and call them directly with `await`."
+                )
+            return (
+                f"\nHint: `{mod_name}` is a tool source, not an importable module. "
+                "Call its pre-bound functions directly with `await`."
+            )
+    if not (_MISSING_BUILTIN.search(detail) or mod_match is not None):
         return ""
     hint = (
         "\nHint: the sandbox's Python lacks this; it has a reduced standard library and "
@@ -1287,22 +1332,32 @@ def _returns_shell_output(tool: Tool) -> bool:
 _ARGUMENT_TYPE_ERROR = re.compile(
     r"^ptc\.py:(\d+):(\d+): error\[invalid-argument-type\].*Expected `(.+?)`, found `(.+?)`$"
 )
+_INFERRED_SHAPE_ERROR = re.compile(
+    r"error\[(?:unresolved-attribute|not-subscriptable|not-iterable|unsupported-operator)\]"
+    r"|error\[invalid-argument-type\] Method `__getitem__`"
+)
 _STRING_LITERALS = ('Literal["', 'list[Literal["')
-_WIDENED_STRINGS = frozenset({"str", "list[str]"})
+_WIDENED_STRINGS = frozenset({"str", "list[str]", "Unknown", "Any"})
+_INFERRED_DYNAMIC_TYPE = re.compile(r"\b(?:Unknown|Any)\b| \| ")
 
 
 def _only_false_positives(diagnostics: str, code: str) -> bool:
     """Whether type checking failed only on code that runs as written.
 
     Monty runs some functions its stubs omit. The checker also rejects argument values it
-    cannot type precisely: a ``**dict`` has unknown keys, so its value type is checked against
-    every parameter not passed explicitly, and a string built outside the call infers ``str``
-    rather than the ``Literal`` the parameter declares. The tool validates those values itself.
+    cannot type precisely (``**dict`` unpacking, widened ``str`` vs ``Literal``, inferred
+    unions or ``Unknown``/``Any`` from dynamic dict/list payloads) and dynamic dict/list
+    shapes (``unresolved-attribute``, ``not-subscriptable``, ``not-iterable``,
+    ``unsupported-operator``). High-precision checks (undefined names, bad imports, concrete
+    wrong tool arguments, invalid await) still fail fast before execution.
     """
     lines = code.splitlines()
     errors = [line for line in diagnostics.splitlines() if "error[" in line]
     return bool(errors) and all(
-        _STUB_GAP.search(error) or _unknowable_argument(error, lines) for error in errors
+        _STUB_GAP.search(error)
+        or _INFERRED_SHAPE_ERROR.search(error)
+        or _unknowable_argument(error, lines)
+        for error in errors
     )
 
 
@@ -1313,6 +1368,8 @@ def _unknowable_argument(error: str, lines: list[str]) -> bool:
     line, column, expected, found = match.groups()
     index = int(line) - 1
     if index < len(lines) and lines[index][int(column) - 1 :].startswith("**"):
+        return True
+    if _INFERRED_DYNAMIC_TYPE.search(found):
         return True
     return expected.startswith(_STRING_LITERALS) and found in _WIDENED_STRINGS
 

@@ -239,6 +239,14 @@ class CommonAgentOptions:
         )
 
     @staticmethod
+    def ptc_search():
+        return typer.Option(
+            False,
+            "--ptc-search",
+            help="Enable programmatic tool calling and always defer extra functions behind tool search.",
+        )
+
+    @staticmethod
     def subagents():
         return typer.Option(
             None,

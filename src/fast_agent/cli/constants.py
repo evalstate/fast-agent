@@ -97,6 +97,7 @@ GO_SPECIFIC_OPTIONS = {
     "--ptc",
     "--no-ptc",
     "--ptc-all",
+    "--ptc-search",
     "--skills",
     "--skills-dir",
     "--agent-cards",
