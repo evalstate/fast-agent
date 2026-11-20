@@ -291,6 +291,11 @@
       "family": "gemini",
       "status": "PTC"
     },
+    "tb4-hy4flash-high-noptc": {
+      "benchmark": "terminal-bench-4.0-subset",
+      "family": "hunyuan",
+      "costFrom": "scored"
+    },
     "tb4-gemini4hydrogen-high-ptc": {
       "benchmark": "terminal-bench-4.0-subset",
       "family": "gemini",
