@@ -86,26 +86,77 @@ def test_root_go_options_auto_route_to_go(
     assert captured == expected
 
 
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (
+            ["fast-agent", "--model"],
+            ["fast-agent", "go", "--model", "__picker__"],
+        ),
+        (
+            ["fast-agent", "--model", "--home", "cards"],
+            ["fast-agent", "go", "--model", "__picker__", "--home", "cards"],
+        ),
+        (
+            ["fast-agent", "go", "--model"],
+            ["fast-agent", "go", "--model", "__picker__"],
+        ),
+        (
+            ["fast-agent", "go", "--model="],
+            ["fast-agent", "go", "--model", "__picker__"],
+        ),
+        (
+            ["fast-agent", "go", "--models", "-x"],
+            ["fast-agent", "go", "--models", "__picker__", "-x"],
+        ),
+        (
+            ["fast-agent", "serve", "--model"],
+            ["fast-agent", "serve", "--model"],
+        ),
+    ],
+)
+def test_bare_model_flag_adds_picker_sentinel_only_for_go(
+    argv: list[str],
+    expected: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[str] = []
+
+    def capture_app() -> None:
+        captured.extend(sys.argv)
+
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(cli_main, "app", capture_app)
+
+    cli_main.main()
+
+    assert captured == expected
+
+
 @pytest.mark.parametrize("command", [[], ["go"]])
-@pytest.mark.parametrize("alias", ["neon", "argon", "hydrogen", "carbon"])
-def test_gemini_shortcut_selects_native_google(command, alias, monkeypatch):
+def test_bare_model_sets_force_model_picker_on_request(command, monkeypatch) -> None:
     run = Mock()
     monkeypatch.setattr("fast_agent.cli.commands.go.run_request", run)
-    monkeypatch.setattr(
-        sys, "argv", ["fast-agent", *command, f"--{alias}", "--no-home", "-m", "test"]
-    )
+    monkeypatch.setattr(sys, "argv", ["fast-agent", *command, "--model", "--no-home"])
     with pytest.raises(SystemExit) as exit_info:
         cli_main.main()
     assert exit_info.value.code == 0
     run.assert_called_once()
-    assert run.call_args.args[0].model == f"google.gemini-4-{alias}"
+    request = run.call_args.args[0]
+    assert request.model is None
+    assert request.force_model_picker is True
 
 
-@pytest.mark.parametrize("other", [["--carbon"], ["--models", "passthrough"]])
-def test_gemini_shortcut_rejects_conflicting_model(other):
-    result = CliRunner().invoke(cli_main.app, ["go", "--argon", *other])
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        ["-m", "hello"],
+        ["--resume"],
+    ],
+)
+def test_bare_model_rejects_incompatible_go_options(extra_args: list[str]) -> None:
+    result = CliRunner().invoke(cli_main.app, ["go", "--model", *extra_args])
     assert result.exit_code == 2
-    assert "Choose only one" in result.output
 
 
 def test_resume_sentinel_is_not_added_for_batch(

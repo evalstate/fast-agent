@@ -1,6 +1,7 @@
 """Shared constants for CLI routing and commands."""
 
 RESUME_LATEST_SENTINEL = "__latest__"
+MODEL_PICKER_SENTINEL = "__picker__"
 
 
 def normalize_convenience_flag_args(args: list[str], *, start_index: int = 0) -> None:
@@ -32,6 +33,26 @@ def normalize_resume_flag_args(args: list[str], *, start_index: int = 0) -> None
         index += 1
 
 
+def normalize_model_flag_args(args: list[str], *, start_index: int = 0) -> None:
+    index = start_index
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            return
+        if arg in ("--model=", "--models="):
+            args[index] = arg[:-1]
+            args.insert(index + 1, MODEL_PICKER_SENTINEL)
+            index += 2
+            continue
+        if arg in ("--model", "--models"):
+            next_arg = args[index + 1] if index + 1 < len(args) else None
+            if next_arg is None or next_arg.startswith("-"):
+                args.insert(index + 1, MODEL_PICKER_SENTINEL)
+                index += 2
+                continue
+        index += 1
+
+
 # Options that should automatically route to the 'go' command
 GO_SPECIFIC_OPTIONS = {
     "--npx",
@@ -44,10 +65,6 @@ GO_SPECIFIC_OPTIONS = {
     "--mcp-protocol",
     "--model",
     "--models",
-    "--neon",
-    "--argon",
-    "--hydrogen",
-    "--carbon",
     "--agent",
     "--instruction",
     "-i",

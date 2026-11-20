@@ -11,6 +11,7 @@ import typer
 
 from fast_agent.a2a.connect import normalize_a2a_transport, normalize_a2a_url
 from fast_agent.cli.command_support import ensure_context_object
+from fast_agent.cli.constants import MODEL_PICKER_SENTINEL
 from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.prompt_argument_hint import PromptArgumentHintGroup
 from fast_agent.cli.runtime.request_builders import (
@@ -314,12 +315,6 @@ def go(
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
     mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     model: str | None = CommonAgentOptions.model(),
-    neon: bool = typer.Option(False, "--neon", help="Select native Google Gemini 4 Neon."),
-    argon: bool = typer.Option(False, "--argon", help="Select native Google Gemini 4 Argon."),
-    hydrogen: bool = typer.Option(
-        False, "--hydrogen", help="Select native Google Gemini 4 Hydrogen."
-    ),
-    carbon: bool = typer.Option(False, "--carbon", help="Select native Google Gemini 4 Carbon."),
     base_url: str | None = typer.Option(
         None,
         "--base-url",
@@ -452,22 +447,19 @@ def go(
         },
     )
 
-    shortcuts = [
-        name
-        for name, selected in (
-            ("neon", neon),
-            ("argon", argon),
-            ("hydrogen", hydrogen),
-            ("carbon", carbon),
-        )
-        if selected
-    ]
-    if shortcuts:
-        if len(shortcuts) > 1 or model is not None:
+    force_model_picker = model == MODEL_PICKER_SENTINEL
+    if force_model_picker:
+        model = None
+        if message is not None or prompt_file is not None:
             raise typer.BadParameter(
-                "Choose only one of --model/--models, --neon, --argon, --hydrogen, or --carbon."
+                "--model without a value opens the interactive model picker and cannot be used with --message or --prompt-file.",
+                param_hint="--model",
             )
-        model = f"google.gemini-4-{shortcuts[0]}"
+        if resume is not None:
+            raise typer.BadParameter(
+                "--model without a value cannot be combined with --resume.",
+                param_hint="--model",
+            )
 
     base_url = _resolve_model_base_url_option(
         base_url,
@@ -595,6 +587,7 @@ def go(
         subagent_model=subagent_model,
         ptc=ptc,
         ptc_all=ptc_all,
+        force_model_picker=force_model_picker,
         mode="interactive",
         instance_scope="shared",
         reload=reload,

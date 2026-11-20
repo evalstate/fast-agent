@@ -108,7 +108,7 @@ class CommonAgentOptions:
             None,
             "--model",
             "--models",
-            help="Select a model for this run (e.g., haiku, sonnet, gpt-4)",
+            help="Select a model for this run (e.g., haiku, sonnet, gpt-4). Omit value on 'go' to open the model picker.",
         )
 
     @staticmethod

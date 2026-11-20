@@ -22,7 +22,11 @@ from typer._click.formatting import HelpFormatter
 from typer.core import TyperCommand
 
 from fast_agent.cli.command_support import ensure_context_object
-from fast_agent.cli.constants import normalize_convenience_flag_args, normalize_resume_flag_args
+from fast_agent.cli.constants import (
+    normalize_convenience_flag_args,
+    normalize_model_flag_args,
+    normalize_resume_flag_args,
+)
 from fast_agent.cli.display import print_section_header
 from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.prompt_argument_hint import PromptArgumentHintGroup
@@ -105,6 +109,7 @@ class LazyGroup(PromptArgumentHintGroup):
         normalize_convenience_flag_args(args)
         if _first_root_command(args) == "go":
             normalize_resume_flag_args(args)
+            normalize_model_flag_args(args)
         return super().parse_args(ctx, args)
 
     def list_commands(self, ctx: Context) -> list[str]:

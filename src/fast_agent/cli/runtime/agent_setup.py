@@ -938,6 +938,32 @@ def _transient_result_messages_if_needed(
 
 
 async def _select_startup_model_if_needed(request: AgentRunRequest) -> str | None:
+    if request.force_model_picker:
+        settings = _load_request_settings(request)
+        can_prompt_for_model = _should_prompt_for_model_picker(
+            request,
+            stdin_is_tty=sys.stdin.isatty(),
+            stdout_is_tty=sys.stdout.isatty(),
+        )
+        if not can_prompt_for_model:
+            raise AgentConfigError(
+                "Interactive model picker requires a terminal.",
+                "Pass an explicit model with --model <model> when running non-interactively.",
+            )
+        initial_selection = _resolve_model_picker_initial_selection(settings=settings)
+        request.model = await _select_model_from_picker(
+            request,
+            config_payload=settings.model_dump(),
+            initial_provider=initial_selection.provider,
+            initial_model_spec=initial_selection.model_spec,
+        )
+        _persist_model_picker_last_used_selection(
+            request,
+            settings=settings,
+            model_spec=request.model,
+        )
+        return "model picker"
+
     if request.model is not None:
         return None
 
