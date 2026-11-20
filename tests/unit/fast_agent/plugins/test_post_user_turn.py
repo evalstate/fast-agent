@@ -112,3 +112,43 @@ async def test_structured_post_user_turn_result_reports_session_usage(
 
     assert displayed == ["Cost: $0.01 last"]
     assert reported == ["$0.12"]
+
+
+@pytest.mark.asyncio
+async def test_structured_post_user_turn_result_renders_images(
+    tmp_path: Path,
+) -> None:
+    from fast_agent.command_actions import PluginCommandActionImage
+
+    plugin_file = tmp_path / "images.py"
+    plugin_file.write_text(
+        "from fast_agent.command_actions import PluginCommandActionImage\n"
+        "from fast_agent.plugins import PluginPostUserTurnOutput\n"
+        "\n"
+        "def display(ctx):\n"
+        "    return PluginPostUserTurnOutput(\n"
+        "        display='Diagram rendered',\n"
+        "        images=(PluginCommandActionImage(source='/tmp/diagram.png', label='Flowchart'),),\n"
+        "    )\n",
+        encoding="utf-8",
+    )
+    handlers = load_plugin_post_user_turn_handlers(
+        [PluginPostUserTurnSpec("mermaid", f"{plugin_file}:display")]
+    )
+    displayed: list[str] = []
+    rendered_images: list[list[PluginCommandActionImage]] = []
+
+    await run_plugin_post_user_turn(
+        handlers,
+        agent_name="assistant",
+        turn_usage=(),
+        session_usage=(),
+        config={},
+        display=displayed.append,
+        display_images=lambda imgs: rendered_images.append(list(imgs)),
+    )
+
+    assert displayed == ["Diagram rendered"]
+    assert rendered_images == [
+        [PluginCommandActionImage(source="/tmp/diagram.png", label="Flowchart")]
+    ]

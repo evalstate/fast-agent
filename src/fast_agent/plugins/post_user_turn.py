@@ -21,6 +21,7 @@ from fast_agent.tools.python_file_loader import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
+    from fast_agent.command_actions.models import PluginCommandActionImage
     from fast_agent.llm.usage_tracking import TurnUsage
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.plugins.models import PluginPostUserTurnSpec
@@ -79,6 +80,7 @@ async def run_plugin_post_user_turn(
     config: Mapping[str, Mapping[str, object]],
     display: Callable[[str], None],
     report_session_usage: Callable[[str], None] | None = None,
+    display_images: Callable[[Sequence[PluginCommandActionImage]], None] | None = None,
     turn_messages: tuple[PromptMessageExtended, ...] = (),
 ) -> None:
     for loaded in handlers:
@@ -97,6 +99,8 @@ async def run_plugin_post_user_turn(
             if isinstance(result, PluginPostUserTurnOutput):
                 if result.display:
                     display(result.display)
+                if result.images and display_images is not None:
+                    display_images(result.images)
                 if result.session_usage and report_session_usage is not None:
                     report_session_usage(result.session_usage)
             elif result is not None and not isinstance(result, str):

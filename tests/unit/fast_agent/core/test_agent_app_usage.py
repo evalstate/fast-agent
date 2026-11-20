@@ -248,6 +248,71 @@ async def test_interactive_send_runs_post_user_turn_plugin_once_and_quiet_send_s
 
 
 @pytest.mark.asyncio
+async def test_interactive_send_renders_post_user_turn_plugin_images(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.command_actions import PluginCommandActionImage
+    from fast_agent.config import Settings, TerminalImageSettings
+    from fast_agent.ui import turn_usage_display
+
+    image_path = tmp_path / "diagram.png"
+    image_path.write_bytes(b"fake-png")
+    hook = tmp_path / "hook.py"
+    hook.write_text(
+        "from fast_agent.command_actions import PluginCommandActionImage\n"
+        "from fast_agent.plugins import PluginPostUserTurnOutput\n"
+        "\n"
+        "def display(ctx):\n"
+        "    return PluginPostUserTurnOutput(\n"
+        f"        images=(PluginCommandActionImage(source={image_path.as_posix()!r}, label='Diagram'),),\n"
+        "    )\n",
+        encoding="utf-8",
+    )
+    captured: list[tuple[list[PluginCommandActionImage], TerminalImageSettings | None]] = []
+
+    def fake_display_images(images, *, settings):
+        captured.append((list(images), settings))
+
+    monkeypatch.setattr(
+        turn_usage_display,
+        "display_plugin_post_user_turn_images",
+        fake_display_images,
+    )
+
+    settings = Settings()
+    settings.logger.terminal_images = TerminalImageSettings(backend="kitty")
+    usage = UsageAccumulator()
+    usage_agent = _agent(usage)
+    usage_agent.context = SimpleNamespace(config=settings)
+
+    app = AgentApp(
+        {"assistant": usage_agent},
+        plugin_post_user_turn=[
+            PluginPostUserTurnSpec("mermaid", f"{hook}:display"),
+        ],
+    )
+
+    async def send(_message, _request_params) -> str:
+        usage.add_turn(_turn(prompt_tokens=10, completion_tokens=1))
+        return "done"
+
+    usage_agent.send = send
+
+    await app._send_interactive_message(
+        "draw",
+        "assistant",
+        request_params=None,
+        show_usage=True,
+    )
+
+    assert len(captured) == 1
+    images, passed_settings = captured[0]
+    assert images == [PluginCommandActionImage(source=image_path.as_posix(), label="Diagram")]
+    assert passed_settings is not None and passed_settings.backend == "kitty"
+
+
+@pytest.mark.asyncio
 async def test_post_user_turn_plugin_receives_only_the_completed_turn_messages(
     tmp_path: Path,
 ) -> None:
