@@ -38,6 +38,7 @@ TOOLS = [
 
 def _catalog(tools: list[Tool]) -> PtcCatalog:
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.search_forced = True
     runtime.model_tools(tools)
     assert runtime.catalog.search_active
     return runtime.catalog
@@ -67,6 +68,7 @@ def test_run_together_name_matches_without_shared_tokens() -> None:
 
 def test_retired_name_is_reported_before_sibling_matches() -> None:
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.search_forced = True
     runtime.model_tools([*TOOLS, _tool("hf__space_search", "Search Spaces.")])
     runtime.model_tools([tool for tool in TOOLS if tool.name != "github__list_issues"])
     catalog = runtime.catalog

@@ -12,7 +12,6 @@ from mcp_types import CallToolResult, TextContent, Tool
 
 from fast_agent.config import ProgrammaticToolCallingSettings, Settings, ShellSettings
 from fast_agent.constants import FAST_AGENT_PTC_CALLS
-from fast_agent.ptc.catalog import PTC_SEARCH_EXTRA_THRESHOLD
 from fast_agent.ptc.runtime import ProgrammaticToolRuntime
 from fast_agent.ptc.search import (
     _CELL_SEARCH_BYTE_BUDGET,
@@ -55,8 +54,10 @@ def _tool(name: str, description: str = "", **properties: dict[str, Any]) -> Too
     )
 
 
-def _runtime(**settings: Any) -> ProgrammaticToolRuntime:
-    return ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(**settings))
+def _runtime(*, search_forced: bool = True, **settings: Any) -> ProgrammaticToolRuntime:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(**settings))
+    runtime.search_forced = search_forced
+    return runtime
 
 
 GITHUB = [
@@ -86,14 +87,26 @@ def _description(runtime: ProgrammaticToolRuntime, tools: list[Tool]) -> str:
 
 
 def test_threshold_extras_inline(tmp_path: Path) -> None:
-    runtime = _runtime()
-    description = _description(runtime, [*_shell_tools(tmp_path), *GITHUB])
+    runtime = _runtime(search_forced=False)
+    description = _description(runtime, [*_shell_tools(tmp_path), *GITHUB, *HF])
 
-    assert len(GITHUB) == PTC_SEARCH_EXTRA_THRESHOLD
     assert not runtime.catalog.search_active
     assert SEARCH_FUNCTION_NAME not in description
-    assert all(f"async def {tool.name}(" in description for tool in GITHUB)
+    assert all(f"async def {tool.name}(" in description for tool in [*GITHUB, *HF])
     assert runtime.catalog.roster.entries == ()
+
+
+def test_byte_budget_defers_large_stub_surface(tmp_path: Path) -> None:
+    runtime = _runtime(search_forced=False)
+    big_desc = "x" * 1200
+    many_tools = [
+        _tool(f"srv__tool_{i}", f"{big_desc} {i}", query={"type": "string"}) for i in range(30)
+    ]
+    description = _description(runtime, [*_shell_tools(tmp_path), *many_tools])
+
+    assert runtime.catalog.search_active
+    assert "async def search_tools(" in description
+    assert len(runtime.catalog.deferred) == 30
 
 
 def test_search_defers_extras_and_keeps_builtins_upfront(tmp_path: Path) -> None:
@@ -148,11 +161,12 @@ def test_directly_callable_functions_stay_upfront(tmp_path: Path) -> None:
         input_schema={"type": "object"},
         meta={"fast_agent": {"ptc": {"expose": "both"}}},
     )
-    runtime = _runtime()
+    runtime = _runtime(search_forced=False)
     description = _description(runtime, [*_shell_tools(tmp_path), both, *GITHUB])
 
-    # Three extras: the shared function is upfront and does not count towards search.
+    # Small extras: the shared function is upfront and does not trigger search.
     assert not runtime.catalog.search_active
+    runtime.search_forced = True
     description = _description(runtime, [*_shell_tools(tmp_path), both, *GITHUB, *HF])
     assert runtime.catalog.search_active
     assert "async def lookup(" in description
@@ -160,16 +174,19 @@ def test_directly_callable_functions_stay_upfront(tmp_path: Path) -> None:
 
 
 def test_crossing_threshold_and_description_stability(tmp_path: Path) -> None:
-    runtime = _runtime()
+    runtime = _runtime(search_forced=False)
     shell = _shell_tools(tmp_path)
     inline = _description(runtime, [*shell, *GITHUB])
     assert not runtime.catalog.search_active
 
-    searching = _description(runtime, [*shell, *GITHUB, HF[0]])
+    big_tools = [
+        _tool(f"github__extra_{i}", "x" * 1200, query={"type": "string"}) for i in range(30)
+    ]
+    searching = _description(runtime, [*shell, *GITHUB, *big_tools])
     assert runtime.catalog.search_active and searching != inline
 
     # Connecting another source while search is active leaves the description byte-identical.
-    assert _description(runtime, [*shell, *GITHUB, *HF]) == searching
+    assert _description(runtime, [*shell, *GITHUB, *big_tools, *HF]) == searching
     assert runtime.catalog.roster.find("hf") is not None
 
     assert _description(runtime, [*shell, *GITHUB]) == inline
@@ -188,7 +205,7 @@ def test_search_without_upfront_tool_functions() -> None:
 
 
 def test_schemaless_tools_return_text_or_parsed_json() -> None:
-    runtime = _runtime()
+    runtime = _runtime(search_forced=False)
     runtime.model_tools([_tool("fetch"), _tool("listing")])
     assert runtime.functions["fetch"].returns == UNSTRUCTURED_RETURNS
     assert "async def fetch() -> str | Any:" in (runtime.tool().description or "")
@@ -261,7 +278,7 @@ async def test_search_tools_runs_in_sandbox_and_is_recorded() -> None:
 
 @pytest.mark.asyncio
 async def test_inactive_search_explains_itself(tmp_path: Path) -> None:
-    runtime = _runtime()
+    runtime = _runtime(search_forced=False)
     runtime.model_tools([*_shell_tools(tmp_path), *GITHUB])
     try:
         result = await runtime.execute({"code": 'await search_tools(query="x")'}, _ok)

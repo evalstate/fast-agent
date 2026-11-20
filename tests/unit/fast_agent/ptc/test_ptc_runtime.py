@@ -1721,3 +1721,130 @@ async def test_pending_and_cancelled_dispatch_do_not_claim_success() -> None:
             await task
     assert record["status"] == "cancelled"
     assert record["is_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_preimported_stdlib_modules_work_without_import() -> None:
+    async def noop(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        return CallToolResult(content=[])
+
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.model_tools([])
+    try:
+        result = await runtime.execute(
+            {
+                "code": (
+                    "data = json.loads('{\"a\": [1, 2, 2]}')\n"
+                    "c = collections.Counter(data['a'])\n"
+                    "m = re.search(r'(\\d+)', 'v42')\n"
+                    "print(c[2], m.group(1), math.ceil(1.2), len(list(itertools.islice(range(10), 3))), datetime.date(2026, 1, 1).year)"
+                )
+            },
+            noop,
+        )
+    finally:
+        await runtime.close()
+    assert not result.is_error
+    text = "\n".join(b.text for b in result.content if isinstance(b, TextContent))
+    assert "2 42 2 3 2026" in text
+
+
+@pytest.mark.asyncio
+async def test_inferred_shape_type_check_false_positives_fall_through() -> None:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.model_tools(
+        [Tool(name="fetch", description="Fetch record.", input_schema={"type": "object"})]
+    )
+
+    async def dispatch(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        return CallToolResult(content=[TextContent(type="text", text='{"items": [{"k": "ok"}]}')])
+
+    try:
+        result = await runtime.execute(
+            {
+                "code": (
+                    "res = await fetch()\n"
+                    "rows = res.get('items', []) if isinstance(res, dict) else []\n"
+                    "print([r['k'] for r in rows])"
+                )
+            },
+            dispatch,
+        )
+    finally:
+        await runtime.close()
+    assert not result.is_error
+    text = "\n".join(b.text for b in result.content if isinstance(b, TextContent))
+    assert "['ok']" in text
+
+
+@pytest.mark.asyncio
+async def test_importing_tool_source_gives_targeted_hint() -> None:
+    async def noop(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        return CallToolResult(content=[])
+
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.search_forced = True
+    runtime.model_tools(
+        [
+            Tool(
+                name="huggingface__hf_whoami",
+                description="Who am I.",
+                input_schema={"type": "object"},
+            )
+        ]
+    )
+    try:
+        result = await runtime.execute({"code": "import huggingface"}, noop)
+    finally:
+        await runtime.close()
+    assert result.is_error
+    text = "\n".join(b.text for b in result.content if isinstance(b, TextContent))
+    assert "`huggingface` is a tool source, not an importable module" in text
+    assert 'await search_tools(server="huggingface")' in text
+
+
+def test_only_false_positives_allows_inferred_union_and_operator_diagnostics() -> None:
+    from fast_agent.ptc.runtime import _only_false_positives
+
+    code = "x = d.get('n')\nprint(len(x), x > 0)\nawait f(q=x)\n"
+    assert _only_false_positives(
+        "ptc.py:2:7: error[invalid-argument-type] Argument to function `len` is incorrect: Expected `Sized`, found `Any | None`\n"
+        "ptc.py:2:15: error[unsupported-operator] Operator `>` is not supported between objects of type `Any | int | None` and `Literal[0]`\n"
+        "ptc.py:3:9: error[invalid-argument-type] Argument to function `f` is incorrect: Expected `str`, found `Unknown | str`",
+        code,
+    )
+    # Concrete wrong-type arguments must still be rejected pre-execution.
+    assert not _only_false_positives(
+        "ptc.py:3:9: error[invalid-argument-type] Argument to function `f` is incorrect: Expected `int`, found `None`",
+        code,
+    )
+    assert not _only_false_positives(
+        'ptc.py:3:9: error[invalid-argument-type] Argument to function `f` is incorrect: Expected `Literal["a", "b"]`, found `Literal["c"]`',
+        code,
+    )
+
+
+@pytest.mark.asyncio
+async def test_gather_return_exceptions_and_semaphore_give_targeted_hints() -> None:
+    async def noop(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        return CallToolResult(content=[])
+
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.model_tools([Tool(name="ping", description="Ping.", input_schema={"type": "object"})])
+    try:
+        r_gather = await runtime.execute(
+            {"code": "await asyncio.gather(ping(), return_exceptions=True)"},
+            noop,
+        )
+        r_sem = await runtime.execute(
+            {"code": "sem = asyncio.Semaphore(5)"},
+            noop,
+        )
+    finally:
+        await runtime.close()
+    assert r_gather.is_error
+    gather_text = "\n".join(b.text for b in r_gather.content if isinstance(b, TextContent))
+    assert "settle(...)" in gather_text
+    assert r_sem.is_error
+    sem_text = "\n".join(b.text for b in r_sem.content if isinstance(b, TextContent))
+    assert "batching calls into chunks" in sem_text
