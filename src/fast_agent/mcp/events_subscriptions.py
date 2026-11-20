@@ -17,6 +17,7 @@ from html import escape
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from mcp.shared.exceptions import MCPError
+from mcp_types import HEADER_MISMATCH
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.events_extension import (
@@ -40,6 +41,9 @@ MAX_ERROR_BACKOFF_MS = 300_000
 MAX_SEEN_EVENT_IDS = 1_024
 MAX_INBOX_ITEMS = 256
 MAX_LIST_PAGES = 100
+
+# Poll errors answered by listing event types again before giving up.
+_RELIST_CODES = (EVENTS_NOT_FOUND, EVENTS_UNSUPPORTED, HEADER_MISMATCH)
 
 EVENT_MESSAGE_PREAMBLE = (
     "MCP event notifications from subscribed servers follow. "
@@ -315,12 +319,13 @@ class EventSubscriptionManager:
                     cursor=subscription.cursor,
                 )
             except MCPError as exc:
-                if exc.code in (EVENTS_NOT_FOUND, EVENTS_UNSUPPORTED) and not rediscovered:
+                if exc.code in _RELIST_CODES and not rediscovered:
                     rediscovered = True
-                    if await self._rediscover(state):
+                    # A header mismatch leaves the cursor valid.
+                    if await self._rediscover(state, restart=exc.code != HEADER_MISMATCH):
                         delay_ms = self._min_poll_ms
                         continue
-                if exc.code in (EVENTS_NOT_FOUND, EVENTS_UNSUPPORTED, EVENTS_FORBIDDEN):
+                if exc.code in _RELIST_CODES or exc.code == EVENTS_FORBIDDEN:
                     self._terminate(state, exc.message)
                     return
                 failures += 1
@@ -350,8 +355,11 @@ class EventSubscriptionManager:
         backoff = self._default_poll_ms * (2 ** min(failures - 1, 10))
         return max(self._min_poll_ms, min(backoff, MAX_ERROR_BACKOFF_MS))
 
-    async def _rediscover(self, state: _Running) -> bool:
-        """Re-list after the server reports the event type gone or changed."""
+    async def _rediscover(self, state: _Running, *, restart: bool) -> bool:
+        """Re-list after the server reports the event type gone or changed.
+
+        ``restart`` drops the cursor, so delivery resumes from now.
+        """
         subscription = state.subscription
         try:
             descriptor = await self._find_event_type(subscription.server_name, subscription.name)
@@ -359,6 +367,8 @@ class EventSubscriptionManager:
             return False
         if descriptor is None or not descriptor.supports("poll"):
             return False
+        if not restart:
+            return True
         subscription.cursor = None
         self._deliver(
             state,
