@@ -35,9 +35,10 @@ takes. Use `/events` in an interactive session:
 ```
 
 `/events list [server]` shows what each attached server offers, with the
-delivery modes and argument names. Arguments are given as `key=value` pairs, or
-as one JSON object. Values that parse as JSON keep their type. `/events` with no
-argument lists subscriptions with their status and the number of events
+delivery modes and argument names. An event type whose `x-mcp-header`
+annotations are invalid is left out. Arguments are given as `key=value` pairs,
+or as one JSON object. Values that parse as JSON keep their type. `/events`
+with no argument lists subscriptions with their status and the number of events
 delivered. The id shown there is derived from the server, event name and
 arguments, so subscribing twice to the same thing gives one subscription.
 
@@ -45,7 +46,10 @@ arguments, so subscribing twice to the same thing gives one subscription.
 `nextPollMs` with a floor of one second, polls again at once while the server
 reports `hasMore`, and drops events whose `eventId` it has already seen. A
 failed poll is retried with a doubling delay of up to five minutes, from the
-same cursor. `/events poll <id>` ends that wait and polls immediately.
+same cursor. `/events poll <id>` ends that wait and polls immediately. When a
+poll is rejected with a header mismatch, the event types are listed again and
+the poll is tried once more from the same cursor. A second mismatch ends the
+subscription.
 
 ## How events reach the model
 
@@ -142,6 +146,8 @@ usage and transcript export.
 ## Current scope
 
 - Poll delivery only.
+- `Mcp-Param-*` headers are not sent for arguments annotated with
+  `x-mcp-header`. A server that checks them rejects the poll.
 - `/events` is available in the interactive TUI, not over ACP.
 - Subscriptions made with `/events` last for the session. Declared
   subscriptions start again from "now" on the next run.
