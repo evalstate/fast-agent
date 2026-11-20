@@ -175,6 +175,7 @@ def _local(name: str) -> Callable[[], str]:
 @pytest.mark.asyncio
 async def test_local_function_with_a_server_like_name_is_searched_as_local() -> None:
     agent = await _agent()
+    assert agent.context is not None
     agent.context.ptc_search_forced = True
     try:
         _discover(agent._aggregator, "billing", ["invoice", "refund_status", "quote", "credit"])
