@@ -697,7 +697,15 @@ class EventsResponseStreamableHTTPSimulator(StatefulStreamableHTTPSimulator):
                         },
                         "payloadSchema": {"type": "object"},
                         "_meta": {"example.com/owner": "jobs"},
-                    }
+                    },
+                    {
+                        "name": "job.badly_annotated",
+                        "delivery": ["poll"],
+                        "inputSchema": {
+                            "type": "object",
+                            "properties": {"regions": {"type": "array", "x-mcp-header": "Region"}},
+                        },
+                    },
                 ],
                 "nextCursor": "page-2",
             }
@@ -780,6 +788,8 @@ async def test_events_extension_requests_and_parses_results(
 
     assert isinstance(listed, ListEventsResult)
     assert listed.next_cursor == "page-2"
+    # An event type with an invalid x-mcp-header annotation is left out.
+    assert [event.name for event in listed.events] == ["job.status_changed"]
     descriptor = listed.events[0]
     assert descriptor.name == "job.status_changed"
     assert descriptor.supports("poll")

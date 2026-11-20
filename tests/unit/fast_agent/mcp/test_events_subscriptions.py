@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 from mcp.shared.exceptions import MCPError
+from mcp_types import HEADER_MISMATCH
 
 from fast_agent.mcp.events_extension import (
     EVENTS_FORBIDDEN,
@@ -224,6 +225,28 @@ async def test_not_found_rediscovers_once_then_terminates() -> None:
     assert poller.cursors == [None, "c0", None, "c9", None]
     assert poller.list_calls == 3
     assert [item.kind for item in manager.take()] == ["gap", "gap", "terminated"]
+
+
+@pytest.mark.asyncio
+async def test_header_mismatch_relists_once_and_keeps_the_cursor() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(cursor="c0"),
+            MCPError(HEADER_MISMATCH, "Header mismatch"),
+            PollEventsResult(cursor="c1"),
+            MCPError(HEADER_MISMATCH, "Header mismatch"),
+            MCPError(HEADER_MISMATCH, "Header mismatch"),
+        ]
+    )
+    manager = _manager(poller, _Sleeps())
+
+    subscription = await manager.subscribe("demo", EVENT, ARGS)
+    while subscription.status == "active":
+        await asyncio.sleep(0)
+
+    assert poller.cursors == [None, "c0", "c0", "c1", "c1"]
+    assert poller.list_calls == 3
+    assert [item.kind for item in manager.take()] == ["terminated"]
 
 
 @pytest.mark.asyncio
