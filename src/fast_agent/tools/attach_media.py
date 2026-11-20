@@ -353,8 +353,12 @@ def _classify_source(
     if not raw_source:
         raise ValueError("Error: 'source' argument is required and must be a non-empty string")
 
-    parsed = urlparse(raw_source)
     normalized_mime = normalize_mime_type(mime_type) if mime_type else None
+    local_path = Path(raw_source).expanduser()
+    if local_path.is_absolute():
+        return _local_source_info(raw_source, local_path.resolve(), normalized_mime, name)
+
+    parsed = urlparse(raw_source)
 
     if parsed.scheme == "file":
         local_path = file_uri_to_path(parsed).expanduser()
@@ -386,11 +390,7 @@ def _classify_source(
             "internal:// or MCP resource URIs"
         )
 
-    local_path = Path(raw_source).expanduser()
-    if not local_path.is_absolute():
-        local_path = (base_directory / local_path).resolve()
-    else:
-        local_path = local_path.resolve()
+    local_path = (base_directory / local_path).resolve()
     return _local_source_info(raw_source, local_path, normalized_mime, name)
 
 
