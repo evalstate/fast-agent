@@ -38,7 +38,8 @@ if TYPE_CHECKING:
     from fast_agent.agents.workflow.parallel_agent import ParallelAgent
     from fast_agent.cli.runtime.shell_cwd_policy import MissingShellCwdPolicy
     from fast_agent.command_actions import PluginCommandActionSpec
-    from fast_agent.config import MCPServerSettings
+    from fast_agent.config import MCPServerSettings, TerminalImageSettings
+    from fast_agent.context import Context
     from fast_agent.core.harness import HarnessSession
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
@@ -108,6 +109,12 @@ def _format_interactive_final_error(error: Exception) -> str:
         f"Error details: {clean_detail}\n"
         f"\n*Your context is preserved. You can try sending the message again.*"
     )
+
+
+@runtime_checkable
+class _ContextBearing(Protocol):
+    @property
+    def context(self) -> "Context | None": ...
 
 
 class AgentApp:
@@ -870,9 +877,13 @@ class AgentApp:
         from fast_agent.integrations.herdr_lifecycle import report_session_usage
         from fast_agent.plugins.post_user_turn import run_plugin_post_user_turn
         from fast_agent.types.conversation_summary import split_into_turns
-        from fast_agent.ui.turn_usage_display import display_plugin_post_user_turn
+        from fast_agent.ui.turn_usage_display import (
+            display_plugin_post_user_turn,
+            display_plugin_post_user_turn_images,
+        )
 
         turn_usage, session_usage = self._collect_plugin_usage(agent, turn_start_indices)
+        terminal_image_settings = self._configured_terminal_images(agent)
         # The last turn, not a start offset: poll folding rewrites history mid-turn.
         turns = split_into_turns(agent.message_history)
         await run_plugin_post_user_turn(
@@ -883,6 +894,10 @@ class AgentApp:
             config=self._plugin_config,
             display=display_plugin_post_user_turn,
             report_session_usage=report_session_usage,
+            display_images=lambda images: display_plugin_post_user_turn_images(
+                images,
+                settings=terminal_image_settings,
+            ),
             turn_messages=tuple(turns[-1]) if turns else (),
         )
 
@@ -1184,6 +1199,15 @@ class AgentApp:
         ttl_minutes = 60 if cache_ttl == "1h" else 5
         expiry = last_cache_activity + (ttl_minutes * 60)
         return CacheTTLExpiry(expires_at=expiry) if expiry > time.time() else None
+
+    @staticmethod
+    def _configured_terminal_images(agent: AgentProtocol) -> TerminalImageSettings:
+        from fast_agent.config import get_settings
+
+        context = agent.context if isinstance(agent, _ContextBearing) else None
+        if context is not None and context.config is not None:
+            return context.config.logger.terminal_images
+        return get_settings().logger.terminal_images
 
     @staticmethod
     def _configured_cache_ttl(agent) -> str | None:

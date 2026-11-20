@@ -16,6 +16,9 @@ from fast_agent.utils.time import format_two_unit_duration
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from fast_agent.command_actions.models import PluginCommandActionImage
+    from fast_agent.config import TerminalImageSettings
+
 
 @dataclass(frozen=True, slots=True)
 class CacheTTLExpiry:
@@ -159,3 +162,19 @@ def display_plugin_post_user_turn(line: str) -> None:
     """Render one trusted Rich-markup line returned by a display plugin."""
     with progress_display.paused():
         console.print(_render_turn_usage(line))
+
+
+def display_plugin_post_user_turn_images(
+    images: Sequence[PluginCommandActionImage],
+    *,
+    settings: TerminalImageSettings | None,
+) -> None:
+    """Render terminal images returned by a post-user-turn display plugin."""
+    from fast_agent.ui.terminal_images import render_plugin_command_images_for_settings
+
+    renderable = render_plugin_command_images_for_settings(settings, images)
+    if renderable is None:
+        return
+    with progress_display.paused():
+        console.print()
+        console.print(renderable)
