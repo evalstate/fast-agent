@@ -44,10 +44,6 @@ Gemini 3.8 Flash capabilities were verified against the official [Gemini model p
 | [`google.gemini-4-hydrogen`](https://aistudio.google.com/docs/models/gemini-4-hydrogen) | `hydrogen` | low, medium, high, xhigh | high |
 | [`google.gemini-4-carbon`](https://aistudio.google.com/docs/models/gemini-4-carbon) | `carbon` | low, medium, high | medium |
 
-`fast-agent --neon`, `fast-agent --argon`, `fast-agent --hydrogen`, and `fast-agent --carbon`
-select the native Google models above. They also work with explicit `go`. Use `--model` instead when setting
-reasoning or selecting the Copilot route.
-
 ```bash
 fast-agent go --model 'neon?reasoning=xhigh'
 fast-agent go --model 'argon?reasoning=low'

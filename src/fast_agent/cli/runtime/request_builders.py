@@ -534,6 +534,7 @@ def build_agent_run_request(
     model_base_url: str | None = None,
     ptc: bool | None = None,
     ptc_all: bool = False,
+    force_model_picker: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
     if ptc is False and ptc_all:
@@ -648,6 +649,7 @@ def build_agent_run_request(
         model_base_url=model_base_url,
         ptc=True if ptc_all else ptc,
         ptc_search=False if ptc_all else None,
+        force_model_picker=force_model_picker,
     )
 
 
@@ -716,6 +718,7 @@ def build_command_run_request(
     model_base_url: str | None = None,
     ptc: bool | None = None,
     ptc_all: bool = False,
+    force_model_picker: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_no_home_conflicts(
@@ -785,4 +788,5 @@ def build_command_run_request(
         model_base_url=model_base_url,
         ptc=ptc,
         ptc_all=ptc_all,
+        force_model_picker=force_model_picker,
     )
