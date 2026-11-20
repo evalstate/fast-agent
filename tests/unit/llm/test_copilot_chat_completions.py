@@ -70,7 +70,10 @@ def test_factory_selects_chat_completions_and_isolates_native_metadata(model: st
     assert native.google_search_supported
     assert route.reasoning == "openai"
     assert route.reasoning_effort_spec is not None
-    assert route.reasoning_effort_spec.default is None
+    expected_default = "high" if model.endswith(("hydrogen", "neon")) else "medium"
+    assert route.reasoning_effort_spec.default is not None
+    assert route.reasoning_effort_spec.default.kind == "effort"
+    assert route.reasoning_effort_spec.default.value == expected_default
     assert route.reasoning_effort_spec.allowed_efforts == (
         ["low", "medium", "high", "xhigh"]
         if model.endswith(("hydrogen", "neon"))
