@@ -9,8 +9,8 @@ social:
 
 ## Compatibility
 
-`fast-agent` implements the client side of the proposed
-[Events Extension](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3415)
+`fast-agent` implements the client side of the
+[Events Extension](https://modelcontextprotocol.io/seps/3415-events-extension)
 (SEP-3415, `io.modelcontextprotocol/events`) with poll delivery.
 
 It uses `events/list` and `events/poll`. Push (`events/stream`) and webhook
