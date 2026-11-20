@@ -319,6 +319,12 @@ _QWEN_38_REASONING = TopLevelReasoningEffort(
     toggle_disable=False,
     chat_template_toggle_field="enable_thinking",
 )
+_HY4_REASONING = TopLevelReasoningEffort(
+    default_effort="high",
+    allowed_efforts=frozenset({"none", "high"}),
+    disabled_efforts=frozenset({"none"}),
+    toggle_disable=True,
+)
 
 HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
     (
@@ -536,6 +542,21 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
             profile=HuggingFaceRouteProfile(
                 reasoning=ChatTemplateReasoningToggle("enable_thinking")
             ),
+        ),
+        *(
+            RouterProfileRule(
+                model=model,
+                backends=backends,
+                profile=HuggingFaceRouteProfile(
+                    reasoning=_HY4_REASONING,
+                    preserve_raw_reasoning=True,
+                    omit_default_max_tokens=True,
+                ),
+            )
+            for model, backends in (
+                ("tencent/hy4", frozenset({"tencent", "together", None})),
+                ("tencent/hy4-flash", frozenset({"tencent", None})),
+            )
         ),
     )
 )

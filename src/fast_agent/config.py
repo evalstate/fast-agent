@@ -69,6 +69,33 @@ from fast_agent.utils.transports import McpClientTransport
 MOONSHOT_DEFAULT_MODEL = "kimi-k3.1-pro"
 TENCENT_EVAL_DEFAULT_MODEL = "hy4-flash-dev"
 HUGGINGFACE_DEFAULT_MODEL = "moonshotai/Kimi-K3.1-Pro:together"
+DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES: Final = 10_485_760
+
+
+def _default_hf_max_request_bytes() -> int | None:
+    raw = os.getenv("HF_MAX_REQUEST_BYTES")
+    if raw is None or not raw.strip():
+        return DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES
+    normalized = raw.strip().casefold()
+    if normalized in {"none", "null", "off", "0"}:
+        return None
+    try:
+        parsed = int(normalized)
+    except ValueError:
+        warnings.warn(
+            f"Ignoring invalid HF_MAX_REQUEST_BYTES={raw!r}; "
+            f"using default {DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES}",
+            stacklevel=2,
+        )
+        return DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES
+    if parsed < 1:
+        warnings.warn(
+            f"Ignoring non-positive HF_MAX_REQUEST_BYTES={raw!r}; "
+            f"using default {DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES}",
+            stacklevel=2,
+        )
+        return DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES
+    return parsed
 
 
 type TerminalImageSize = int | Literal["auto"] | str | None
@@ -1911,12 +1938,12 @@ class HuggingFaceSettings(BaseModel):
         description="Custom headers for all API requests",
     )
     max_request_bytes: int | None = Field(
-        default=4_718_592,
+        default_factory=_default_hf_max_request_bytes,
         ge=1,
         description=(
-            "Request body budget (bytes). The router rejects bodies above about 5 MB with "
-            "HTTP 413; if inline images exceed this budget, the oldest are replaced with a "
-            "placeholder. Null disables the budget."
+            "Request body budget (bytes, default 10 MiB; also configurable via "
+            "HF_MAX_REQUEST_BYTES). If inline images exceed this budget, the oldest are "
+            "replaced with a placeholder. Null disables the budget."
         ),
     )
     image_max_dimension: int | None = Field(

@@ -97,6 +97,8 @@
 | `hf.zai-org/glm-4.6` | `hf` | Text | `json` (schema) | — | — | — |
 | `hf.zai-org/glm-4.7` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `hf.zai-org/glm-4.7?reasoning=off` | — | — |
 | `hf.zai-org/glm-5.1` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `hf.zai-org/glm-5.1?reasoning=off` | — | — |
+| `hy4-flash` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `high`, `off`<br>Example: `hy4-flash?reasoning=high` | — | — |
+| `hy4` | `hf` | Text, Vision | `json` (schema) | effort: `none`, `high`, `off`<br>Example: `hy4?reasoning=high` | — | — |
 | `inkling` | `hf` | Text, Vision | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`, `max`<br>Example: `inkling?reasoning=high` | — | — |
 | `kimi25` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi25?reasoning=off` | — | — |
 | `kimi26` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `kimi26?reasoning=off` | — | — |

@@ -15,6 +15,8 @@ PTC defaults to **on** for these catalog model IDs, including aliases that resol
 - `gpt-6.2-sol`
 - `kimi-k3.1-pro`
 - `moonshotai/kimi-k3.1-pro`
+- `tencent/hy4`
+- `tencent/hy4-flash`
 - `zai-org/glm-5.3-flash`
 
 Other models default to **off**. Model defaults apply only in supported local POSIX environments; unsupported environments fall back to direct tools.

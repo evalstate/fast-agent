@@ -210,6 +210,15 @@ class ModelSelectionCatalog:
         ),
         Provider.HUGGINGFACE: (
             _builtin_entry(
+                "hy4",
+                display_label="Hy4 (tencent)",
+            ),
+            _builtin_entry(
+                "hy4-flash",
+                display_label="Hy4 Flash (tencent)",
+                fast=True,
+            ),
+            _builtin_entry(
                 "beam",
                 display_label="Beam 1.0 (together)",
                 description="text-only HF route via OpenRouter",
