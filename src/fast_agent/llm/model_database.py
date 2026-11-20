@@ -2551,8 +2551,10 @@ def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
         # Copilot /models, 2026-11-17: Gemini uses an OpenAI-compatible gateway,
         # not native Google's thinking, grounding, service tiers or media APIs.
         efforts: list[ReasoningEffortLevel] = ["low", "medium", "high"]
+        default_effort: ReasoningEffortLevel = "medium"
         if spec.model_id in ("gemini-4-hydrogen", "gemini-4-neon"):
             efforts.append("xhigh")
+            default_effort = "high"
         # Copilot's Gemini gateway pricing and prompt reliability degrade past 200k
         # input tokens (the catalog's default context tier), so auto-compact at 190k
         # unless compact_at or compaction.threshold overrides it.
@@ -2561,7 +2563,11 @@ def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
             max_output_tokens=64_000 if spec.model_id == "gemini-4-carbon" else 65_536,
             compaction_trigger_tokens=190_000,
             reasoning="openai",
-            reasoning_effort_spec=ReasoningEffortSpec(kind="effort", allowed_efforts=efforts),
+            reasoning_effort_spec=ReasoningEffortSpec(
+                kind="effort",
+                allowed_efforts=efforts,
+                default=ReasoningEffortSetting(kind="effort", value=default_effort),
+            ),
             google_service_tiers=(),
             google_search_supported=False,
             model_specific=None,
