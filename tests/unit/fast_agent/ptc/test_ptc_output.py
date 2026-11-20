@@ -249,6 +249,29 @@ async def helpers(tmp_path: Path) -> AsyncIterator[ProgrammaticToolRuntime]:
         ),
         (
             (
+                "show({'stdout': 'a\\nb\\nc\\n', 'stderr': 'warn\\n', "
+                "'exit_code': 1, 'status': 'failed'}, n=0)"
+            ),
+            (
+                "exit_code=1 status=failed\n--- stderr\n"
+                "[... 1 of 1 lines omitted; print the stream or use head()/grep() to see them ...]\n"
+                "--- stdout\n"
+                "[... 3 of 3 lines omitted; print the stream or use head()/grep() to see them ...]"
+            ),
+        ),
+        (
+            "show({'stdout': 'a\\nb\\nc\\n', 'exit_code': 0, 'status': 'completed'}, n=-2)",
+            (
+                "exit_code=0 status=completed\n--- stdout\n"
+                "[... 3 of 3 lines omitted; print the stream or use head()/grep() to see them ...]"
+            ),
+        ),
+        (
+            "show({'stdout': '', 'exit_code': 0, 'status': 'completed'}, n=0)",
+            "exit_code=0 status=completed\n--- stdout\n",
+        ),
+        (
+            (
                 "show({'stdout': 'ok\\nERROR bad\\n', 'stderr': '', "
                 "'exit_code': None, 'status': 'running', 'process_id': 'p2'}, pattern='error')"
             ),

@@ -51,15 +51,16 @@ def grep(text: str, pattern: str, context: int = 0, limit: int = 50) -> str:
 
 def _view(text: str, n: int) -> str:
     lines = text.splitlines()
+    n = max(0, n)
     if len(lines) <= 2 * n:
         return "\\n".join(lines)
-    k = max(1, n // 4)
+    k = max(1, n // 4) if n > 0 else 0
     omitted = len(lines) - k - n
     marker = (
         "[... " + str(omitted) + " of " + str(len(lines)) + " lines omitted; "
         + "print the stream or use head()/grep() to see them ...]"
     )
-    return "\\n".join(lines[:k] + [marker] + lines[-n:])
+    return "\\n".join(lines[:k] + [marker] + lines[len(lines) - n:])
 
 
 def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str:
