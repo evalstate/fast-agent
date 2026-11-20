@@ -6,6 +6,8 @@ import os
 import tempfile
 from pathlib import Path
 
+from mcp_types import EmbeddedResource, TextResourceContents
+
 from fast_agent.mcp.prompts.prompt_load import (
     create_messages_with_resources,
     load_prompt,
@@ -149,6 +151,23 @@ assistant2
     finally:
         # Clean up
         os.unlink(tf_path)
+
+
+def test_load_prompt_with_resource_only_user_section(tmp_path: Path) -> None:
+    """Load the resource without adding an empty text block to the user message."""
+    prompt_path = tmp_path / "prompt.md"
+    prompt_path.write_text("---USER\n---RESOURCE\nreport.txt\n---ASSISTANT\nOK\n", encoding="utf-8")
+    (tmp_path / "report.txt").write_text("Report contents", encoding="utf-8")
+
+    messages = load_prompt(prompt_path)
+
+    assert [message.role for message in messages] == ["user", "assistant"]
+    assert len(messages[0].content) == 1
+    resource = messages[0].content[0]
+    assert isinstance(resource, EmbeddedResource)
+    assert isinstance(resource.resource, TextResourceContents)
+    assert resource.resource.text == "Report contents"
+    assert messages[1].first_text() == "OK"
 
 
 def test_load_markdown_prompt_applies_template_arguments(tmp_path):

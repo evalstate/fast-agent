@@ -184,6 +184,20 @@ Let me know if you need more details.
         assert "Let me know if you need more details." in template.content_sections[1].text
         assert template.content_sections[1].resources == ["response.txt"]
 
+    @pytest.mark.parametrize("suffix", ["\n---ASSISTANT\nOK\n", ""])
+    def test_resource_only_section(self, suffix):
+        """Keep resource-only sections at a role boundary and at end of file."""
+        template = PromptTemplate("---USER\n---RESOURCE\nreport.txt" + suffix)
+
+        assert len(template.content_sections) == (2 if suffix else 1)
+        assert template.content_sections[0].role == "user"
+        assert template.content_sections[0].text == ""
+        assert template.content_sections[0].resources == ["report.txt"]
+        if suffix:
+            assert template.content_sections[1].role == "assistant"
+            assert template.content_sections[1].text == "OK"
+            assert template.content_sections[1].resources == []
+
     def test_multiple_resources_in_template(self):
         """Test parsing a template with multiple resources per section"""
         template_text = """---USER
