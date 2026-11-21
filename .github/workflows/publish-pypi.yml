@@ -6,15 +6,83 @@ on:
       - "v*" # Triggers on tags like v1.2.3
 
   workflow_dispatch: # Enables manual runs
+    inputs:
+      force_checks:
+        description: Force running the full checks workflow even if Main Checks already passed for this commit
+        required: false
+        type: boolean
+        default: false
 
 jobs:
+  verify-checks:
+    name: Verify Main Checks for commit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      already_verified: ${{ steps.check.outputs.already_verified }}
+    steps:
+      - name: Check existing Main Checks status for commit
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_CHECKS: ${{ inputs.force_checks == true }}
+        run: |
+          set -euo pipefail
+          if [[ "${FORCE_CHECKS}" == "true" ]]; then
+            echo "force_checks=true; running full checks workflow."
+            echo "already_verified=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          deadline=$((SECONDS + 1500))
+          while true; do
+            runs_json=$(gh api               "repos/${GITHUB_REPOSITORY}/actions/workflows/main-checks.yml/runs?head_sha=${GITHUB_SHA}&event=push&per_page=20")
+            state=$(printf '%s' "$runs_json" | python3 -c '
+          import json, sys
+          runs = json.load(sys.stdin).get("workflow_runs", [])
+          if any(r.get("status") == "completed" and r.get("conclusion") == "success" for r in runs):
+              print("verified")
+          elif any(r.get("status") in {"queued", "in_progress", "waiting", "pending", "requested"} for r in runs):
+              print("pending")
+          else:
+              print("missing")
+          ')
+            if [[ "$state" == "verified" ]]; then
+              echo "Main Checks already passed for ${GITHUB_SHA}; skipping duplicate check run."
+              echo "already_verified=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [[ "$state" == "missing" ]]; then
+              echo "No passing Main Checks run found for ${GITHUB_SHA}; running full checks workflow."
+              echo "already_verified=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if (( SECONDS >= deadline )); then
+              echo "Timed out waiting for in-progress Main Checks run for ${GITHUB_SHA}; running full checks workflow."
+              echo "already_verified=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "Main Checks is currently in progress for ${GITHUB_SHA}; waiting 20s..."
+            sleep 20
+          done
+
   checks:
+    needs: [verify-checks]
+    if: needs.verify-checks.outputs.already_verified != 'true'
     uses: ./.github/workflows/checks.yml
 
   publish:
     name: Build and publish package to PyPI
     runs-on: ubuntu-latest
-    needs: [checks] # Run checks before publishing
+    needs: [verify-checks, checks]
+    if: >-
+      !cancelled() &&
+      needs.verify-checks.result == 'success' &&
+      (
+        (needs.verify-checks.outputs.already_verified == 'true' && needs.checks.result == 'skipped') ||
+        needs.checks.result == 'success'
+      )
 
     # This ties the job to a protected environment.
     environment:

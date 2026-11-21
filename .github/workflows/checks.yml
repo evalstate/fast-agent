@@ -67,12 +67,27 @@ jobs:
         run: uv run scripts/check_internal_resources.py
 
   unit-test:
-    name: Unit (Python ${{ matrix.python-version }})
+    name: Unit (Python ${{ matrix.python-version }}, ${{ matrix.shard.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.14", "3.15"]
+        shard:
+          - name: llm
+            paths: tests/unit/fast_agent/llm tests/unit/llm
+            args: ""
+          - name: ui-commands-ptc
+            paths: tests/unit/fast_agent/ui tests/unit/fast_agent/commands tests/unit/fast_agent/ptc
+            args: ""
+          - name: other
+            paths: tests/unit
+            args: >-
+              --ignore=tests/unit/fast_agent/llm
+              --ignore=tests/unit/llm
+              --ignore=tests/unit/fast_agent/ui
+              --ignore=tests/unit/fast_agent/commands
+              --ignore=tests/unit/fast_agent/ptc
     steps:
       - uses: actions/checkout@v7
 
@@ -91,7 +106,7 @@ jobs:
           uv sync --locked --group dev --python ${{ matrix.python-version }}
 
       - name: Run unit tests
-        run: uv run pytest tests/unit -n auto -q -ra --durations=20
+        run: uv run pytest ${{ matrix.shard.paths }} ${{ matrix.shard.args }} -n auto -q -ra --durations=20
 
   integration-test:
     name: Integration (${{ matrix.name }})
