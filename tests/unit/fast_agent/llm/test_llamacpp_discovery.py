@@ -331,9 +331,7 @@ def test_candidate_local_llamacpp_urls_defaults_and_env(monkeypatch: pytest.Monk
         "http://localhost:9931/v1",
         LEGACY_LLAMA_CPP_URL,
     )
-    assert candidate_local_llamacpp_urls("http://127.0.0.1:7777") == (
-        "http://127.0.0.1:7777/v1",
-    )
+    assert candidate_local_llamacpp_urls("http://127.0.0.1:7777") == ("http://127.0.0.1:7777/v1",)
 
     monkeypatch.setenv("LLAMA_ARG_HOST", "0.0.0.0")
     monkeypatch.setenv("LLAMA_ARG_PORT", "11435")
@@ -446,7 +444,9 @@ async def test_openresponses_inlines_local_file_image_as_data_uri(tmp_path) -> N
 
     llm = OpenResponsesLLM.__new__(OpenResponsesLLM)
     part = {"type": "input_image", "image_url": img_path.as_uri()}
-    normalized, uploaded = await llm._normalize_input_image_part(None, part)  # type: ignore[arg-type]
+    from typing import Any, cast
+
+    normalized, uploaded = await llm._normalize_input_image_part(cast("Any", None), part)
 
     assert uploaded is False
     expected_b64 = base64.b64encode(raw_png).decode("ascii")

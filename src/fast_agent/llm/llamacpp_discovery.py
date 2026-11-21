@@ -22,7 +22,11 @@ from fast_agent.llm.model_overlays import (
     ModelOverlayPicker,
 )
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
+from fast_agent.llm.reasoning_effort import (
+    ReasoningEffortLevel,
+    ReasoningEffortSetting,
+    ReasoningEffortSpec,
+)
 from fast_agent.utils.collections import unique_preserve_order
 from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.text import strip_casefold, strip_to_none
@@ -514,12 +518,20 @@ def _resolve_live_reasoning_effort_spec(
     if not caps.reasoning_effort_levels:
         return base_spec
 
-    allowed: list[str] = []
+    valid_levels: dict[str, ReasoningEffortLevel] = {
+        "none": "none",
+        "minimal": "minimal",
+        "low": "low",
+        "medium": "medium",
+        "high": "high",
+        "xhigh": "xhigh",
+        "max": "max",
+    }
+    allowed: list[ReasoningEffortLevel] = []
     for level in caps.reasoning_effort_levels:
-        normalized = level.strip().lower()
-        if normalized in {"none", "minimal", "low", "medium", "high", "xhigh", "max"}:
-            if normalized not in allowed:
-                allowed.append(normalized)
+        mapped = valid_levels.get(level.strip().lower())
+        if mapped is not None and mapped not in allowed:
+            allowed.append(mapped)
     if not allowed:
         return base_spec
 
@@ -534,11 +546,11 @@ def _resolve_live_reasoning_effort_spec(
     elif "medium" in allowed:
         default_setting = ReasoningEffortSetting(kind="effort", value="medium")
     else:
-        default_setting = ReasoningEffortSetting(kind="effort", value=allowed[0])  # type: ignore[arg-type]
+        default_setting = ReasoningEffortSetting(kind="effort", value=allowed[0])
 
     return ReasoningEffortSpec(
         kind="effort",
-        allowed_efforts=allowed,  # type: ignore[arg-type]
+        allowed_efforts=allowed,
         allow_auto=False,
         default=default_setting,
     )
@@ -811,9 +823,7 @@ def _parse_models_payload(payload: object) -> tuple[tuple[LlamaCppModelListing, 
         if isinstance(raw_status, dict):
             status = _LlamaCppModelStatusPayload.model_validate(raw_status)
         training_ctx = (
-            positive_int_or_none(parsed.meta.n_ctx_train)
-            if parsed.meta is not None
-            else None
+            positive_int_or_none(parsed.meta.n_ctx_train) if parsed.meta is not None else None
         )
         if training_ctx is None:
             training_ctx = positive_int_or_none(parsed.context_length)

@@ -54,6 +54,12 @@ app = typer.Typer(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     add_completion=False,
 )
+local_app = typer.Typer(
+    cls=PromptArgumentHintGroup,
+    help="Connect directly to a running local llama.cpp server (shorthand for 'go --local')",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    add_completion=False,
+)
 
 
 def resolve_instruction_option(
@@ -427,6 +433,7 @@ def _resolve_local_llamacpp_model(
     return overlay.name
 
 
+@local_app.callback(invoke_without_command=True, no_args_is_help=False)
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def go(
     ctx: typer.Context,

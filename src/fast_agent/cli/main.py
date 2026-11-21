@@ -41,7 +41,7 @@ from fast_agent.ui.console import console as shared_console
 
 LAZY_SUBCOMMANDS: dict[str, str] = {
     "go": "fast_agent.cli.commands.go:app",
-    "local": "fast_agent.cli.commands.go:app",
+    "local": "fast_agent.cli.commands.go:local_app",
     "serve": "fast_agent.cli.commands.serve:app",
     "acp": "fast_agent.cli.commands.acp:app",
     "scaffold": "fast_agent.cli.commands.setup:app",
@@ -71,7 +71,7 @@ LAZY_SUBCOMMAND_HELP: dict[str, str] = {
     "demo": "Demo commands for UI features.",
     "export": "Export persisted session traces.",
     "go": "Run an interactive agent directly from the command line without creating an agent.py file",
-    "local": "Connect directly to a running local llama.cpp server (shorthand for 'go --local')", 
+    "local": "Connect directly to a running local llama.cpp server (shorthand for 'go --local')",
     "model": "Interactive model reference setup.",
     "plugins": "Manage command plugins (list/add/remove/update).",
     "quickstart": "Create fast-agent quickstarts",
