@@ -158,6 +158,8 @@ class EventRequests(Protocol):
         cursor: str | None = None,
     ) -> OpenEventStream: ...
 
+    def can_hold_event_stream(self, server_name: str) -> bool: ...
+
 
 @runtime_checkable
 class _ServerKeyResolver(Protocol):
@@ -589,8 +591,13 @@ class EventSubscriptionManager:
             descriptor = await self._find_event_type(server_name, name)
             if descriptor is None:
                 raise ValueError(f"Server '{server_name}' does not offer event '{name}'")
+            can_stream = self._requests.can_hold_event_stream(server_name)
             if delivery is None:
-                delivery = "push" if descriptor.supports("push") else "poll"
+                delivery = "push" if can_stream and descriptor.supports("push") else "poll"
+            if delivery == "push" and not can_stream:
+                raise ValueError(
+                    f"Push delivery needs a persistent connection to server '{server_name}'"
+                )
             if not descriptor.supports(delivery):
                 offered = ", ".join(descriptor.delivery) or "no delivery modes"
                 raise ValueError(

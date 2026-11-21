@@ -493,6 +493,9 @@ class _CommandEventsAggregator:
             events=[EventDescriptor(name="job.status_changed", delivery=["poll"])]
         )
 
+    def can_hold_event_stream(self, server_name: str) -> bool:
+        return True
+
     async def poll_events(
         self,
         server_name: str,

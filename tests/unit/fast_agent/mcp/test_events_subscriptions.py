@@ -83,6 +83,7 @@ class _Poller:
         self.delivery = ["poll"] if delivery is None else delivery
         self.streams = list(streams or [])
         self.stream_cursors: list[str | None] = []
+        self.persistent = True
         self.cursors: list[str | None] = []
         self.max_ages: list[int | None] = []
         self.list_calls = 0
@@ -115,6 +116,10 @@ class _Poller:
         if isinstance(step, Exception):
             raise step
         return step
+
+    def can_hold_event_stream(self, server_name: str) -> bool:
+        del server_name
+        return self.persistent
 
     async def open_event_stream(
         self,
@@ -1260,6 +1265,20 @@ async def test_poll_can_be_chosen_when_push_is_offered() -> None:
 
     assert subscription.delivery == "poll"
     assert poller.stream_cursors == []
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_push_is_not_used_on_a_connection_that_cannot_hold_a_stream() -> None:
+    poller = _Poller([PollEventsResult(cursor="c0")], delivery=["push", "poll"])
+    poller.persistent = False
+    manager = _manager(poller, _Sleeps())
+
+    with pytest.raises(ValueError, match="needs a persistent connection"):
+        await manager.subscribe("demo", EVENT, ARGS, delivery="push")
+    subscription = await manager.subscribe("demo", EVENT, ARGS)
+
+    assert subscription.delivery == "poll"
     await manager.aclose()
 
 

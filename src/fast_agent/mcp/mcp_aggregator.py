@@ -4298,6 +4298,12 @@ class MCPAggregator(ContextDependent):
             method_args=method_args,
         )
 
+    def can_hold_event_stream(self, server_name: str) -> bool:
+        """Whether a stream to this server outlives the request that opens it."""
+        return self.connection_persistence and not self._should_use_request_scoped_connection(
+            self._resolve_server_key(server_name)
+        )
+
     async def open_event_stream(
         self,
         server_name: str,

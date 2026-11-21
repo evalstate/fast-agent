@@ -47,6 +47,9 @@ class _Aggregator:
     async def supports_events(self, server_name: str) -> bool:
         return server_name == "jobs"
 
+    def can_hold_event_stream(self, server_name: str) -> bool:
+        return server_name == "jobs"
+
     async def list_events(self, server_name: str, cursor: str | None = None) -> ListEventsResult:
         del server_name, cursor
         self.list_calls += 1

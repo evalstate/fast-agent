@@ -231,6 +231,9 @@ async def test_events_picker_toggle_wake_takes_user_ownership_and_removes_ended(
             del server_name, cursor
             return ListEventsResult(events=[EventDescriptor(name="job.done", delivery=["poll"])])
 
+        def can_hold_event_stream(self, server_name: str) -> bool:
+            return True
+
         async def poll_events(
             self,
             server_name: str,

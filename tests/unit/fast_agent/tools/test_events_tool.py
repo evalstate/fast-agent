@@ -50,6 +50,9 @@ class _FakeEventsAggregator:
     async def list_events(self, server_name: str, cursor: str | None = None) -> ListEventsResult:
         return ListEventsResult(events=list(self._descriptors.get(server_name, [])))
 
+    def can_hold_event_stream(self, server_name: str) -> bool:
+        return True
+
     async def poll_events(
         self,
         server_name: str,
