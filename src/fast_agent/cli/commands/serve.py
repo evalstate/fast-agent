@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from ipaddress import ip_address
 from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
@@ -13,6 +14,7 @@ from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.runtime.request_builders import build_command_run_request
 from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions, McpProtocolOption
+from fast_agent.mcp.server.common import normalize_serve_oauth_provider
 from fast_agent.ui.console import SurrogateSafeConsole
 
 if TYPE_CHECKING:
@@ -112,6 +114,50 @@ def _emit_serve_security_warnings(
 ) -> None:
     for message in _serve_security_warning_messages(transport=transport, host=host, shell=shell):
         _WARNING_CONSOLE.print(message)
+
+
+def _serve_authentication_configured() -> bool:
+    """True when the serve command enforces token authentication for remote clients."""
+    return normalize_serve_oauth_provider(os.environ.get("FAST_AGENT_SERVE_OAUTH")) == "huggingface"
+
+
+def _remote_shell_refusal_message(
+    *,
+    transport: ServeTransport,
+    host: str,
+    shell: bool,
+    allow_remote_shell: bool,
+) -> str | None:
+    """Refuse to expose the shell tool to remote clients that are not authenticated."""
+    if not shell or allow_remote_shell:
+        return None
+    if not _serves_remote_clients(transport, host):
+        return None
+    if _serve_authentication_configured():
+        return None
+    return (
+        "--shell exposes the shell execution tool to remote callers, but no "
+        "authentication provider is configured. Set FAST_AGENT_SERVE_OAUTH=huggingface "
+        "to require bearer tokens, bind a loopback --host, or pass --allow-remote-shell "
+        "to accept the exposure."
+    )
+
+
+def _refuse_remote_shell(
+    *,
+    transport: ServeTransport,
+    host: str,
+    shell: bool,
+    allow_remote_shell: bool,
+) -> None:
+    message = _remote_shell_refusal_message(
+        transport=transport,
+        host=host,
+        shell=shell,
+        allow_remote_shell=allow_remote_shell,
+    )
+    if message is not None:
+        raise typer.BadParameter(message, param_hint="--shell")
 
 
 def _build_run_request(
@@ -249,6 +295,15 @@ def serve(
     ),
     shell: bool = CommonAgentOptions.shell(),
     no_shell: bool = CommonAgentOptions.no_shell(),
+    allow_remote_shell: bool = typer.Option(
+        False,
+        "--allow-remote-shell",
+        help=(
+            "Allow --shell when serving HTTP or A2A to remote clients without an "
+            "authentication provider. Anyone who can reach the endpoint can then run "
+            "shell commands as the server process."
+        ),
+    ),
     subagents: bool | None = CommonAgentOptions.subagents(),
     subagent_model: str | None = CommonAgentOptions.subagent_model(),
     prefer_local_shell: bool = typer.Option(
@@ -280,6 +335,12 @@ def serve(
     """Expose fast-agent to clients over MCP (http/stdio), ACP, or A2A."""
     if ctx.invoked_subcommand is not None:
         return
+    _refuse_remote_shell(
+        transport=transport,
+        host=host,
+        shell=shell,
+        allow_remote_shell=allow_remote_shell,
+    )
     request = _build_run_request(
         ctx=ctx,
         name=name,
@@ -354,6 +415,15 @@ def serve_a2a(
     ),
     shell: bool = CommonAgentOptions.shell(),
     no_shell: bool = CommonAgentOptions.no_shell(),
+    allow_remote_shell: bool = typer.Option(
+        False,
+        "--allow-remote-shell",
+        help=(
+            "Allow --shell when serving A2A to remote clients without an "
+            "authentication provider. Anyone who can reach the endpoint can then run "
+            "shell commands as the server process."
+        ),
+    ),
     subagents: bool | None = CommonAgentOptions.subagents(),
     subagent_model: str | None = CommonAgentOptions.subagent_model(),
     instance_scope: InstanceScope = typer.Option(
@@ -365,6 +435,12 @@ def serve_a2a(
     watch: bool = CommonAgentOptions.watch(),
 ) -> None:
     """Expose fast-agent over A2A HTTP transports."""
+    _refuse_remote_shell(
+        transport=ServeTransport.A2A,
+        host=host,
+        shell=shell,
+        allow_remote_shell=allow_remote_shell,
+    )
     request = _build_run_request(
         ctx=ctx,
         name=name,

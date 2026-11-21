@@ -84,6 +84,7 @@ Key options:
     - `connection` – keep harness continuity using an explicit custom-tool handle, falling back to `Mcp-Session-Id` when available
     - `request` (stateless) – create a transient harness session for every tool call
 - `--shell`, `-x` – Enable local shell tool access (bash or pwsh)
+- `--allow-remote-shell` – Explicitly accept exposing `--shell` to remote, unauthenticated clients (see below)
 - `--no-shell` – Disable local shell/filesystem tools even when skills or config request them
 - `--workspace` – Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`
 - `--no-home` – Run without implicit home side effects (no implicit card discovery, no session persistence/resume, and no ACP permission-store writes)
@@ -102,6 +103,13 @@ non-loopback address only when remote clients should connect; `fast-agent serve`
 prints a warning for remote HTTP/A2A binds. It also prints a warning whenever
 `--shell` is enabled, with stronger wording when shell access is exposed to
 remote callers.
+
+Because `--shell` lets any caller run commands as the server process, `serve`
+refuses to start when it would expose `--shell` over HTTP or A2A to a
+non-loopback host and no authentication provider is configured. Configure
+`FAST_AGENT_SERVE_OAUTH=huggingface` to require bearer tokens, bind a loopback
+`--host`, or pass `--allow-remote-shell` to accept the unauthenticated exposure
+explicitly.
 
 For public or multi-user hosted servers, prefer `--instance-scope request`.
 Use `shared` only for trusted deployments or application-level shared state you
