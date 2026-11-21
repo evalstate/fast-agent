@@ -324,6 +324,7 @@ class _NestedCalls:
     dispatch: ToolDispatcher
     stats: _ExecutionStats
     call_prefix: str
+    execution_started: float = field(default_factory=time.perf_counter)
     # Outstanding dispatches only: a finished task holds its full result, which sandbox code may
     # long since have discarded, so keeping them all would grow host memory with fetched data.
     tasks: set[asyncio.Task[CallToolResult]] = field(default_factory=set)
@@ -346,8 +347,12 @@ class _NestedCalls:
         call_id = f"{self.call_prefix}{stats.started}"
         # Snapshot before dispatch: tools may mutate arguments, and parallel calls may
         # finish out of order. This ledger is metadata, never model-visible output.
+        call_started = time.perf_counter()
         record = _started_call_record(call_id, tool_name, arguments)
         record["function"] = function_name
+        record["start_offset_ms"] = round(
+            max(0.0, (call_started - self.execution_started) * 1000), 2
+        )
         stats.calls.append(record)
         try:
             with programmatic_tool_call(call_id):
@@ -359,6 +364,8 @@ class _NestedCalls:
             record.update(status="raised", is_error=True)
             stats.failed.append(function_name)
             raise
+        finally:
+            record["timing_ms"] = round(max(0.0, (time.perf_counter() - call_started) * 1000), 2)
         record.update(_call_record(call_id, tool_name, result), status="completed")
         (stats.failed if result.is_error else stats.completed).append(function_name)
         stats.track_process(arguments, result)
@@ -889,6 +896,7 @@ class ProgrammaticToolRuntime:
             self._executions += 1
             stats = _ExecutionStats()
             output = _PrintedOutput()
+            started = time.perf_counter()
             calls = _NestedCalls(
                 dispatch,
                 stats,
@@ -897,6 +905,7 @@ class ProgrammaticToolRuntime:
                     if parent_call_id
                     else f"ptc-{self._executions}-"
                 ),
+                execution_started=started,
             )
             from fast_agent.ptc.files import SandboxFilesystem
 
@@ -911,7 +920,6 @@ class ProgrammaticToolRuntime:
                     catalog, calls, on_search, byte_limit=self._result_byte_limit
                 )
             lookup.update(self._store.functions())
-            started = time.perf_counter()
             try:
                 async with await self._checkout(catalog) as session:
                     await session.feed_run(prelude)

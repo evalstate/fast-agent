@@ -82,6 +82,7 @@ async def run_plugin_post_user_turn(
     report_session_usage: Callable[[str], None] | None = None,
     display_images: Callable[[Sequence[PluginCommandActionImage]], None] | None = None,
     turn_messages: tuple[PromptMessageExtended, ...] = (),
+    session_id: str | None = None,
 ) -> None:
     for loaded in handlers:
         ctx = PluginPostUserTurnContext(
@@ -91,6 +92,7 @@ async def run_plugin_post_user_turn(
             session_usage=session_usage,
             config=config.get(loaded.plugin_name, {}),
             turn_messages=turn_messages,
+            session_id=session_id,
         )
         try:
             result = loaded.handler(ctx)

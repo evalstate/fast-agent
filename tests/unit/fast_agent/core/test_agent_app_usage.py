@@ -3,13 +3,15 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 from typing import TYPE_CHECKING
+from unittest.mock import AsyncMock, create_autospec
 
 import pytest
 from mcp_types import CallToolResult
 
-from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.harness import HarnessSession
 from fast_agent.integrations import herdr_lifecycle
 from fast_agent.llm.prompt_cache import uses_openai_minimum_cache_ttl
 from fast_agent.llm.provider_types import Provider
@@ -23,6 +25,7 @@ from fast_agent.llm.usage_tracking import (
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.plugins.models import PluginPostUserTurnSpec
+from fast_agent.session import SessionManager
 from fast_agent.ui.turn_usage_display import (
     TurnUsageDisplay,
     format_regular_turn_usage,
@@ -245,6 +248,115 @@ async def test_interactive_send_runs_post_user_turn_plugin_once_and_quiet_send_s
     assert marker.read_text(encoding="utf-8") == "1:1\n"
     assert len(app.user_turn_usage) == 1
     assert reported_usage == ["$0.0123"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_harness", [False, True], ids=["direct", "harness"])
+async def test_interactive_post_user_turn_plugin_receives_active_session_id(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    use_harness: bool,
+) -> None:
+    hook = tmp_path / "hook.py"
+    hook.write_text(
+        "def display(ctx):\n    return ctx.session_id or 'no session'\n",
+        encoding="utf-8",
+    )
+    agent = _agent(UsageAccumulator())
+    agent.agent_type = AgentType.BASIC
+    agent.send = AsyncMock(return_value="done")
+    app = AgentApp(
+        {"assistant": agent},
+        plugin_post_user_turn=[PluginPostUserTurnSpec("session", f"{hook}:display")],
+    )
+    harness = create_autospec(HarnessSession, instance=True) if use_harness else None
+    if harness is not None:
+        harness.send.return_value = "done"
+        harness.session_manager = None
+        harness.id = ""
+
+    displayed: list[str] = []
+    monkeypatch.setattr(
+        "fast_agent.ui.turn_usage_display.display_plugin_post_user_turn", displayed.append
+    )
+    monkeypatch.setattr(
+        "fast_agent.integrations.herdr_session.report_session", lambda *a, **kw: None
+    )
+    session_manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
+
+    class _InteractivePrompt:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def prompt_loop(self, *, send_func, **_kwargs) -> str:
+            await send_func("before session", "assistant")
+            session_manager.create_session()
+            return await send_func("in session", "assistant")
+
+    monkeypatch.setattr("fast_agent.ui.interactive_prompt.InteractivePrompt", _InteractivePrompt)
+
+    try:
+        result = await app.interactive(
+            agent_name="assistant", session_manager=session_manager, harness_session=harness
+        )
+        session = session_manager.current_session
+        assert session is not None
+        assert result == "done"
+        assert displayed == ["no session", session.info.name]
+    finally:
+        session_manager.close()
+
+
+@pytest.mark.asyncio
+async def test_interactive_post_user_turn_plugin_falls_back_to_harness_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hook = tmp_path / "hook.py"
+    hook.write_text(
+        "def display(ctx):\n    return ctx.session_id or 'no session'\n",
+        encoding="utf-8",
+    )
+    agent = _agent(UsageAccumulator())
+    agent.agent_type = AgentType.BASIC
+    agent.send = AsyncMock(return_value="done")
+    app = AgentApp(
+        {"assistant": agent},
+        plugin_post_user_turn=[PluginPostUserTurnSpec("session", f"{hook}:display")],
+    )
+    session_manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
+    harness = create_autospec(HarnessSession, instance=True)
+    harness.send.return_value = "done"
+    harness.id = "harness-transient-id"
+    harness.session_manager = session_manager
+
+    displayed: list[str] = []
+    monkeypatch.setattr(
+        "fast_agent.ui.turn_usage_display.display_plugin_post_user_turn", displayed.append
+    )
+    monkeypatch.setattr(
+        "fast_agent.integrations.herdr_session.report_session", lambda *a, **kw: None
+    )
+
+    class _InteractivePrompt:
+        def __init__(self, **_kwargs) -> None:
+            pass
+
+        async def prompt_loop(self, *, send_func, **_kwargs) -> str:
+            await send_func("before persisted session", "assistant")
+            session_manager.create_session()
+            return await send_func("after persisted session", "assistant")
+
+    monkeypatch.setattr("fast_agent.ui.interactive_prompt.InteractivePrompt", _InteractivePrompt)
+
+    try:
+        result = await app.interactive(agent_name="assistant", harness_session=harness)
+        session = session_manager.current_session
+        assert session is not None
+        assert result == "done"
+        assert displayed == ["harness-transient-id", session.info.name]
+    finally:
+        session_manager.close()
 
 
 @pytest.mark.asyncio

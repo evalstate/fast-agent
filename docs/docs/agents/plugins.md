@@ -228,6 +228,7 @@ The context contains:
   usage recorded by earlier fast-agent versions leave it `None`.
 - `session_usage` — cumulative canonical provider attempts for the selected
   agent or parallel workflow.
+- `session_id` — the active session's ID, or `None` if no session is active.
 - `config` — the plugin's mapping from `plugins.config.<plugin-name>`.
 - `turn_messages` — the completed turn from the selected agent's message history,
   starting at the user message. Managed-process polling may be folded; use
