@@ -285,6 +285,148 @@ def _resolve_model_base_url_option(
     return normalized
 
 
+def _select_local_llamacpp_listing(
+    catalog: Any,
+    *,
+    requested_model: str | None,
+) -> Any:
+    models = catalog.models
+    if requested_model:
+        req = requested_model.strip()
+        req_cf = req.casefold()
+        for item in models:
+            if item.model_id == req or item.model_id.casefold() == req_cf:
+                return item
+            if any(alias.casefold() == req_cf for alias in item.aliases):
+                return item
+        substring_matches = [
+            item
+            for item in models
+            if req_cf in item.model_id.casefold()
+            or any(req_cf in alias.casefold() for alias in item.aliases)
+        ]
+        if len(substring_matches) == 1:
+            return substring_matches[0]
+        available = ", ".join(item.model_id for item in models)
+        raise typer.BadParameter(
+            f"Local llama.cpp model {requested_model!r} was not found. Available: {available}",
+            param_hint="--model",
+        )
+
+    if len(models) == 1:
+        return models[0]
+
+    loaded = [item for item in models if item.status == "loaded"]
+    if len(loaded) == 1:
+        return loaded[0]
+    if loaded:
+        return loaded[0]
+    return models[0]
+
+
+def _resolve_local_llamacpp_model(
+    *,
+    base_url: str | None,
+    requested_model: str | None,
+    quiet: bool,
+) -> str:
+    import asyncio
+    import sys
+
+    from fast_agent.llm.llamacpp_discovery import (
+        LlamaCppDiscoveryError,
+        build_ephemeral_llamacpp_overlay,
+        discover_local_llamacpp_catalog,
+        interrogate_llamacpp_model,
+    )
+    from fast_agent.llm.model_overlays import register_ephemeral_model_overlay
+
+    async def _discover_and_interrogate():
+        catalog = await discover_local_llamacpp_catalog(url=base_url)
+        selected = None
+        if (
+            requested_model is None
+            and len(catalog.models) > 1
+            and sum(1 for item in catalog.models if item.status == "loaded") != 1
+            and sys.stdin.isatty()
+            and sys.stdout.isatty()
+        ):
+            from fast_agent.ui.llamacpp_model_picker import (
+                LlamaCppModelPickerContext,
+                run_llamacpp_model_picker_async,
+            )
+
+            async def _load_ctx(model_id: str) -> LlamaCppModelPickerContext:
+                discovered = await interrogate_llamacpp_model(
+                    catalog=catalog,
+                    model_id=model_id,
+                    autoload=False if catalog.router_mode else None,
+                )
+                return LlamaCppModelPickerContext(
+                    runtime_context_window=discovered.runtime_context_window,
+                    training_context_window=discovered.listing.training_context_window,
+                )
+
+            picker_result = await run_llamacpp_model_picker_async(
+                catalog.models,
+                runtime_context_loader=_load_ctx,
+            )
+            if picker_result is None:
+                raise typer.Exit(0)
+            selected = next(
+                (item for item in catalog.models if item.model_id == picker_result.model_id),
+                None,
+            )
+
+        if selected is None:
+            selected = _select_local_llamacpp_listing(
+                catalog,
+                requested_model=requested_model,
+            )
+
+        discovered = await interrogate_llamacpp_model(
+            catalog=catalog,
+            model_id=selected.model_id,
+        )
+        return catalog, discovered
+
+    try:
+        catalog, discovered = asyncio.run(_discover_and_interrogate())
+    except LlamaCppDiscoveryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    overlay = build_ephemeral_llamacpp_overlay(
+        discovered_model=discovered,
+        base_url=catalog.endpoints.request_base_url,
+    )
+    register_ephemeral_model_overlay(overlay)
+
+    if not quiet:
+        details: list[str] = []
+        if discovered.effective_context_window:
+            details.append(f"ctx {discovered.effective_context_window:,}")
+        modalities: list[str] = []
+        if any(m.startswith("image/") for m in discovered.tokenizes):
+            modalities.append("vision")
+        if any(m.startswith("audio/") for m in discovered.tokenizes):
+            modalities.append("audio")
+        if any(m.startswith("video/") for m in discovered.tokenizes):
+            modalities.append("video")
+        if modalities:
+            details.append("+".join(modalities))
+        if discovered.matched_database_model:
+            details.append(f"profile: {discovered.matched_database_model}")
+        detail_suffix = f" ({' | '.join(details)})" if details else ""
+        typer.echo(
+            f"Local llama.cpp: {discovered.listing.model_id} @ "
+            f"{catalog.endpoints.request_base_url}{detail_suffix}",
+            err=True,
+        )
+
+    return overlay.name
+
+
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def go(
     ctx: typer.Context,
@@ -315,6 +457,11 @@ def go(
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
     mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     model: str | None = CommonAgentOptions.model(),
+    local: bool = typer.Option(
+        False,
+        "--local",
+        help="Connect directly to a running local llama.cpp server (probes localhost:9931 then localhost:8080, or uses --base-url).",
+    ),
     base_url: str | None = typer.Option(
         None,
         "--base-url",
@@ -548,6 +695,14 @@ def go(
         raise typer.BadParameter(
             "Only 'atif' is currently supported.", param_hint="--trajectory-format"
         )
+
+    if local:
+        model = _resolve_local_llamacpp_model(
+            base_url=base_url,
+            requested_model=model,
+            quiet=quiet,
+        )
+        base_url = None
 
     request = build_command_run_request(
         name=name,

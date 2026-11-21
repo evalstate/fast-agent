@@ -2,173 +2,106 @@
 title: llama.cpp
 social:
   title: llama.cpp
-  tagline: Run local llama.cpp models through fast-agent model overlays.
-  description: Run local llama.cpp models through fast-agent model overlays.
+  tagline: Connect fast-agent directly to a local llama.cpp server.
+  description: Connect fast-agent directly to a local llama.cpp server with fast-agent local or saved model overlays.
   alt: fast-agent social card — llama.cpp
 ---
 
 # llama.cpp
 
-Use [`llama.cpp`](https://llama-cpp.com/) when you want to run a model locally and
-connect with `fast-agent`. 
-
-fast-agent configures llama.cpp models as local [model overlays](../model_overlays.md).
-The import command discovers the model from a running `llama-server`, reads runtime
-metadata such as context window and output limits, and writes an overlay into the
-active fast-agent home.
-
-The generated overlay uses the `openresponses` provider with the normalized `/v1`
-base URL, so the imported model can be selected like any other model name.
-
-## Start llama-server
-
-Start `llama-server` with your chosen model. For example:
+Start `llama-server` (or `llama server`) and run `fast-agent local`:
 
 ```bash
-llama-server -m ./models/model.gguf
+llama server -m ./model.gguf --mmproj ./mmproj.gguf
+fast-agent local
 ```
 
-By default, fast-agent looks for llama.cpp at:
+`fast-agent local` (or `fast-agent --local`) probes `LLAMA_ARG_HOST`/`LLAMA_ARG_PORT`,
+`http://localhost:9931/v1`, and `http://localhost:8080/v1` in order, selects the active
+model, and connects over the OpenResponses `/v1/responses` API with no config file needed.
 
-```text
-http://localhost:8080/v1
-```
+<div
+  class="fa-terminal-demo"
+  data-fa-asciinema-cast="../../../assets/models/llamacpp-local.cast"
+  data-fa-asciinema-cols="96"
+  data-fa-asciinema-rows="24"
+  data-fa-asciinema-poster="npt:0:04"
+  data-fa-asciinema-speed="1"
+  data-fa-asciinema-idle-time-limit="1.3"
+  data-fa-asciinema-fit="width"
+  data-fa-asciinema-autoplay="true"
+>
+  <div class="fa-terminal-theme-switch" aria-label="Terminal theme">
+    <button type="button" data-fa-terminal-theme="auto">Auto</button>
+    <button type="button" data-fa-terminal-theme="light">Light</button>
+    <button type="button" data-fa-terminal-theme="dark">Dark</button>
+  </div>
+  <div data-fa-asciinema-target></div>
+</div>
 
-You can pass either the server root or `/v1` URL; fast-agent normalizes root URLs
-to `/v1` for runtime requests.
+<!--
+Cast asset:
+- Source: docs/docs/assets/models/llamacpp-local.cast
+- Replay locally: asciinema play docs/docs/assets/models/llamacpp-local.cast
+-->
 
-## Import interactively
+## Everyday usage
 
-Run:
+`fast-agent local` accepts the same flags as `fast-agent go`:
 
 ```bash
+# One-shot prompt
+fast-agent local -m "Summarize this repo"
+
+# Multimodal input (works automatically when llama-server has --mmproj loaded)
+fast-agent local --attach screenshot.png -m "What error is shown?"
+
+# Target a specific server URL or router-mode model
+fast-agent local --base-url http://localhost:8080 --model Qwen3.6-35B-A3B
+```
+
+On connect, fast-agent reads `/props` for live context length (`n_ctx`), loaded
+modalities (`vision`, `audio`, `video`), and supported `reasoning_effort` levels. If the
+model matches an entry in fast-agent's model database (for example `Inkling-2-Mini`,
+`Qwen3.6-35B-A3B`, or `Gemma-4`), fast-agent applies its harness preferences while
+keeping the live server's limits and capabilities authoritative.
+
+In router mode with multiple models, fast-agent picks the single loaded model
+automatically or opens the interactive picker without autoloading unloaded models while
+browsing.
+
+## Persisted and remote overlays
+
+When you want a saved model name (for `--model <name>`, config files, or authenticated
+remote endpoints), import an overlay:
+
+```bash
+# Interactive picker (choose "Start now" or write an overlay)
 fast-agent model llamacpp
-```
 
-This opens an interactive picker, discovers available models, interrogates the
-selected model, and writes a model overlay.
-
-![llama.cpp model picker](../../guides/2026-03-21-llamacpp.png)
-
-Choose **Start now** if you want fast-agent to launch immediately with the imported
-overlay.
-
-## Discover and import from the shell
-
-List discovered models:
-
-```bash
-fast-agent model llamacpp list --url http://localhost:8080
-```
-
-Use `--json` for machine-readable output:
-
-```bash
-fast-agent model llamacpp list --url http://localhost:8080 --json
-```
-
-Preview the overlay YAML without writing it:
-
-```bash
-fast-agent model llamacpp preview \
-  --url http://localhost:8080 \
-  meta-llama/Llama-3.2-3B-Instruct \
-  --name llama-local
-```
-
-Import a model as a named overlay:
-
-```bash
-fast-agent model llamacpp import \
-  --url http://localhost:8080 \
-  unsloth/Qwen3.5-9B-GGUF \
-  --name qwen-local
-```
-
-The overlay is written under the active fast-agent home's `model-overlays/` directory.
-Use it with:
-
-```bash
+# Non-interactive discovery and import
+fast-agent model llamacpp list --json
+fast-agent model llamacpp import unsloth/Qwen3.6-35B-A3B-GGUF --name qwen-local
 fast-agent go --model qwen-local
 ```
 
-## Start immediately after import
-
-The non-interactive import command can launch fast-agent after writing the overlay:
-
-```bash
-fast-agent model llamacpp import \
-  --url http://localhost:8080 \
-  unsloth/Qwen3.5-9B-GGUF \
-  --name qwen-local \
-  --start-now
-```
-
-Add `--with-shell` to start with shell execution enabled:
-
-```bash
-fast-agent model llamacpp import \
-  --url http://localhost:8080 \
-  unsloth/Qwen3.5-9B-GGUF \
-  --name qwen-local \
-  --start-now \
-  --with-shell
-```
-
-## Authenticated llama.cpp endpoints
-
-For local servers, no persisted auth is usually needed. For authenticated or remote
-llama.cpp-compatible endpoints, use `--auth env` with `--api-key-env`:
+For remote or authenticated servers, pass `--url` with `--auth env` (`--api-key-env`) or
+`--auth secret_ref` (`--secret-ref`):
 
 ```bash
 fast-agent model llamacpp import \
   --url https://lab.example \
-  unsloth/Qwen3.5-9B-GGUF \
+  unsloth/Qwen3.6-35B-A3B-GGUF \
   --name qwen-lab \
   --auth env \
   --api-key-env LLAMA_CPP_TOKEN
 ```
 
-You can also persist a secret reference:
-
-```bash
-fast-agent model llamacpp import \
-  --url https://lab.example \
-  unsloth/Qwen3.5-9B-GGUF \
-  --name qwen-lab \
-  --auth secret_ref \
-  --secret-ref llama-cpp-token
-```
-
-For discovery-only commands, `--api-key-env` and `--secret-ref` are used only to
-query the server.
-
-## Sampling defaults
-
-By default, generated overlays store discovered capability metadata and output
-limits, but they do not freeze the server's current sampling policy.
-
-Use `--include-sampling-defaults` if you want to persist llama.cpp sampling defaults
-such as `temperature`, `top_k`, `top_p`, and `min_p` in the overlay:
-
-```bash
-fast-agent model llamacpp import \
-  --url http://localhost:8080 \
-  unsloth/Qwen3.5-9B-GGUF \
-  --name qwen-local \
-  --include-sampling-defaults
-```
-
-## Overlay reuse
-
-Repeated unnamed imports of the same llama.cpp model on the same normalized base URL
-reuse the existing generated `llamacpp-*` overlay instead of creating another
-suffixed file.
-
-Pass `--name` when you want an explicit overlay name or a separate copy.
+Overlays store discovered capability metadata and output limits without freezing the
+server's sampling policy. Pass `--include-sampling-defaults` to persist `temperature`,
+`top_k`, `top_p`, and `min_p`.
 
 ## See also
 
-- [Model Overlays](../model_overlays.md) for the overlay manifest format and
-  precedence rules.
-- [Command switches](../../ref/cmd_switches.md) for command-line examples.
+- [Model Overlays](../model_overlays.md) — overlay manifest format and precedence rules.
+- [Command switches](../../ref/cmd_switches.md) — CLI flags and examples.
