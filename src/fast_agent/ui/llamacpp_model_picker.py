@@ -305,7 +305,14 @@ class _LlamaCppModelPicker:
         *,
         width: int,
     ) -> str:
-        return truncate_picker_text(model.model_id, width)
+        label = model.model_id
+        if model.status == "loaded":
+            label = f"{label} [loaded]"
+        elif model.status == "unloaded":
+            label = f"{label} [unloaded]"
+        elif model.status == "loading":
+            label = f"{label} [loading]"
+        return truncate_picker_text(label, width)
 
     def _create_key_bindings(self) -> KeyBindings:
         kb = KeyBindings()

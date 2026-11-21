@@ -72,6 +72,8 @@ class PluginCommandActionImage:
     source: str
     label: str | None = None
     mime_type: str | None = None
+    width: int | str | None = None
+    height: int | str | None = None
 
 
 @dataclass(frozen=True, slots=True)

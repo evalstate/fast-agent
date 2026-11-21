@@ -64,6 +64,7 @@ GO_SPECIFIC_OPTIONS = {
     "--url",
     "--mcp-protocol",
     "--model",
+    "--local",
     "--models",
     "--agent",
     "--instruction",

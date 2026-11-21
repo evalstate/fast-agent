@@ -44,6 +44,7 @@ social:
 <section class="fa-editorial-cards" aria-label="Providers and protocols">
   <section class="fa-destination fa-destination--build fa-support-card">
     <h2>Bring your provider.<br>Use local models.</h2>
+    <div class="fa-local-models"><a class="fa-local-brand" href="https://llama.app/"><img src="assets/forward/assets/providers/llamacpp.svg" alt="" width="28" height="28">llama.cpp</a><a href="models/providers/llamacpp/">Run local models <span aria-hidden="true">↗</span></a></div>
     <div class="fa-provider-logos" aria-label="Featured providers">
       <a href="models/providers/openai/"><img src="assets/forward/assets/providers/openai.svg" alt="" width="24" height="24">OpenAI</a>
       <a href="models/providers/anthropic/"><img src="assets/forward/assets/providers/anthropic.svg" alt="" width="24" height="24">Anthropic</a>
@@ -55,7 +56,6 @@ social:
       <a href="models/providers/huggingface/"><img src="assets/forward/assets/providers/huggingface.svg" alt="" width="24" height="24">Hugging Face</a>
       <a href="models/llm_providers/">More providers <span aria-hidden="true">↗</span></a>
     </div>
-    <div class="fa-local-models"><a class="fa-local-brand" href="https://llama.app/"><img src="assets/forward/assets/providers/llamacpp.svg" alt="" width="28" height="28">llama.cpp</a><a href="models/providers/llamacpp/">Run local models <span aria-hidden="true">↗</span></a></div>
     <p>Native reasoning, streaming and tool use. API keys or supported OAuth and subscription logins, including Codex and Copilot.</p>
     <a class="fa-support-link" href="models/">Explore providers &amp; login options <span aria-hidden="true">↗</span></a>
   </section>

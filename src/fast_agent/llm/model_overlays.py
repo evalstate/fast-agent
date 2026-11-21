@@ -316,6 +316,7 @@ class LoadedModelOverlay:
     manifest: ModelOverlayManifest
     manifest_path: Path
     secret_entry: ModelOverlaySecretEntry | None = None
+    override_model_parameters: ModelParameters | None = None
 
     @property
     def name(self) -> str:
@@ -411,7 +412,19 @@ class LoadedModelOverlay:
         return kwargs
 
     def build_model_parameters(self) -> ModelParameters | None:
+        if self.override_model_parameters is not None:
+            return self.override_model_parameters
+
         existing = _existing_model_params(self.provider, self.model_name)
+        if existing is None and self.provider == Provider.OPENRESPONSES:
+            from fast_agent.llm.llamacpp_discovery import match_llamacpp_model_database_entry
+
+            matched = match_llamacpp_model_database_entry(
+                self.model_name,
+                model_alias=self.manifest.picker.label,
+            )
+            if matched is not None:
+                existing = matched[1]
         context_window, max_output_tokens = self._resolved_model_limits(existing)
 
         if context_window is None or max_output_tokens is None:
@@ -874,12 +887,25 @@ def _settings_home_override(
     return base_path, home
 
 
+_EPHEMERAL_MODEL_OVERLAYS: dict[str, LoadedModelOverlay] = {}
+
+
+def register_ephemeral_model_overlay(overlay: LoadedModelOverlay) -> None:
+    """Register an in-memory runtime overlay (e.g. for `fast-agent --local`)."""
+    _EPHEMERAL_MODEL_OVERLAYS[overlay.name] = overlay
+
+
+def clear_ephemeral_model_overlays() -> None:
+    """Clear all in-memory runtime overlays."""
+    _EPHEMERAL_MODEL_OVERLAYS.clear()
+
+
 def load_model_overlay_registry(
     *,
     start_path: Path | None = None,
     home: str | Path | None = None,
 ) -> ModelOverlayRegistry:
-    """Load static model overlays from the active home."""
+    """Load static model overlays from the active home plus any ephemeral overlays."""
 
     paths = resolve_model_overlay_paths(start_path=start_path, home=home)
     secret_entries = _load_secret_entries(paths.secrets_path)
@@ -900,6 +926,9 @@ def load_model_overlay_registry(
                     path=str(path),
                 )
             loaded[overlay.name] = overlay
+
+    for name, overlay in _EPHEMERAL_MODEL_OVERLAYS.items():
+        loaded[name] = overlay
 
     return ModelOverlayRegistry(
         overlays=tuple(loaded.values()),

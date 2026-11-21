@@ -16,6 +16,7 @@ from fast_agent.utils.async_utils import configure_uvloop, ensure_event_loop
 # if the arguments would work with "go" we'll just route to it
 
 _OPTIONS_WITHOUT_VALUES = {
+    "--local",
     "--no-home",
     "--shell",
     "--no-shell",
