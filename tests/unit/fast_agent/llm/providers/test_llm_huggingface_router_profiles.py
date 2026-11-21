@@ -15,6 +15,9 @@ from fast_agent.config import HuggingFaceSettings, Settings
 from fast_agent.constants import REASONING
 from fast_agent.context import Context
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.provider.openai.huggingface_router_profiles import (
+    HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND,
+)
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.request_params import RequestParams
@@ -1936,3 +1939,35 @@ async def test_beam_streamed_reasoning_replays_on_tool_turn() -> None:
             ],
         }
     ]
+
+
+def test_hf_default_provider_not_applied_to_dedicated_custom_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HF_DEFAULT_PROVIDER", "together")
+    settings = Settings(
+        hf=HuggingFaceSettings(
+            api_key="hf-test-key",
+            default_provider="deepinfra",
+            base_url="https://demo.endpoints.huggingface.cloud/v1",
+        )
+    )
+    context = Context(config=settings)
+    llm = HuggingFaceLLM(
+        context=context,
+        model="thinkingmachines/Inkling-2-Mini",
+    )
+
+    route = llm._router_route(llm.default_request_params.model)
+    assert route is not None
+    assert route.backend == HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND
+    assert llm._hf_provider_suffix is None
+
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "Hello"}],
+        None,
+        llm.default_request_params,
+    )
+    assert args["model"] == "thinkingmachines/Inkling-2-Mini"
+    assert args["reasoning_effort"] == "high"
+    assert "max_tokens" not in args

@@ -161,7 +161,7 @@ metadata:
   context_window: 65536
 ```
 
-Unknown `profile` values fail manifest validation. For one-off runs against vLLM, llama.cpp, or generic OpenAI-compatible endpoints without writing an overlay file, you can also use `fast-agent --model-url <url>` (with optional `--model-auth` or `--model-api-key-env`).
+Unknown `profile` values fail manifest validation. For one-off runs against vLLM, llama.cpp, or generic OpenAI-compatible endpoints without writing an overlay file, you can also use `fast-agent --model-url "<url>"` (with optional `--model-api-key-env` — preferred to avoid argv visibility — or `--model-auth`).
 
 ### Connection settings
 

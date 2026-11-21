@@ -1895,6 +1895,23 @@ class ModelDatabase:
         return cls._RUNTIME_MODEL_PARAMS.get(normalized)
 
     @classmethod
+    def get_static_model_params(
+        cls,
+        model_key: str,
+        *,
+        provider: Provider | None = None,
+    ) -> ModelParameters | None:
+        """Look up static ModelDatabase parameters without invoking ModelFactory or overlays."""
+        normalized = strip_casefold(model_key)
+        if not normalized or normalized in cls.REMOVED_MODEL_NAMES:
+            return None
+        if provider is not None:
+            provider_override = cls._PROVIDER_MODEL_OVERRIDES.get((provider, normalized))
+            if provider_override is not None:
+                return provider_override
+        return cls.MODELS.get(normalized)
+
+    @classmethod
     def get_request_model_params(
         cls,
         model: str,

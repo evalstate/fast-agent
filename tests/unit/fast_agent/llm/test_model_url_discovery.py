@@ -9,9 +9,13 @@ import typer
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.cli.commands.go import _resolve_model_url_model, _resolve_model_url_options
+from fast_agent.cli.commands.go import (
+    _resolve_model_url_model,
+    _resolve_model_url_options,
+    _select_model_url_listing,
+)
 from fast_agent.cli.constants import GO_SPECIFIC_OPTIONS
-from fast_agent.config import HuggingFaceSettings, Settings
+from fast_agent.config import GenericSettings, HuggingFaceSettings, Settings
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
@@ -29,6 +33,7 @@ from fast_agent.llm.model_url_discovery import (
     normalize_model_url,
     resolve_model_url_auth,
 )
+from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider_types import Provider
 
@@ -522,3 +527,506 @@ def test_resolve_model_url_model_preserves_query_suffix_and_does_not_print_secre
     assert "hf_never_echo_this_token" not in captured.err
     assert "hf_never_echo_this_token" not in captured.out
     assert json.dumps({"spec": model_spec})  # sanity check non-empty string
+
+
+@pytest.mark.asyncio
+async def test_no_auth_model_url_overlay_constructs_openai_client_without_api_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for env_name in ("OPENAI_API_KEY", "GENERIC_API_KEY", "HF_TOKEN"):
+        monkeypatch.delenv(env_name, raising=False)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "local-qwen", "owned_by": "vllm", "max_model_len": 16384}]},
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    catalog = await discover_model_url_catalog(
+        "http://localhost:8000",
+        transport=transport,
+    )
+    discovered = await interrogate_model_url_model(
+        catalog=catalog,
+        model_id="local-qwen",
+        transport=transport,
+    )
+    overlay = build_ephemeral_model_url_overlay(discovered=discovered, catalog=catalog)
+    register_ephemeral_model_overlay(overlay)
+
+    context = Context(config=Settings())
+    agent = LlmAgent(AgentConfig("no-auth-agent"), context=context)
+    llm = ModelFactory.create_factory(overlay.name)(agent)
+    assert isinstance(llm, GenericLLM)
+
+    client = llm._openai_client()
+    assert client.api_key == "fast-agent-no-auth"
+    assert str(client.base_url).rstrip("/") == "http://localhost:8000/v1"
+    request_args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+    assert request_args["model"] == "local-qwen"
+
+
+@pytest.mark.asyncio
+async def test_model_url_overlay_suppresses_inherited_provider_default_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GENERIC_API_KEY", raising=False)
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+
+    settings = Settings(
+        generic=GenericSettings(default_headers={"X-API-Key": "generic-gateway-secret"}),
+        hf=HuggingFaceSettings(default_headers={"X-Gateway-Key": "hf-gateway-secret"}),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "served-model", "owned_by": "vllm", "max_model_len": 32768}]},
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    for url, overlay_name in (
+        ("http://localhost:8000", "ephemeral-generic-origin"),
+        ("https://demo.endpoints.huggingface.cloud", "ephemeral-hf-origin"),
+    ):
+        catalog = await discover_model_url_catalog(url, config=settings, transport=transport)
+        discovered = await interrogate_model_url_model(
+            catalog=catalog,
+            model_id="served-model",
+            transport=transport,
+        )
+        overlay = build_ephemeral_model_url_overlay(
+            discovered=discovered,
+            catalog=catalog,
+            overlay_name=overlay_name,
+        )
+        register_ephemeral_model_overlay(overlay)
+
+        context = Context(config=settings)
+        agent = LlmAgent(AgentConfig(f"agent-{overlay_name}"), context=context)
+        llm = ModelFactory.create_factory(overlay.name)(agent)
+        assert isinstance(llm, (GenericLLM, HuggingFaceLLM))
+        assert llm._default_headers() == {}
+        client = llm._openai_client()
+        assert "X-API-Key" not in client.default_headers
+        assert "X-Gateway-Key" not in client.default_headers
+
+
+def test_schemeless_hf_endpoint_defaults_to_https_and_handles_trailing_dot() -> None:
+    assert is_huggingface_endpoint_url("demo.endpoints.huggingface.cloud")
+    assert is_huggingface_endpoint_url("demo.endpoints.huggingface.cloud.")
+    assert is_huggingface_endpoint_url("https://demo.endpoints.huggingface.cloud./v1")
+    assert not is_huggingface_endpoint_url("https://demo.endpoints.huggingface.cloud.evil.com/v1")
+
+    endpoints = normalize_model_url("demo.endpoints.huggingface.cloud")
+    assert endpoints.request_base_url == "https://demo.endpoints.huggingface.cloud/v1"
+
+    trailing = normalize_model_url("demo.endpoints.huggingface.cloud.")
+    assert trailing.request_base_url == "https://demo.endpoints.huggingface.cloud./v1"
+
+
+def test_explicit_http_hf_endpoint_refuses_cleartext_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HF_TOKEN", "hf_never_send_over_http")
+    with pytest.raises(ModelUrlDiscoveryError, match="require https://"):
+        resolve_model_url_auth("http://demo.endpoints.huggingface.cloud/v1")
+
+
+def test_remote_cleartext_http_does_not_attach_ambient_generic_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GENERIC_API_KEY", "generic_ambient_secret")
+
+    remote_http = resolve_model_url_auth("http://gpu-box.internal:8000")
+    assert remote_http.source == "none"
+    assert remote_http.token is None
+
+    local_http = resolve_model_url_auth("http://localhost:8000")
+    assert local_http.source == "generic_api_key_env"
+    assert local_http.token == "generic_ambient_secret"
+
+    remote_https = resolve_model_url_auth("https://gpu-box.internal:8000")
+    assert remote_https.source == "generic_api_key_env"
+    assert remote_https.token == "generic_ambient_secret"
+
+
+def test_model_url_rejects_userinfo_without_leaking_credentials() -> None:
+    with pytest.raises(ModelUrlDiscoveryError) as exc_info:
+        normalize_model_url("https://alice:super-secret-pw@demo.endpoints.huggingface.cloud/v1")
+    message = str(exc_info.value)
+    assert "userinfo" in message.lower()
+    assert "super-secret-pw" not in message
+    assert "alice" not in message
+
+
+def test_model_url_rejects_control_chars_in_tokens_without_leaking_secret(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bad_secret = "tok_secret_value\r\nX-Injected: 1"
+    with pytest.raises(ModelUrlDiscoveryError) as exc_info:
+        resolve_model_url_auth(
+            "https://demo.endpoints.huggingface.cloud",
+            model_auth=bad_secret,
+        )
+    assert "control characters" in str(exc_info.value)
+    assert "tok_secret_value" not in str(exc_info.value)
+
+    monkeypatch.setenv("BAD_CUSTOM_KEY", bad_secret)
+    with pytest.raises(ModelUrlDiscoveryError) as exc_info:
+        resolve_model_url_auth(
+            "https://llm.example.com/v1",
+            api_key_env="BAD_CUSTOM_KEY",
+        )
+    assert "tok_secret_value" not in str(exc_info.value)
+
+    monkeypatch.setenv("HF_TOKEN", bad_secret)
+    with pytest.raises(ModelUrlDiscoveryError) as exc_info:
+        resolve_model_url_auth("https://demo.endpoints.huggingface.cloud")
+    assert "tok_secret_value" not in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_transport_error_does_not_leak_raw_exception_secret() -> None:
+    def failing_handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("failed with Authorization: Bearer super-secret-transport-token")
+
+    transport = httpx.MockTransport(failing_handler)
+    with pytest.raises(ModelUrlDiscoveryError) as exc_info:
+        await discover_model_url_catalog(
+            "https://demo.endpoints.huggingface.cloud",
+            model_auth="hf_real_token",
+            transport=transport,
+        )
+    message = str(exc_info.value)
+    assert "ConnectError" in message
+    assert "super-secret-transport-token" not in message
+    assert "hf_real_token" not in message
+
+
+@pytest.mark.asyncio
+async def test_ephemeral_model_url_preserves_exact_wire_id_and_hf_profile_route() -> None:
+    # Case A: lowercase wire ID must NOT be rewritten to Inkling-2-Mini casing
+    def lowercase_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "thinkingmachines/inkling-2-mini",
+                            "owned_by": "vllm",
+                            "max_model_len": 131072,
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404)
+
+    transport_a = httpx.MockTransport(lowercase_handler)
+    catalog_a = await discover_model_url_catalog(
+        "https://demo.endpoints.huggingface.cloud",
+        model_auth="hf_test_token",
+        transport=transport_a,
+    )
+    discovered_a = await interrogate_model_url_model(
+        catalog=catalog_a,
+        model_id="thinkingmachines/inkling-2-mini",
+        transport=transport_a,
+    )
+    overlay_a = build_ephemeral_model_url_overlay(
+        discovered=discovered_a,
+        catalog=catalog_a,
+        overlay_name="hf-lowercase-inkling",
+    )
+    register_ephemeral_model_overlay(overlay_a)
+
+    context = Context(config=Settings())
+    agent_a = LlmAgent(AgentConfig("hf-lowercase"), context=context)
+    llm_a = ModelFactory.create_factory(overlay_a.name)(agent_a)
+    assert isinstance(llm_a, HuggingFaceLLM)
+    args_a = llm_a._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm_a.default_request_params,
+    )
+    assert args_a["model"] == "thinkingmachines/inkling-2-mini"
+    assert args_a["reasoning_effort"] == "high"
+    assert "max_tokens" not in args_a
+
+    # Case B: renamed HF endpoint matched via `root` retains Inkling custom-endpoint profile
+    def renamed_handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "acme/custom-inkling-alias",
+                            "root": "thinkingmachines/Inkling-2-Mini",
+                            "owned_by": "vllm",
+                            "max_model_len": 131072,
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404)
+
+    transport_b = httpx.MockTransport(renamed_handler)
+    catalog_b = await discover_model_url_catalog(
+        "https://demo.endpoints.huggingface.cloud",
+        model_auth="hf_test_token",
+        transport=transport_b,
+    )
+    discovered_b = await interrogate_model_url_model(
+        catalog=catalog_b,
+        model_id="acme/custom-inkling-alias",
+        transport=transport_b,
+    )
+    assert discovered_b.matched_database_model == "thinkingmachines/inkling-2-mini"
+    overlay_b = build_ephemeral_model_url_overlay(
+        discovered=discovered_b,
+        catalog=catalog_b,
+        overlay_name="hf-renamed-inkling",
+    )
+    register_ephemeral_model_overlay(overlay_b)
+
+    agent_b = LlmAgent(AgentConfig("hf-renamed"), context=context)
+    llm_b = ModelFactory.create_factory(overlay_b.name)(agent_b)
+    assert isinstance(llm_b, HuggingFaceLLM)
+    route_profile_b = llm_b._route_profile(llm_b.default_request_params.model)
+    assert route_profile_b is not None
+    assert route_profile_b.preserve_raw_reasoning is True
+    assert route_profile_b.omit_default_max_tokens is True
+    args_b = llm_b._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm_b.default_request_params,
+    )
+    assert args_b["model"] == "acme/custom-inkling-alias"
+    assert args_b["reasoning_effort"] == "high"
+    assert "max_tokens" not in args_b
+
+
+@pytest.mark.asyncio
+async def test_select_model_url_listing_exact_id_beats_earlier_alias_and_rejects_ambiguous() -> (
+    None
+):
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "model-alpha",
+                            "aliases": ["target", "shared-alias"],
+                            "owned_by": "vllm",
+                            "max_model_len": 8192,
+                        },
+                        {
+                            "id": "target",
+                            "aliases": ["shared-alias"],
+                            "owned_by": "vllm",
+                            "max_model_len": 16384,
+                        },
+                    ]
+                },
+            )
+        return httpx.Response(404)
+
+    catalog = await discover_model_url_catalog(
+        "http://localhost:8000",
+        transport=httpx.MockTransport(handler),
+    )
+
+    # Exact wire ID ("target") must win over earlier item's alias ("target")
+    selected = _select_model_url_listing(catalog, requested_model="target")
+    assert selected.model_id == "target"
+
+    # Ambiguous alias match must fail cleanly
+    with pytest.raises(typer.BadParameter, match="matched multiple models"):
+        _select_model_url_listing(catalog, requested_model="shared-alias")
+
+
+@pytest.mark.asyncio
+async def test_multimodel_llamacpp_never_falls_back_to_unqualified_props() -> None:
+    seen_paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_paths.append(str(request.url))
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "model-a", "owned_by": "llamacpp", "meta": {"n_ctx_train": 131072}},
+                        {"id": "model-b", "owned_by": "llamacpp", "meta": {"n_ctx_train": 16384}},
+                    ]
+                },
+            )
+        if request.url.path == "/props" and request.url.query == b"":
+            return httpx.Response(
+                200,
+                json={
+                    "default_generation_settings": {"n_ctx": 65536},
+                    "modalities": {"vision": True, "audio": False},
+                    "model_alias": "model-a-alias",
+                },
+            )
+        if request.url.path == "/props" and request.url.query == b"model=model-b":
+            return httpx.Response(404)
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    catalog = await discover_model_url_catalog("http://localhost:9931", transport=transport)
+    assert catalog.server_kind == "llamacpp"
+
+    seen_paths.clear()
+    discovered_b = await interrogate_model_url_model(
+        catalog=catalog,
+        model_id="model-b",
+        transport=transport,
+    )
+    assert seen_paths == ["http://localhost:9931/props?model=model-b"]
+    assert discovered_b.runtime_context_window is None
+    assert discovered_b.effective_context_window == 16384
+    assert discovered_b.tokenizes is None
+    assert discovered_b.model_alias is None
+
+
+@pytest.mark.asyncio
+async def test_llamacpp_owner_takes_precedence_over_max_model_len_heuristic() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "qwen-gguf",
+                            "owned_by": "llamacpp",
+                            "max_model_len": 16384,
+                        }
+                    ]
+                },
+            )
+        if request.url.path == "/props":
+            return httpx.Response(
+                200,
+                json={"default_generation_settings": {"n_ctx": 32768}},
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    catalog = await discover_model_url_catalog("http://localhost:9931", transport=transport)
+    assert catalog.server_kind == "llamacpp"
+    discovered = await interrogate_model_url_model(
+        catalog=catalog,
+        model_id="qwen-gguf",
+        transport=transport,
+    )
+    assert discovered.effective_context_window == 32768
+
+
+@pytest.mark.asyncio
+async def test_models_payload_tolerates_string_status_and_null_aliases() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "vendor-model",
+                            "owned_by": "custom",
+                            "status": "available",
+                            "aliases": None,
+                            "meta": {"n_ctx_train": "not-an-int"},
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404)
+
+    catalog = await discover_model_url_catalog(
+        "http://localhost:8000",
+        transport=httpx.MockTransport(handler),
+    )
+    assert len(catalog.models) == 1
+    assert catalog.models[0].model_id == "vendor-model"
+    assert catalog.models[0].status == "available"
+    assert catalog.models[0].aliases == ()
+
+
+@pytest.mark.asyncio
+async def test_live_n_predict_is_clamped_to_context_window() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "tiny-ctx-model", "owned_by": "llamacpp"}]},
+            )
+        if request.url.path == "/props":
+            return httpx.Response(
+                200,
+                json={
+                    "default_generation_settings": {
+                        "n_ctx": 8192,
+                        "params": {"n_predict": 32768},
+                    }
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    catalog = await discover_model_url_catalog("http://localhost:9931", transport=transport)
+    discovered = await interrogate_model_url_model(
+        catalog=catalog,
+        model_id="tiny-ctx-model",
+        transport=transport,
+    )
+    overlay = build_ephemeral_model_url_overlay(discovered=discovered, catalog=catalog)
+    assert overlay.override_model_parameters is not None
+    assert overlay.override_model_parameters.context_window == 8192
+    assert overlay.override_model_parameters.max_output_tokens == 8192
+    assert overlay.manifest.defaults.max_tokens == 8192
+    assert overlay.manifest.metadata.max_output_tokens == 8192
+
+
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "http://[::1",
+        "http://localhost:99999",
+        "https://user:topsecret@example.com/v1",
+    ],
+)
+def test_resolve_model_url_model_handles_malformed_url_and_userinfo_cleanly(
+    bad_url: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(typer.Exit) as exc_info:
+        _resolve_model_url_model(
+            model_url=bad_url,
+            model_auth=None,
+            model_api_key_env=None,
+            requested_model=None,
+            config_path=None,
+            quiet=False,
+        )
+    assert exc_info.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert "Error:" in captured.err
+    assert "topsecret" not in captured.err
+    assert "topsecret" not in captured.out

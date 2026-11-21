@@ -1498,3 +1498,51 @@ def test_loaded_overlay_override_api_key_stays_in_memory_only() -> None:
     assert overlay.llm_init_kwargs()["api_key"] == "hf_ephemeral_secret_value"
     assert "hf_ephemeral_secret_value" not in repr(overlay)
     assert "hf_ephemeral_secret_value" not in serialize_model_overlay_manifest(overlay.manifest)
+
+
+def test_on_disk_overlay_profile_does_not_recurse_for_qualified_or_unknown_namespaced_profiles(
+    tmp_path: Path,
+) -> None:
+    overlays_dir = tmp_path / ".fast-agent" / "model-overlays"
+    overlays_dir.mkdir(parents=True, exist_ok=True)
+    (overlays_dir / "valid_qualified.yaml").write_text(
+        "\n".join(
+            [
+                "name: valid-qualified-profile",
+                "provider: generic",
+                "model: acme/renamed-inkling",
+                "profile: hf.thinkingmachines/inkling-2-mini",
+                "connection:",
+                "  base_url: http://localhost:8000/v1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (overlays_dir / "invalid_namespaced.yaml").write_text(
+        "\n".join(
+            [
+                "name: invalid-namespaced-profile",
+                "provider: generic",
+                "model: acme/unknown-model",
+                "profile: unknown/foo",
+                "connection:",
+                "  base_url: http://localhost:8000/v1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    registry = load_model_overlay_registry(
+        start_path=tmp_path,
+        home=tmp_path / ".fast-agent",
+    )
+    by_name = registry.by_name()
+    loaded = by_name.get("valid-qualified-profile")
+    assert loaded is not None
+    params = loaded.build_model_parameters()
+    assert params is not None
+    assert params.context_window == 1_048_576
+    assert params.reasoning == "reasoning_content"
+    assert "invalid-namespaced-profile" not in by_name

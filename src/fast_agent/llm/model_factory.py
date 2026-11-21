@@ -1260,10 +1260,13 @@ class ModelFactory:
                 provider=parsed.provider,
                 model_name=parsed.model_name,
             )
-        wire_model_name = ModelDatabase.resolve_wire_model_name(
-            provider=parsed.provider,
-            model_name=parsed.model_name,
-        )
+        if selected_overlay is not None and selected_overlay.preserve_wire_model_name:
+            wire_model_name = parsed.model_name
+        else:
+            wire_model_name = ModelDatabase.resolve_wire_model_name(
+                provider=parsed.provider,
+                model_name=parsed.model_name,
+            )
 
         return ResolvedModelSpec(
             raw_input=model_string,

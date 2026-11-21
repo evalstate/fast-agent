@@ -9,7 +9,7 @@ from typing import Final, Literal
 from urllib.parse import urlsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from fast_agent.cli.commands.url_parser import normalize_auth_token
 from fast_agent.llm.llamacpp_discovery import (
@@ -37,6 +37,7 @@ from fast_agent.utils.numeric import positive_int_or_none
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
 _HF_ENDPOINT_HOST_SUFFIX: Final[str] = ".endpoints.huggingface.cloud"
+_LOOPBACK_HOSTS: Final[frozenset[str]] = frozenset({"localhost", "127.0.0.1", "::1"})
 _LLAMACPP_PROPS_MARKER_KEYS: Final[frozenset[str]] = frozenset(
     {
         "default_generation_settings",
@@ -76,6 +77,7 @@ class ModelUrlAuth:
     def headers(self) -> dict[str, str]:
         if not self.token:
             return {}
+        _validate_header_token(self.token, source_label=self.source)
         return {"Authorization": f"Bearer {self.token}"}
 
     def overlay_connection_auth(
@@ -142,7 +144,7 @@ class ModelUrlDiscoveredModel:
 class _EndpointModelMetaPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    n_ctx_train: int | None = None
+    n_ctx_train: object = None
 
 
 class _EndpointModelStatusPayload(BaseModel):
@@ -157,27 +159,81 @@ class _EndpointModelPayload(BaseModel):
     id: str | None = None
     owned_by: str | None = None
     root: str | None = None
-    max_model_len: int | None = None
-    aliases: list[str] = Field(default_factory=list)
+    max_model_len: object = None
+    aliases: list[str] | None = None
     meta: _EndpointModelMetaPayload | None = None
-    status: _EndpointModelStatusPayload | None = None
+    status: _EndpointModelStatusPayload | str | None = None
+
+
+def _normalized_hostname(url: str) -> str | None:
+    raw = url.strip()
+    if not raw:
+        return None
+    candidate = raw if "://" in raw else f"https://{raw}"
+    try:
+        parsed = urlsplit(candidate)
+    except ValueError:
+        return None
+    hostname = parsed.hostname
+    if not hostname:
+        return None
+    return hostname.rstrip(".").lower()
+
+
+def _validate_header_token(token: str, *, source_label: str) -> str:
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in token):
+        raise ModelUrlDiscoveryError(
+            f"Invalid credential from {source_label}: header values cannot contain control characters."
+        )
+    return token
 
 
 def is_huggingface_endpoint_url(url: str) -> bool:
     """Return True when `url` targets a Hugging Face Inference Endpoint host."""
-    parsed = urlsplit(url.strip())
-    hostname = parsed.hostname
+    hostname = _normalized_hostname(url)
     if not hostname:
         return False
-    return hostname.lower().endswith(_HF_ENDPOINT_HOST_SUFFIX)
+    return hostname.endswith(_HF_ENDPOINT_HOST_SUFFIX)
 
 
 def normalize_model_url(url: str) -> LlamaCppServerEndpoints:
     """Normalize a bare origin or `.../v1` endpoint URL."""
+    raw = url.strip()
+    if not raw:
+        raise ModelUrlDiscoveryError("Model URL cannot be empty.")
+
+    if "://" not in raw:
+        default_scheme = "https" if is_huggingface_endpoint_url(raw) else "http"
+        raw = f"{default_scheme}://{raw}"
+
     try:
-        return normalize_llamacpp_url(url)
-    except LlamaCppDiscoveryError as exc:
-        raise ModelUrlDiscoveryError(str(exc)) from exc
+        parsed = urlsplit(raw)
+        _ = parsed.port
+    except ValueError as exc:
+        raise ModelUrlDiscoveryError(f"Invalid model URL: {exc}") from exc
+
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"}:
+        raise ModelUrlDiscoveryError(
+            f"Unsupported model URL scheme {parsed.scheme!r}; expected http or https."
+        )
+
+    if parsed.username is not None or parsed.password is not None:
+        raise ModelUrlDiscoveryError(
+            "Model URL must not contain embedded credentials (userinfo). "
+            "Use --model-api-key-env or --model-auth instead."
+        )
+
+    if not parsed.hostname:
+        raise ModelUrlDiscoveryError("Model URL must include a valid host.")
+
+    try:
+        endpoints = normalize_llamacpp_url(raw)
+        httpx.URL(endpoints.request_base_url)
+        httpx.URL(endpoints.server_url)
+    except (LlamaCppDiscoveryError, ValueError, httpx.InvalidURL) as exc:
+        raise ModelUrlDiscoveryError(f"Invalid model URL: {exc}") from exc
+    return endpoints
 
 
 def resolve_model_url_auth(
@@ -192,19 +248,30 @@ def resolve_model_url_auth(
     Precedence:
     1. Explicit `--model-auth <token>` (in-memory only, optional `Bearer ` prefix).
     2. Explicit `--model-api-key-env <VAR>` (fails closed if unset/empty).
-    3. For `*.endpoints.huggingface.cloud`: `Provider.HUGGINGFACE`, using `HF_TOKEN`
-       then `hf.api_key` in `fastagent.secrets.yaml` (never `~/.cache/huggingface/token`).
-    4. For non-HF hosts: `Provider.GENERIC`, using `GENERIC_API_KEY` if set else
-       unauthenticated.
+    3. For `*.endpoints.huggingface.cloud`: `Provider.HUGGINGFACE` (requires `https://`),
+       using `HF_TOKEN` then `hf.api_key` in config/secrets (never `~/.cache/huggingface/token`).
+    4. For non-HF hosts: `Provider.GENERIC`, using `GENERIC_API_KEY` only for `https://`
+       or loopback (`localhost` / `127.0.0.1` / `::1`) URLs, else unauthenticated.
     """
-    is_hf = is_huggingface_endpoint_url(url)
+    endpoints = normalize_model_url(url)
+    parsed = urlsplit(endpoints.request_base_url)
+    scheme = parsed.scheme.lower()
+    hostname = _normalized_hostname(endpoints.request_base_url)
+    is_hf = bool(hostname and hostname.endswith(_HF_ENDPOINT_HOST_SUFFIX))
+    is_loopback = bool(hostname and hostname in _LOOPBACK_HOSTS)
     provider = Provider.HUGGINGFACE if is_hf else Provider.GENERIC
+
+    if is_hf and scheme != "https":
+        raise ModelUrlDiscoveryError(
+            "Hugging Face Inference Endpoints require https://; refusing cleartext http:// URL."
+        )
 
     if model_auth is not None:
         try:
             normalized_token = normalize_auth_token(model_auth)
         except ValueError as exc:
             raise ModelUrlDiscoveryError(f"Invalid --model-auth value: {exc}") from exc
+        _validate_header_token(normalized_token, source_label="--model-auth")
         return ModelUrlAuth(
             provider=provider,
             source="model_auth",
@@ -222,6 +289,7 @@ def resolve_model_url_auth(
                 f"Environment variable '{env_name}' is not set or empty for --model-url. "
                 f"Export {env_name} or pass --model-auth."
             )
+        _validate_header_token(env_value, source_label=f"environment variable '{env_name}'")
         return ModelUrlAuth(
             provider=provider,
             source="api_key_env",
@@ -233,6 +301,7 @@ def resolve_model_url_auth(
     if is_hf:
         hf_env_token = ProviderKeyManager.get_env_var("hf")
         if hf_env_token:
+            _validate_header_token(hf_env_token, source_label="HF_TOKEN")
             return ModelUrlAuth(
                 provider=Provider.HUGGINGFACE,
                 source="hf_token_env",
@@ -243,6 +312,7 @@ def resolve_model_url_auth(
         if config is not None:
             hf_config_token = ProviderKeyManager.get_config_file_key("hf", config)
             if hf_config_token:
+                _validate_header_token(hf_config_token, source_label="hf.api_key")
                 return ModelUrlAuth(
                     provider=Provider.HUGGINGFACE,
                     source="hf_secrets_file",
@@ -256,15 +326,17 @@ def resolve_model_url_auth(
             is_hf_endpoint=True,
         )
 
-    generic_env_token = ProviderKeyManager.get_env_var("generic")
-    if generic_env_token:
-        return ModelUrlAuth(
-            provider=Provider.GENERIC,
-            source="generic_api_key_env",
-            token=generic_env_token,
-            api_key_env="GENERIC_API_KEY",
-            is_hf_endpoint=False,
-        )
+    if scheme == "https" or is_loopback:
+        generic_env_token = ProviderKeyManager.get_env_var("generic")
+        if generic_env_token:
+            _validate_header_token(generic_env_token, source_label="GENERIC_API_KEY")
+            return ModelUrlAuth(
+                provider=Provider.GENERIC,
+                source="generic_api_key_env",
+                token=generic_env_token,
+                api_key_env="GENERIC_API_KEY",
+                is_hf_endpoint=False,
+            )
     return ModelUrlAuth(
         provider=Provider.GENERIC,
         source="none",
@@ -299,7 +371,7 @@ async def discover_model_url_catalog(
             response = await client.get(models_url, headers=headers)
         except httpx.HTTPError as exc:
             raise ModelUrlDiscoveryError(
-                f"Unable to reach model endpoint {models_url}: {exc}"
+                f"Unable to reach model endpoint {models_url} ({type(exc).__name__})."
             ) from exc
 
         if response.status_code in {401, 403}:
@@ -333,7 +405,19 @@ async def discover_model_url_catalog(
         initial_props_payload: object | None = None
         initial_props_url: str | None = None
 
-        if _looks_like_vllm(models):
+        if _has_llamacpp_owner(models):
+            props_probe = await _probe_llamacpp_props(
+                client=client,
+                endpoints=endpoints,
+                headers=headers,
+                models=models,
+            )
+            if props_probe is not None:
+                server_kind = "llamacpp"
+                initial_props_payload, initial_props_url = props_probe
+            else:
+                server_kind = "llamacpp"
+        elif _looks_like_vllm(models):
             server_kind = "vllm"
             server_version = await _probe_vllm_version(
                 client=client,
@@ -396,7 +480,10 @@ async def interrogate_model_url_model(
                 transport=transport,
             )
         if props_payload is not None:
-            details = parse_llamacpp_props_details(props_payload)
+            try:
+                details = parse_llamacpp_props_details(props_payload)
+            except LlamaCppDiscoveryError as exc:
+                raise ModelUrlDiscoveryError(str(exc)) from exc
             if details.runtime_context_window is not None:
                 runtime_context_window = details.runtime_context_window
             max_output_tokens = details.max_output_tokens
@@ -442,7 +529,7 @@ def build_model_url_runtime_model_parameters(
         or 32768
     )
     if discovered.max_output_tokens is not None:
-        max_output_tokens = discovered.max_output_tokens
+        max_output_tokens = min(discovered.max_output_tokens, context_window)
     elif base_params is not None:
         max_output_tokens = min(base_params.max_output_tokens, context_window)
     else:
@@ -536,6 +623,11 @@ def build_ephemeral_model_url_overlay(
         or discovered.listing.model_id.rsplit("/", 1)[-1]
         or discovered.listing.model_id
     )
+    clamped_live_max_output = (
+        min(discovered.max_output_tokens, runtime_params.context_window)
+        if discovered.max_output_tokens is not None
+        else None
+    )
     manifest = ModelOverlayManifest(
         name=resolved_name,
         provider=catalog.auth.provider,
@@ -546,10 +638,10 @@ def build_ephemeral_model_url_overlay(
             auth=conn_auth,
             api_key_env=conn_api_key_env,
         ),
-        defaults=ModelOverlayDefaults(max_tokens=discovered.max_output_tokens),
+        defaults=ModelOverlayDefaults(max_tokens=clamped_live_max_output),
         metadata=ModelOverlayMetadata(
             context_window=runtime_params.context_window,
-            max_output_tokens=discovered.max_output_tokens,
+            max_output_tokens=clamped_live_max_output,
             tokenizes=list(runtime_params.tokenizes),
         ),
         picker=ModelOverlayPicker(
@@ -564,6 +656,7 @@ def build_ephemeral_model_url_overlay(
         secret_entry=None,
         override_model_parameters=runtime_params,
         override_api_key=override_api_key,
+        preserve_wire_model_name=True,
     )
 
 
@@ -619,7 +712,14 @@ def _parse_models_payload(payload: object) -> tuple[ModelUrlModelListing, ...]:
         if model_id is None:
             continue
         aliases = tuple(
-            alias for raw_alias in parsed.aliases if (alias := strip_to_none(raw_alias)) is not None
+            alias
+            for raw_alias in (parsed.aliases or [])
+            if (alias := strip_to_none(raw_alias)) is not None
+        )
+        raw_status = (
+            parsed.status
+            if isinstance(parsed.status, str)
+            else (parsed.status.value if parsed.status is not None else None)
         )
         models.append(
             ModelUrlModelListing(
@@ -631,10 +731,16 @@ def _parse_models_payload(payload: object) -> tuple[ModelUrlModelListing, ...]:
                     parsed.meta.n_ctx_train if parsed.meta is not None else None
                 ),
                 aliases=aliases,
-                status=strip_to_none(parsed.status.value if parsed.status is not None else None),
+                status=strip_to_none(raw_status),
             )
         )
     return tuple(models)
+
+
+def _has_llamacpp_owner(models: tuple[ModelUrlModelListing, ...]) -> bool:
+    return any(
+        item.owned_by is not None and strip_casefold(item.owned_by) == "llamacpp" for item in models
+    )
 
 
 def _looks_like_vllm(models: tuple[ModelUrlModelListing, ...]) -> bool:
@@ -705,8 +811,14 @@ async def _fetch_llamacpp_props_for_model(
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> object | None:
     headers = catalog.auth.headers()
+    is_multi_model = len(catalog.models) > 1
+    if is_multi_model:
+        props_urls: tuple[str, ...] = (catalog.endpoints.props_urls(model_id=model_id)[0],)
+    else:
+        props_urls = catalog.endpoints.props_urls(model_id=model_id)
+
     async with httpx.AsyncClient(timeout=timeout_seconds, transport=transport) as client:
-        for props_url in catalog.endpoints.props_urls(model_id=model_id):
+        for props_url in props_urls:
             try:
                 response = await client.get(props_url, headers=headers)
             except httpx.HTTPError:
@@ -719,4 +831,6 @@ async def _fetch_llamacpp_props_for_model(
                 continue
             if isinstance(payload, dict):
                 return payload
+    if is_multi_model:
+        return None
     return catalog.initial_props_payload

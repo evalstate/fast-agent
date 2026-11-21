@@ -440,7 +440,7 @@ class OpenAILLM(
         """
         try:
             kwargs: dict[str, Any] = {
-                "api_key": self._api_key(),
+                "api_key": self._api_key() or "fast-agent-no-auth",
                 "base_url": self._base_url(),
                 "http_client": DefaultAioHttpClient(),
             }

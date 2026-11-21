@@ -497,13 +497,38 @@ def _select_model_url_listing(
     if requested_model:
         req = requested_model.strip()
         req_cf = req.casefold()
-        for item in models:
-            if item.model_id == req or item.model_id.casefold() == req_cf:
-                return item
-            if item.root is not None and item.root.casefold() == req_cf:
-                return item
-            if any(alias.casefold() == req_cf for alias in item.aliases):
-                return item
+
+        exact_id_matches = [item for item in models if item.model_id == req]
+        if len(exact_id_matches) == 1:
+            return exact_id_matches[0]
+
+        casefold_id_matches = [item for item in models if item.model_id.casefold() == req_cf]
+        if len(casefold_id_matches) == 1:
+            return casefold_id_matches[0]
+        if len(casefold_id_matches) > 1:
+            matched = ", ".join(item.model_id for item in casefold_id_matches)
+            raise typer.BadParameter(
+                f"Endpoint model {requested_model!r} is ambiguous at "
+                f"{catalog.endpoints.request_base_url}. Matches: {matched}",
+                param_hint="--model",
+            )
+
+        alias_root_matches = [
+            item
+            for item in models
+            if (item.root is not None and item.root.casefold() == req_cf)
+            or any(alias.casefold() == req_cf for alias in item.aliases)
+        ]
+        if len(alias_root_matches) == 1:
+            return alias_root_matches[0]
+        if len(alias_root_matches) > 1:
+            matched = ", ".join(item.model_id for item in alias_root_matches)
+            raise typer.BadParameter(
+                f"Endpoint model {requested_model!r} matched multiple models by root/alias at "
+                f"{catalog.endpoints.request_base_url}. Matches: {matched}",
+                param_hint="--model",
+            )
+
         substring_matches = [
             item
             for item in models
@@ -513,6 +538,14 @@ def _select_model_url_listing(
         ]
         if len(substring_matches) == 1:
             return substring_matches[0]
+        if len(substring_matches) > 1:
+            matched = ", ".join(item.model_id for item in substring_matches)
+            raise typer.BadParameter(
+                f"Endpoint model {requested_model!r} is ambiguous at "
+                f"{catalog.endpoints.request_base_url}. Matches: {matched}",
+                param_hint="--model",
+            )
+
         available = ", ".join(item.model_id for item in models)
         raise typer.BadParameter(
             f"Endpoint model {requested_model!r} was not found at "
@@ -540,8 +573,11 @@ def _resolve_model_url_model(
 ) -> str:
     import asyncio
 
+    import httpx
+
     from fast_agent.cli.command_support import get_settings_or_exit
     from fast_agent.config import get_settings
+    from fast_agent.llm.llamacpp_discovery import LlamaCppDiscoveryError
     from fast_agent.llm.model_overlays import register_ephemeral_model_overlay
     from fast_agent.llm.model_url_discovery import (
         ModelUrlDiscoveryError,
@@ -585,7 +621,12 @@ def _resolve_model_url_model(
 
     try:
         catalog, discovered = asyncio.run(_discover_and_interrogate())
-    except ModelUrlDiscoveryError as exc:
+    except (
+        ModelUrlDiscoveryError,
+        LlamaCppDiscoveryError,
+        ValueError,
+        httpx.InvalidURL,
+    ) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
 

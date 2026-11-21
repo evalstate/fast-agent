@@ -70,23 +70,39 @@ def _existing_model_params(provider: Provider, model_name: str) -> ModelParamete
 
 
 def _profile_model_params(profile: str, *, provider: Provider) -> ModelParameters | None:
-    prefix_provider, bare_model = _split_provider_prefix(profile)
-    if prefix_provider is not None:
-        lookup_name = (
-            f"{Provider.HUGGINGFACE.value}.{bare_model}"
-            if prefix_provider == Provider.HUGGINGFACE
-            and starts_with_casefold(profile, "huggingface.")
-            else profile
-        )
-        params = _existing_model_params(prefix_provider, lookup_name)
+    """Resolve an overlay `profile:` directly from static ModelDatabase entries.
+
+    Never delegates to ModelFactory or overlay registry loading, preventing recursion
+    while validating on-disk overlay manifests.
+    """
+    raw = strip_to_none(profile)
+    if raw is None:
+        return None
+    spec_without_query = raw.partition("?")[0].strip()
+    if not spec_without_query:
+        return None
+
+    prefix_provider, bare_model = _split_provider_prefix(spec_without_query)
+    lookup_provider = prefix_provider or provider
+
+    candidates = [bare_model]
+    if ":" in bare_model:
+        base_without_route = _strip_hf_provider_suffix(bare_model)
+        if base_without_route != bare_model:
+            candidates.append(base_without_route)
+
+    for candidate in candidates:
+        params = ModelDatabase.get_static_model_params(candidate, provider=lookup_provider)
         if params is not None:
             return params
-        return ModelDatabase.get_model_params(bare_model)
-
-    params = _existing_model_params(provider, profile)
-    if params is not None:
-        return params
-    return ModelDatabase.get_model_params(profile)
+        if lookup_provider != provider:
+            params = ModelDatabase.get_static_model_params(candidate, provider=provider)
+            if params is not None:
+                return params
+        params = ModelDatabase.get_static_model_params(candidate)
+        if params is not None:
+            return params
+    return None
 
 
 class ModelOverlayConnection(BaseModel):
@@ -353,6 +369,7 @@ class LoadedModelOverlay:
     secret_entry: ModelOverlaySecretEntry | None = None
     override_model_parameters: ModelParameters | None = None
     override_api_key: str | None = field(default=None, repr=False)
+    preserve_wire_model_name: bool = False
 
     @property
     def name(self) -> str:
@@ -445,6 +462,9 @@ class LoadedModelOverlay:
         default_headers = self.resolved_default_headers()
         if default_headers is not None:
             kwargs["default_headers"] = default_headers
+        elif self.manifest.connection.base_url is not None:
+            # Suppress inherited provider default_headers when routing to a different origin.
+            kwargs["default_headers"] = {}
         if self.manifest.connection.reasoning_field is not None:
             kwargs["reasoning_field"] = self.manifest.connection.reasoning_field
         return kwargs
