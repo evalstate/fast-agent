@@ -26,6 +26,7 @@ from fast_agent.mcp.events_extension import (
 from fast_agent.mcp.events_subscriptions import (
     EventSubscription,
     EventSubscriptionManager,
+    SubscriptionDelivery,
     SubscriptionOrigin,
 )
 from fast_agent.mcp_server_registry import ServerRegistry
@@ -134,6 +135,7 @@ class _FakeEventsAgent:
         origin: SubscriptionOrigin = "user",
         cursor: str | None = None,
         max_age_ms: int | None = None,
+        delivery: SubscriptionDelivery | None = None,
     ) -> EventSubscription:
         self.call_order.append(f"restore:{server_name}/{name}")
         if name in self._fail_restore_events:
@@ -231,6 +233,7 @@ def test_capture_persists_active_event_subscriptions_with_consumed_cursor(tmp_pa
             min_poll_ms=15_000,
             origin="user",
             cursor="c1",
+            delivery="poll",
         )
     ]
 
@@ -546,6 +549,7 @@ async def test_events_command_persists_session_on_subscribe_and_unsubscribe(
                 min_poll_ms=None,
                 origin="user",
                 cursor="c0",
+                delivery="poll",
             )
         ]
 
@@ -607,6 +611,7 @@ async def test_events_subscribe_creates_session_when_none_exists_and_reports_osc
                 min_poll_ms=None,
                 origin="user",
                 cursor="c0",
+                delivery="poll",
             )
         ]
         assert reported == [(manager, agent)]
@@ -660,6 +665,7 @@ def test_capture_persists_completed_once_subscription_with_pending_inbox(tmp_pat
             min_poll_ms=None,
             origin="user",
             cursor="c1",
+            delivery="poll",
         )
     ]
 

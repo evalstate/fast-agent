@@ -21,18 +21,23 @@ if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.mcp.events_extension import EventDescriptor
-    from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
+    from fast_agent.mcp.events_subscriptions import (
+        EventSubscriptionManager,
+        SubscriptionDelivery,
+    )
 
 logger = get_logger(__name__)
 
 EVENTS_USAGE = (
     "Usage: /events [select|list [server]|subscribe <server> <event> [key=value ...] "
-    "[--no-wake] [--once] [--every <duration>]|poll <id>|unsubscribe <id>|unsubscribe all]"
+    "[--no-wake] [--once] [--every <duration>] [--poll|--push]|poll <id>|"
+    "unsubscribe <id>|unsubscribe all]"
 )
 WAKE_FLAG = "--wake"
 NO_WAKE_FLAG = "--no-wake"
 ONCE_FLAG = "--once"
 EVERY_FLAG = "--every"
+DELIVERY_FLAGS: dict[str, SubscriptionDelivery] = {"--poll": "poll", "--push": "push"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,6 +46,7 @@ class _SubscribeOptions:
     wake: bool = True
     once: bool = False
     min_poll_ms: int | None = None
+    delivery: SubscriptionDelivery | None = None
 
 
 def _parse_subscribe_options(tokens: list[str]) -> _SubscribeOptions:
@@ -48,6 +54,7 @@ def _parse_subscribe_options(tokens: list[str]) -> _SubscribeOptions:
     wake = True
     once = False
     min_poll_ms: int | None = None
+    modes: list[SubscriptionDelivery] = []
     index = 0
     while index < len(tokens):
         token = tokens[index]
@@ -64,14 +71,19 @@ def _parse_subscribe_options(tokens: list[str]) -> _SubscribeOptions:
             min_poll_ms = parse_poll_interval_ms(tokens[index])
         elif token.startswith(f"{EVERY_FLAG}="):
             min_poll_ms = parse_poll_interval_ms(token.removeprefix(f"{EVERY_FLAG}="))
+        elif token in DELIVERY_FLAGS:
+            modes.append(DELIVERY_FLAGS[token])
         else:
             argument_tokens.append(token)
         index += 1
+    if len(modes) > 1:
+        raise ValueError("Use one of --poll and --push")
     return _SubscribeOptions(
         argument_tokens=argument_tokens,
         wake=wake,
         once=once,
         min_poll_ms=min_poll_ms,
+        delivery=modes[0] if modes else None,
     )
 
 
@@ -185,6 +197,7 @@ async def handle_events(
                 wake=options.wake,
                 once=options.once,
                 min_poll_ms=options.min_poll_ms,
+                delivery=options.delivery,
             )
             await _persist_session_events(ctx, cast("AgentProtocol", agent), create_if_missing=True)
             delivery = (
@@ -204,13 +217,13 @@ async def handle_events(
             _add_markdown(
                 outcome,
                 f"Subscribed to `{subscription.name}` on `{display_server}` "
-                f"as `{subscription.key}`. {delivery}{extra_text}",
+                f"as `{subscription.key}`, by {subscription.delivery}. {delivery}{extra_text}",
                 "events subscribe",
             )
         elif action == "poll" and len(rest) == 1:
             if not aggregator.events.poll_now(rest[0]):
                 raise ValueError(f"No active subscription with id '{rest[0]}'")
-            _add_markdown(outcome, f"Polling `{rest[0]}` now.", "events poll")
+            _add_markdown(outcome, f"Checking `{rest[0]}` now.", "events poll")
         elif action == "unsubscribe" and len(rest) == 1:
             message = await _unsubscribe(aggregator, rest[0])
             await _persist_session_events(ctx, cast("AgentProtocol", agent))
@@ -307,15 +320,17 @@ def _render_status(aggregator: _EventsAggregator) -> str:
         return "No event subscriptions. Use `/events list` to see what servers offer."
 
     lines = [
-        "| id | server | event | arguments | wake | origin | poll | status | delivered |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| id | server | event | arguments | mode | wake | origin | poll | status | delivered |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for subscription in subscriptions:
         status = subscription.status
         if subscription.last_error:
             status = f"{status}: {subscription.last_error}"
         arguments = json.dumps(subscription.arguments, sort_keys=True)
-        if subscription.poll_interval_ms is not None:
+        if subscription.delivery == "push":
+            poll_text = "-"
+        elif subscription.poll_interval_ms is not None:
             poll_text = format_poll_interval(subscription.poll_interval_ms)
             if (
                 subscription.min_poll_ms is not None
@@ -332,6 +347,7 @@ def _render_status(aggregator: _EventsAggregator) -> str:
             f"| {escape_markdown_table_cell(display_server)} "
             f"| {escape_markdown_table_cell(subscription.name)} "
             f"| {escape_markdown_table_cell(markdown_code_span(arguments))} "
+            f"| {subscription.delivery} "
             f"| {'yes' if subscription.wake else 'no'} "
             f"| {escape_markdown_table_cell(subscription.origin)} "
             f"| {escape_markdown_table_cell(poll_text)} "
@@ -379,8 +395,8 @@ def _render_descriptor(descriptor: EventDescriptor) -> str:
     line = f"- `{descriptor.name}` ({delivery})"
     if descriptor.description:
         line += f": {descriptor.description}"
-    if not descriptor.supports("poll"):
-        line += " Not subscribable here: poll delivery only."
+    if not descriptor.supports("poll") and not descriptor.supports("push"):
+        line += " Not subscribable here: poll and push delivery only."
 
     schema = descriptor.input_schema or {}
     properties = schema.get("properties")

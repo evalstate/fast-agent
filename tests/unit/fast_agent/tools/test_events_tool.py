@@ -263,7 +263,6 @@ async def test_events_tool_validation_errors_never_raise() -> None:
             {"action": "subscribe", "server": "jobs", "name": "job.completed", "every": "soon"},
             {"action": "subscribe", "server": "jobs", "name": "job.completed", "arguments": "bad"},
             {"action": "subscribe", "server": "jobs", "name": "job.completed", "wake": "yes"},
-            {"action": "subscribe", "server": "jobs", "name": "job.push_only"},
             {"action": "unsubscribe"},
         ):
             res = await execute_events_tool(agg, bad_args)

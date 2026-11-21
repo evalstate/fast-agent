@@ -1,7 +1,7 @@
 """Local wire models for the MCP Events extension (SEP-3415).
 
 The pinned MCP SDK does not yet provide Events Extension request/result types.
-Only discovery and poll delivery are modelled.
+Discovery, poll delivery and push delivery are modelled.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from mcp_types import (
+    ErrorData,
     PaginatedRequestParams,
     PaginatedResult,
     Request,
@@ -84,8 +85,8 @@ class ListEventsResult(PaginatedResult):
     result_type: Literal["complete"] = Field(default="complete", alias="resultType")
 
 
-class PollEventsRequestParams(RequestParams):
-    """Parameters for the ``events/poll`` request.
+class _SubscriptionRequestParams(RequestParams):
+    """The fields ``events/poll`` and ``events/stream`` share.
 
     ``cursor`` of ``None`` means "start from now" and is omitted on the wire.
     """
@@ -94,6 +95,11 @@ class PollEventsRequestParams(RequestParams):
     arguments: dict[str, Any] = Field(default_factory=dict)
     cursor: str | None = None
     max_age_ms: int | None = Field(default=None, alias="maxAgeMs")
+
+
+class PollEventsRequestParams(_SubscriptionRequestParams):
+    """Parameters for the ``events/poll`` request."""
+
     max_events: int | None = Field(default=None, alias="maxEvents")
 
 
@@ -114,3 +120,72 @@ class PollEventsResult(Result):
     has_more: bool = Field(default=False, alias="hasMore")
     next_poll_ms: int | None = Field(default=None, alias="nextPollMs")
     result_type: Literal["complete"] = Field(default="complete", alias="resultType")
+
+
+class StreamEventsRequestParams(_SubscriptionRequestParams):
+    """Parameters for the ``events/stream`` request."""
+
+    heartbeat_ms: int | None = Field(default=None, alias="heartbeatMs")
+
+
+class StreamEventsRequest(Request[StreamEventsRequestParams, Literal["events/stream"]]):
+    """Request that holds one push subscription open."""
+
+    method: Literal["events/stream"] = "events/stream"
+    params: StreamEventsRequestParams
+    name_param = "name"
+
+
+class StreamEventsResult(Result):
+    """The empty result a server sends when it closes an ``events/stream`` request."""
+
+    result_type: Literal["complete"] = Field(default="complete", alias="resultType")
+
+
+class _StreamFrame(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    meta: dict[str, Any] | None = Field(default=None, alias="_meta")
+
+
+class EventStreamActive(_StreamFrame):
+    """``notifications/events/active``: the stream is confirmed, or it skipped events."""
+
+    cursor: str | None = None
+    truncated: bool = False
+    heartbeat_ms: int | None = Field(default=None, alias="heartbeatMs")
+
+
+class EventStreamHeartbeat(_StreamFrame):
+    """``notifications/events/heartbeat``: the stream is alive at this cursor."""
+
+    cursor: str | None = None
+
+
+class EventStreamError(_StreamFrame):
+    """``notifications/events/error``: one occurrence failed and the stream stays open."""
+
+    error: ErrorData
+
+
+class EventStreamTerminated(_StreamFrame):
+    """``notifications/events/terminated``: the server ended the subscription."""
+
+    error: ErrorData
+
+
+type EventStreamFrame = (
+    EventStreamActive
+    | EventOccurrence
+    | EventStreamHeartbeat
+    | EventStreamError
+    | EventStreamTerminated
+)
+
+EVENT_STREAM_NOTIFICATIONS: dict[str, type[EventStreamFrame]] = {
+    "notifications/events/active": EventStreamActive,
+    "notifications/events/event": EventOccurrence,
+    "notifications/events/heartbeat": EventStreamHeartbeat,
+    "notifications/events/error": EventStreamError,
+    "notifications/events/terminated": EventStreamTerminated,
+}

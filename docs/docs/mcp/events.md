@@ -11,11 +11,11 @@ social:
 
 `fast-agent` implements the client side of the
 [Events Extension](https://modelcontextprotocol.io/seps/3415-events-extension)
-(SEP-3415, `io.modelcontextprotocol/events`) with poll delivery.
+(SEP-3415, `io.modelcontextprotocol/events`) with poll and push delivery.
 
-It uses `events/list` and `events/poll`. Push (`events/stream`) and webhook
-delivery are not implemented, so an event type that offers neither is listed but
-cannot be subscribed to. The extension is advertised to every server, and the
+It uses `events/list`, `events/poll` and `events/stream`. Webhook delivery is
+not implemented, so an event type that offers only webhook is listed but cannot
+be subscribed to. The extension is advertised to every server, and the
 commands below work for any server that declares it in return. The servers this
 has been run against declare it on the 2026-07-28 protocol, so set
 `protocol_mode: modern` if `auto` does not negotiate it.
@@ -28,6 +28,7 @@ takes. Use `/events` in an interactive session:
 ```text
 /events list
 /events subscribe jobs job.status_changed job_id=abc123
+/events subscribe jobs job.status_changed job_id=abc123 --poll
 /events
 /events poll <id>
 /events unsubscribe <id>
@@ -42,14 +43,26 @@ with no argument lists subscriptions with their status and the number of events
 delivered. The id shown there is derived from the server, event name and
 arguments, so subscribing twice to the same thing gives one subscription.
 
-`fast-agent` runs one poll loop per subscription. It follows the server's
-`nextPollMs` with a floor of one second, polls again at once while the server
-reports `hasMore`, and drops events whose `eventId` it has already seen. A
-failed poll is retried with a doubling delay of up to five minutes, from the
-same cursor. `/events poll <id>` ends that wait and polls immediately. When a
-poll is rejected with a header mismatch, the event types are listed again and
-the poll is tried once more from the same cursor. A second mismatch ends the
-subscription.
+A subscription is delivered by push when the event type offers it, and by poll
+otherwise. `--poll` or `--push` picks the mode. In both modes `fast-agent` drops
+events whose `eventId` it has already seen.
+
+A push subscription holds one `events/stream` request open, and the server
+sends events on it as they occur. The server also sends a heartbeat when it has
+nothing else to send. When no message arrives for three heartbeat intervals, or
+the stream drops or the server closes it, `fast-agent` opens a new stream from
+the last cursor after one to two seconds.
+
+A poll subscription runs one poll loop. It follows the server's `nextPollMs`
+with a floor of one second and polls again at once while the server reports
+`hasMore`.
+
+A poll that fails, or a stream that cannot be opened, is retried with a doubling
+delay of up to five minutes, from the same cursor. `/events poll <id>` ends that
+wait. When a poll
+or a stream is rejected with a header mismatch, the event types are listed again
+and the request is tried once more from the same cursor. A second mismatch ends
+the subscription.
 
 ## How events reach the model
 
@@ -114,12 +127,13 @@ mcp:
 ```
 
 The same `events` list is accepted on an AgentCard `mcp_connect` entry, and on
-`MCPServerSettings` passed to `attach_mcp_server` at runtime. Declared
-subscriptions start when the agent is first used: at its first turn, or when its
-prompt first waits for input. An agent that is loaded and never used does not
-poll. Every agent that uses the server gets its own subscriptions. A declared
-event type the server does not offer is logged as a warning and skipped.
-Detaching a server ends its subscriptions, declared or not.
+`MCPServerSettings` passed to `attach_mcp_server` at runtime. An entry can set
+`delivery: poll` or `delivery: push` to pick the mode. Declared subscriptions
+start when the agent is first used: at its first turn, or when its prompt first
+waits for input. An agent that is loaded and never used does not subscribe.
+Every agent that uses the server gets its own subscriptions. A declared event
+type the server does not offer is logged as a warning and skipped. Detaching a
+server ends its subscriptions, declared or not.
 
 ## From code
 
@@ -140,7 +154,8 @@ async with fast.run() as app:
 `wait_for_event_wake()` returns while an event from a subscription with wake set
 is still in the inbox, and the turn drains it. It also starts the declared
 subscriptions, as `agent.start_configured_events()` does for a host that needs
-them before its first turn. `manager.poll_now(key)` polls a
+them before its first turn. `subscribe` takes `delivery="poll"` or
+`delivery="push"` to pick the mode. `manager.poll_now(key)` polls a
 subscription immediately and keeps its cursor. A provider failure comes back
 from `send` as a reply on the error channel after the events have been drained,
 so a host that must not lose them should check for that and retry.
@@ -149,9 +164,9 @@ usage and transcript export.
 
 ## Current scope
 
-- Poll delivery only.
+- Poll and push delivery. Webhook delivery is not implemented.
 - `Mcp-Param-*` headers are not sent for arguments annotated with
-  `x-mcp-header`. A server that checks them rejects the poll.
+  `x-mcp-header`. A server that checks them rejects the poll or the stream.
 - `/events` is available in the interactive TUI, not over ACP.
 - Subscriptions made with `/events` last for the session. Declared
   subscriptions start again from "now" on the next run.

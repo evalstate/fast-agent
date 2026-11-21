@@ -1,4 +1,4 @@
-"""Run an agent that is woken by MCP Events (SEP-3415, poll delivery).
+"""Run an agent that is woken by MCP Events (SEP-3415).
 
 The agent takes one opening turn, then sleeps. Each time a subscribed event
 arrives the loop starts a turn, and the events reach the model as untrusted

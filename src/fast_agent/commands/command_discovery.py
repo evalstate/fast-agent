@@ -509,7 +509,8 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             "summary": "Subscribe to MCP server events",
             "usage": (
                 "/events [select|list [server]|subscribe <server> <event> [key=value ...] "
-                "[--wake] [--once] [--every <duration>]|poll <id>|unsubscribe <id>|unsubscribe all]"
+                "[--wake] [--once] [--every <duration>] [--poll|--push]|poll <id>|"
+                "unsubscribe <id>|unsubscribe all]"
             ),
             "actions": [
                 {
@@ -524,15 +525,15 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
                 },
                 {
                     "name": "subscribe",
-                    "summary": "poll a server for an event type",
+                    "summary": "subscribe to an event type, by push when the server offers it",
                     "usage": (
                         "/events subscribe <server> <event> [key=value ...] "
-                        "[--wake] [--once] [--every <duration>]"
+                        "[--wake] [--once] [--every <duration>] [--poll|--push]"
                     ),
                 },
                 {
                     "name": "poll",
-                    "summary": "poll a subscription now, from its cursor",
+                    "summary": "poll a subscription now, or reopen its stream",
                     "usage": "/events poll <id>",
                 },
                 {
