@@ -935,6 +935,7 @@ class ResponsesLLM(
                 http_client=DefaultAioHttpClient(),
                 no_auth=no_auth,
                 isolate_ambient_headers=self._should_isolate_origin_headers(),
+                strip_authorization_headers=self._requires_serve_oauth_request_token(),
             )
         except AuthenticationError as e:
             raise ProviderKeyError(

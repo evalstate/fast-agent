@@ -1633,6 +1633,10 @@ def test_serve_oauth_huggingface_takes_precedence_over_no_auth_overlay(
 
     monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
     monkeypatch.setenv("HF_TOKEN", "hf_server_secret_should_not_be_used")
+    monkeypatch.setenv(
+        "OPENAI_CUSTOM_HEADERS",
+        "Authorization: Bearer ambient_operator_secret\nX-Gateway: keep-me",
+    )
 
     overlay = LoadedModelOverlay(
         manifest=ModelOverlayManifest(
@@ -1642,6 +1646,10 @@ def test_serve_oauth_huggingface_takes_precedence_over_no_auth_overlay(
             connection=ModelOverlayConnection(
                 base_url="https://router.huggingface.co/v1",
                 auth="none",
+                default_headers={
+                    "authorization": "Bearer overlay_operator_secret",
+                    "X-Overlay": "keep-overlay",
+                },
             ),
         ),
         manifest_path=Path("saved-hf-no-auth.yaml"),
@@ -1657,7 +1665,8 @@ def test_serve_oauth_huggingface_takes_precedence_over_no_auth_overlay(
         with pytest.raises(ProviderKeyError):
             llm._openai_client()
 
-        # Present caller bearer token must be forwarded on the built request.
+        # Present caller bearer token must win over ambient OPENAI_CUSTOM_HEADERS
+        # and overlay/config Authorization headers while preserving other headers.
         token_reset = request_bearer_token.set("hf_caller_oauth_token")
         try:
             req = llm._openai_client()._build_request(
@@ -1669,6 +1678,8 @@ def test_serve_oauth_huggingface_takes_precedence_over_no_auth_overlay(
             )
             headers = {k.lower(): v for k, v in req.headers.items()}
             assert headers.get("authorization") == "Bearer hf_caller_oauth_token"
+            assert headers.get("x-gateway") == "keep-me"
+            assert headers.get("x-overlay") == "keep-overlay"
         finally:
             request_bearer_token.reset(token_reset)
     finally:

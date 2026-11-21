@@ -224,15 +224,25 @@ def build_async_openai_client(
     http_client: Any,
     no_auth: bool = False,
     isolate_ambient_headers: bool = False,
+    strip_authorization_headers: bool = False,
 ) -> AsyncOpenAI:
     """Build an AsyncOpenAI client with optional no-auth and ambient-header isolation."""
+    effective_headers: dict[str, str] | None = (
+        {
+            k: v
+            for k, v in default_headers.items()
+            if not strip_authorization_headers or k.lower() != "authorization"
+        }
+        if default_headers
+        else None
+    )
     kwargs: dict[str, Any] = {
         "api_key": "" if no_auth else api_key,
         "base_url": base_url,
         "http_client": http_client,
     }
-    if default_headers:
-        kwargs["default_headers"] = dict(default_headers)
+    if effective_headers:
+        kwargs["default_headers"] = dict(effective_headers)
     if no_auth:
         kwargs["_enforce_credentials"] = False
     if isolate_ambient_headers:
@@ -244,17 +254,25 @@ def build_async_openai_client(
     client = client_cls(**kwargs)
 
     explicit_authorization = bool(
-        default_headers and any(k.lower() == "authorization" for k in default_headers)
+        effective_headers and any(k.lower() == "authorization" for k in effective_headers)
     )
     if isolate_ambient_headers:
         client.organization = None
         client.project = None
-        isolated_headers: dict[str, str | Omit] = dict(default_headers) if default_headers else {}
+        isolated_headers: dict[str, str | Omit] = (
+            dict(effective_headers) if effective_headers else {}
+        )
         if no_auth and not explicit_authorization:
             isolated_headers["Authorization"] = Omit()
         # The SDK merges OPENAI_CUSTOM_HEADERS during construction; only explicit
         # overlay headers belong on an isolated custom-origin client.
         client._custom_headers = isolated_headers
+    elif strip_authorization_headers:
+        # In mandatory caller-token serve-OAuth mode, strip any competing ambient or
+        # configured Authorization header so only the caller's bearer token is sent.
+        client._custom_headers = {
+            k: v for k, v in client._custom_headers.items() if k.lower() != "authorization"
+        }
     elif no_auth and not explicit_authorization:
         # On true no-auth, never inherit an ambient Authorization header from
         # OPENAI_CUSTOM_HEADERS unless the overlay explicitly defined one.
@@ -513,6 +531,7 @@ class OpenAILLM(
                 http_client=DefaultAioHttpClient(),
                 no_auth=no_auth,
                 isolate_ambient_headers=self._should_isolate_origin_headers(),
+                strip_authorization_headers=self._requires_serve_oauth_request_token(),
             )
         except AuthenticationError as e:
             raise ProviderKeyError(
