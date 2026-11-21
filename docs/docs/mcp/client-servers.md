@@ -432,3 +432,7 @@ mcp:
 ```
 
 Read more about the model string and settings [here](../models/). Sampling requests support vision - try [`@llmindset/mcp-webcam`](https://github.com/evalstate/mcp-webcam) for an example.
+
+## Baizhi Cloud Browser example
+
+For an opt-in remote server with a Bearer key, see the [Baizhi Cloud Browser management example](https://github.com/evalstate/fast-agent/tree/main/examples/mcp/baizhi-cloud-browser). It includes on-demand connection, credential rotation, and cloud-run cleanup. Page actions require a separate CDP client.

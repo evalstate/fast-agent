@@ -1,0 +1,7 @@
+mcp:
+  servers:
+    baizhi-cloud-browser:
+      target: https://capybrowser.app.baizhi.cloud/mcp
+      headers:
+        Authorization: "Bearer ${BAIZHI_BROWSER_API_KEY}"
+      load_on_start: false
