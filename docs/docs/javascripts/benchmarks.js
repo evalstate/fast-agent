@@ -1994,6 +1994,9 @@
     hl.appendChild(el("p", "fb-mono", "atif-scan " + s.version + " · " + s.level.label + " scan · " + (s.scope || s.trials + " trials scanned")));
     hl.appendChild(el("p", "fb-scan__level", "Scan depth: " + SCAN_LEVEL_TITLE[s.level.name] + (s.level.imageModel ? " (" + s.level.imageModel + ")" : "") + "."));
     hl.appendChild(el("p", "fb-scan__lede", "Findings set review priority; they are not verdicts. Unknown evidence is never counted as clean."));
+    if (run.rescore) {
+      hl.appendChild(el("p", "fb-scan__note", "This scan and its excerpts cover the original agent execution. Reward counts in the scan use Terminal-Bench 4.0 verdicts, not the 4.1 rescore."));
+    }
     head.appendChild(hl);
     head.appendChild(external(ATIF_SCAN_URL, "About atif-scan"));
     box.appendChild(head);
@@ -2478,7 +2481,8 @@
     reviewCards = { tasks: {}, show: null };
     var wrap = el("section", "fb-moments");
     wrap.id = "moments";
-    var url = BENCH_ROOT + "moments/" + encodeURIComponent(run.id) + ".json";
+    var evidenceRun = run.rescore ? run.rescore.sourceRun : run.id;
+    var url = BENCH_ROOT + "moments/" + encodeURIComponent(evidenceRun) + ".json";
     fetch(url)
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (doc) {
@@ -2596,6 +2600,29 @@
       ul.appendChild(li);
     });
     jobs.appendChild(ul);
+    if (run.rescore) {
+      var rescore = run.rescore;
+      jobs.appendChild(el("h4", "fb-sources__sub", "4.1 verifier rescore"));
+      var version = el("p", "fb-scan__note");
+      version.appendChild(link(runHref(rescore.sourceRun), "", "Original 4.0 result: " + rescore.sourcePasses + "/" + run.slots + " after review"));
+      version.appendChild(document.createTextNode(" · "));
+      version.appendChild(external(rescore.evidence, "4.1 verifier evidence"));
+      jobs.appendChild(version);
+      jobs.appendChild(el("p", "fb-scan__note",
+        "The agent was not rerun. Model cost and usage describe the original execution." +
+        (rescore.noCollectedArtifact ? " " + rescore.noCollectedArtifact + " original zero-reward slots had no collected artifact to regrade and count zero; no 4.1 verifier verdict was recorded for them." : "") +
+        (rescore.taskWorkerTimeouts ? " One task worker timed out and produced no 4.1 reward; that slot still counts zero." : "")));
+    }
+    if (!run.rescore) {
+      var newer = m.data.runs.find(function (candidate) {
+        return candidate.rescore && candidate.rescore.sourceRun === run.id;
+      });
+      if (newer) {
+        var updated = el("p", "fb-scan__note");
+        updated.appendChild(link(runHref(newer.id), "", "See the Terminal-Bench 4.1 verifier rescore"));
+        jobs.appendChild(updated);
+      }
+    }
     if (!run.jobs.length) jobs.appendChild(el("p", "fb-scan__note", "None: sample data has no Harbor jobs."));
     if (run.source) {
       var p = el("p");

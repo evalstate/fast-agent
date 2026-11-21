@@ -887,7 +887,9 @@ def build_run(
         model_str = run["model_string"]
     else:
         shows = {j: fetcher.job_show(j) for j in job_ids}
-        model_str = model_string(next(s for s in shows.values() if s.get("config")), models[0])
+        model_str = run.get("model_string") or model_string(
+            next(s for s in shows.values() if s.get("config")), models[0]
+        )
     versions = sorted({t["agent_version"] for t in selected if t["agent_version"]})
 
     by_task: dict[str, list[Json]] = {task: [] for task in tasks}

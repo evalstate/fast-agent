@@ -1,0 +1,441 @@
+{
+  "benchmark": "terminal-bench-4.1-subset",
+  "task_count": 66,
+  "tasks_file": "tasks.json",
+  "attempts_per_task": 5,
+  "leaderboard": "terminal-bench/terminal-bench/4-1-0",
+  "leaderboard_url": "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/leaderboards/4-1-0",
+  "leaderboard_repo": "harbor-framework/terminal-bench",
+  "scan_rules": "atif-rules.json",
+  "runs": [
+    {
+      "harness": "Claude Code",
+      "model": "Fable 5.1",
+      "effort": "high",
+      "timeout": "standard",
+      "id": "tb4-claude-code-fable-5-1-high-tb41",
+      "leaderboard_row": "e82ce7b8-afb2-4e72-8289-65d86a20c6e1",
+      "expected": {
+        "passes": 181
+      },
+      "model_string": "anthropic/claude-fable-5-1"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Fable 5.1",
+      "effort": "low",
+      "timeout": "standard",
+      "id": "tb4-claude-code-fable-5-1-low-tb41",
+      "leaderboard_row": "2fc45531-6276-404f-8239-cf0d96473666",
+      "expected": {
+        "passes": 143
+      },
+      "model_string": "anthropic/claude-fable-5-1"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Fable 5.1",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-claude-code-fable-5-1-max-tb41",
+      "leaderboard_row": "7b059ed7-88dd-456a-9eda-50ee194458bd",
+      "expected": {
+        "passes": 189
+      },
+      "model_string": "anthropic/claude-fable-5-1"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Fable 5.1",
+      "effort": "medium",
+      "timeout": "standard",
+      "id": "tb4-claude-code-fable-5-1-medium-tb41",
+      "leaderboard_row": "96805882-7ab1-481e-83a5-ca5dc3ef100a",
+      "expected": {
+        "passes": 178
+      },
+      "model_string": "anthropic/claude-fable-5-1"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Fable 5.1",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "id": "tb4-claude-code-fable-5-1-xhigh-tb41",
+      "leaderboard_row": "e12583a8-3d9b-454d-8821-9415b5db0d59",
+      "expected": {
+        "passes": 190
+      },
+      "model_string": "anthropic/claude-fable-5-1"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Fable 5",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-claude-code-fable-5-max-tb41",
+      "leaderboard_row": "fdf6c2a1-4647-4354-9496-0edb32e24e29",
+      "expected": {
+        "passes": 148
+      },
+      "model_string": "anthropic/claude-fable-5"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "GLM-5.3",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-claude-code-glm-5-3-max-tb41",
+      "leaderboard_row": "85e1c69d-5eb1-4db5-b47c-0460fc9b316a",
+      "expected": {
+        "passes": 136
+      },
+      "model_string": "anthropic/glm-5.3"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Opus 4.8",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-claude-code-opus-4-8-max-tb41",
+      "leaderboard_row": "931e0784-a0cf-48f9-9399-cac3c472fe42",
+      "expected": {
+        "passes": 78
+      },
+      "model_string": "anthropic/claude-opus-4-8"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Opus 5",
+      "effort": "high",
+      "timeout": "standard",
+      "id": "tb4-claude-code-opus-5-high-tb41",
+      "leaderboard_row": "23f2ffb6-81fc-4913-a418-87e414212aa1",
+      "expected": {
+        "passes": 164
+      },
+      "model_string": "anthropic/claude-opus-5"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Opus 5",
+      "effort": "low",
+      "timeout": "standard",
+      "id": "tb4-claude-code-opus-5-low-tb41",
+      "leaderboard_row": "d21c7f46-99de-4d65-97f0-66025597fd35",
+      "expected": {
+        "passes": 115
+      },
+      "model_string": "anthropic/claude-opus-5"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Opus 5",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-claude-code-opus-5-max-tb41",
+      "leaderboard_row": "78a3e222-165d-4659-8716-a40d13054782",
+      "expected": {
+        "passes": 172
+      },
+      "model_string": "anthropic/claude-opus-5",
+      "notes": [
+        "Trial records show 174 full-suite passes; the 4.1 leaderboard publishes 172. The subset cells show the recorded verifier outcomes."
+      ]
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Opus 5",
+      "effort": "medium",
+      "timeout": "standard",
+      "id": "tb4-claude-code-opus-5-medium-tb41",
+      "leaderboard_row": "b590a607-4e81-4ffb-9c0e-be047f08573c",
+      "expected": {
+        "passes": 149
+      },
+      "model_string": "anthropic/claude-opus-5"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Opus 5",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "id": "tb4-claude-code-opus-5-xhigh-tb41",
+      "leaderboard_row": "1c041db9-d380-4147-99c3-a34c6f92debe",
+      "expected": {
+        "passes": 176
+      },
+      "model_string": "anthropic/claude-opus-5"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Sonnet 5",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-claude-code-sonnet-5-max-tb41",
+      "leaderboard_row": "b86efe05-1761-44fe-a744-6e8836b14b97",
+      "expected": {
+        "passes": 40
+      },
+      "model_string": "anthropic/claude-sonnet-5"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-5.6 Luna",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-5-6-luna-max-tb41",
+      "leaderboard_row": "79fc5260-30ee-40db-b48d-2b6f7c8b3c33",
+      "expected": {
+        "passes": 58
+      },
+      "model_string": "openai/gpt-5.6-luna"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-5.6 Sol",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-5-6-sol-max-tb41",
+      "leaderboard_row": "486aaf37-9109-4456-ad3a-eb22f31a7a4f",
+      "expected": {
+        "passes": 127
+      },
+      "model_string": "openai/gpt-5.6-sol"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-5.6 Terra",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-5-6-terra-max-tb41",
+      "leaderboard_row": "46bd5665-24ec-4b9b-917f-2b362174f4f7",
+      "expected": {
+        "passes": 71
+      },
+      "model_string": "openai/gpt-5.6-terra"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-6 Astra",
+      "effort": "high",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-6-astra-high-tb41",
+      "leaderboard_row": "13dc04dd-b37b-4644-b365-c529edb5477f",
+      "expected": {
+        "passes": 198
+      },
+      "model_string": "openai/gpt-6-astra"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-6 Astra",
+      "effort": "low",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-6-astra-low-tb41",
+      "leaderboard_row": "0acedb0b-6705-4752-8145-c613628d02b1",
+      "expected": {
+        "passes": 168
+      },
+      "model_string": "openai/gpt-6-astra"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-6 Astra",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-6-astra-max-tb41",
+      "leaderboard_row": "ccf54544-f2e7-4959-bea6-b006044bb06c",
+      "expected": {
+        "passes": 199
+      },
+      "model_string": "openai/gpt-6-astra"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-6 Astra",
+      "effort": "medium",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-6-astra-medium-tb41",
+      "leaderboard_row": "4ce600ad-74ed-4aad-ae55-efe92aea2019",
+      "expected": {
+        "passes": 182
+      },
+      "model_string": "openai/gpt-6-astra"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-6 Astra",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-6-astra-xhigh-tb41",
+      "leaderboard_row": "c861c9b2-3a22-41c9-ac74-80dc0ae968cf",
+      "expected": {
+        "passes": 197
+      },
+      "model_string": "openai/gpt-6-astra"
+    },
+    {
+      "harness": "Grok Build",
+      "model": "Grok 4.5",
+      "effort": "high",
+      "timeout": "standard",
+      "id": "tb4-grok-build-grok-4-5-high-tb41",
+      "leaderboard_row": "d6eec12d-3fee-4999-9a36-486529d40e33",
+      "expected": {
+        "passes": 41
+      },
+      "model_string": "xai/grok-4.5"
+    },
+    {
+      "harness": "Grok Build",
+      "model": "Grok 4.6",
+      "effort": "high",
+      "timeout": "standard",
+      "id": "tb4-grok-build-grok-4-6-high-tb41",
+      "leaderboard_row": "d4bf5c29-4240-45da-bc34-0c402c230532",
+      "expected": {
+        "passes": 65
+      },
+      "model_string": "xai/grok-4.6"
+    },
+    {
+      "harness": "Grok Build",
+      "model": "Grok 4.7",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "id": "tb4-grok-build-grok-4-7-xhigh-tb41",
+      "leaderboard_row": "9abda9c8-a980-4850-99d8-3acec5001beb",
+      "expected": {
+        "passes": 128
+      },
+      "model_string": "xai/grok-4.7",
+      "notes": [
+        "The recorded Grok Build trial costs on Harbor do not include reasoning tokens. Unlike the 4.0 view, this row displays the recorded cost of the linked 4.1 leaderboard trials, not a repricing."
+      ]
+    },
+    {
+      "harness": "mini-SWE-agent",
+      "model": "Gemini 3.7 Flash",
+      "effort": "high",
+      "timeout": "standard",
+      "id": "tb4-mini-swe-agent-gemini-3-7-flash-high-tb41",
+      "leaderboard_row": "9826f231-f924-444b-92e5-b02a7cc43945",
+      "expected": {
+        "passes": 41
+      },
+      "model_string": "gemini/gemini-3.7-flash"
+    },
+    {
+      "harness": "mini-SWE-agent",
+      "model": "Gemini 3.8 Flash",
+      "effort": "high",
+      "timeout": "standard",
+      "id": "tb4-mini-swe-agent-gemini-3-8-flash-high-tb41",
+      "leaderboard_row": "619db320-c510-4efb-aa37-8bea87b5298d",
+      "expected": {
+        "passes": 60
+      },
+      "model_string": "gemini/gemini-3.8-flash"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-6.1 Sol",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-6-1-sol-max-tb41",
+      "leaderboard_row": "bc484c38-72d1-4b66-b85f-f7353d0d374c",
+      "expected": {
+        "passes": 201
+      },
+      "model_string": "openai/gpt-6.1-sol"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Opus 5.5",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-claude-code-opus-5-5-max-tb41",
+      "leaderboard_row": "24f711aa-b0cc-4f09-8627-b5f70a27b73b",
+      "expected": {
+        "passes": 217
+      },
+      "model_string": "anthropic/claude-opus-5-5"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Sonnet 5.5",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-claude-code-sonnet-5-5-max-tb41",
+      "leaderboard_row": "cf669033-4634-484b-ba50-b6b09963231e",
+      "expected": {
+        "passes": 211
+      },
+      "model_string": "anthropic/claude-sonnet-5-5"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-6 Sol",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-6-sol-max-tb41",
+      "leaderboard_row": "700e8017-1e3d-48f4-8af8-882c007a3a16",
+      "expected": {
+        "passes": 166
+      },
+      "model_string": "openai/gpt-6-sol"
+    },
+    {
+      "harness": "Claude Code",
+      "model": "GLM-5.3-Flash",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-claude-code-glm-5-3-flash-max-tb41",
+      "leaderboard_row": "a03924be-99f2-4fc6-bda3-a4c449d12e36",
+      "expected": {
+        "passes": 117
+      },
+      "model_string": "z-ai/glm-5.3-flash",
+      "notes": [
+        "The leaderboard lists reasoning effort \"none\": Claude Code set no effort (z-ai/glm-5.3-flash through OpenRouter), and GLM-5.3-Flash always reasons, defaulting to max."
+      ]
+    },
+    {
+      "harness": "Claude Code",
+      "model": "Qwen3.8-Max-0902",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-claude-code-qwen3-8-max-0902-max-tb41",
+      "leaderboard_row": "2d781330-2b24-445d-92c7-8519db736c6f",
+      "expected": {
+        "passes": 89
+      },
+      "model_string": "qwen/qwen3.8-max-0902"
+    },
+    {
+      "harness": "Codex",
+      "model": "GPT-6 Luna",
+      "effort": "max",
+      "timeout": "standard",
+      "id": "tb4-codex-gpt-6-luna-max-tb41",
+      "leaderboard_row": "d717d657-6675-44a3-bda8-13e0bae434d2",
+      "expected": {
+        "passes": 50
+      },
+      "model_string": "openai/gpt-6-luna"
+    },
+    {
+      "harness": "Muse Code",
+      "model": "Muse Spark 1.3",
+      "effort": "xhigh",
+      "timeout": "standard",
+      "id": "tb4-muse-code-muse-spark-1-3-xhigh-tb41",
+      "leaderboard_row": "ac65d0af-9fd7-411a-8781-168f88c3e372",
+      "expected": {
+        "passes": 49
+      },
+      "model_string": "meta/muse-spark-1.3"
+    }
+  ]
+}

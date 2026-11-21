@@ -458,8 +458,48 @@
       }
     },
     {
+      "id": "terminal-bench-4.1-subset",
+      "short": "Terminal-Bench 4.1 · subset",
+      "name": "Terminal-Bench 4.1 · 19-task subset",
+      "attempts": 5,
+      "url": "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/leaderboards/4-1-0",
+      "dir": "tb41",
+      "rescoreFrom": "tb4",
+      "subset": "subset.json",
+      "full": {
+        "name": "Terminal-Bench 4.1",
+        "short": "full 66-task run"
+      },
+      "blurb": "The same 19 tasks, with Terminal-Bench 4.1 verifiers. fast-agent rows replay the verifier on frozen agent outputs. Comparator rows use Harbor's 4.1 leaderboard.",
+      "slug": "tb4.1",
+      "frozen": "2026-09-26",
+      "taskLabel": "19 tasks × 5 attempts",
+      "about": {
+        "text": "How we rescored the original runs",
+        "page": "methodology/terminal-bench-4-1-subset/"
+      },
+      "methodology": {
+        "title": "The same agent attempts, new verifiers.",
+        "page": "methodology/terminal-bench-4-1-subset/",
+        "points": [
+          {
+            "title": "The subset",
+            "text": "The original 19 tasks and five slots per task remain fixed. The 4.1 dataset changes the verifier packages, not the agent outputs."
+          },
+          {
+            "title": "Verifier-only",
+            "text": "We replayed 4.1 verifiers on the outputs already collected from the frozen published trials. No agent was rerun. We used Modal for the remaining WAL replays and for new releases; evidence and original scores are linked on each run page."
+          },
+          {
+            "title": "Cost",
+            "text": "Model cost and usage come from the original execution, not the verifier rescore. These are not billed totals and do not include infrastructure charges."
+          }
+        ]
+      }
+    },
+    {
       "id": "terminal-bench-4.0-subset",
-      "short": "Terminal-Bench 4 · subset",
+      "short": "Terminal-Bench 4.0 · archived",
       "name": "Terminal-Bench 4.0 · 19-task subset",
       "attempts": 5,
       "url": "https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/leaderboards/4-0-0",
