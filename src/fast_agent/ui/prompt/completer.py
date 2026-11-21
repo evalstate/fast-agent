@@ -325,6 +325,7 @@ class AgentCompleter(Completer):
             "markdown": "Show last assistant message without markdown formatting",
             "environment": "List configured execution environments",
             "process": "Show, attach, or terminate shell processes",
+            "events": "Subscribe to MCP server events",
             "resume": "Resume the last session or specified session id",
             "session": "Manage sessions (/session list|new|resume|title|fork|delete|pin|unpin|export)",
             "card": _catalog_command_description("card"),

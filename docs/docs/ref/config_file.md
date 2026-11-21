@@ -793,6 +793,10 @@ mcp:
       auth:  # Optional authentication
         oauth: true
       include_instructions: true  # Whether to include instructions in {{serverInstructions}}
+      events:  # Optional MCP Events subscriptions, started when the agent is first used
+        - name: "job.status_changed"
+          arguments: {job_id: "abc123"}
+          wake: false  # true starts a turn in an idle agent
 
     # Example SSE server
     sse_server:

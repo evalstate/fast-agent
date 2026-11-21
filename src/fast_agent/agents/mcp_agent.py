@@ -612,6 +612,19 @@ class McpAgent(ABC, ToolAgent):
             access_modes=(access_mode,),
         )
 
+    def take_event_messages(self) -> list[str]:
+        """Drain MCP events delivered since the last model call."""
+        return self._aggregator.take_event_messages()
+
+    async def start_configured_events(self) -> None:
+        """Start the MCP event subscriptions this agent's server settings declare."""
+        await self._aggregator.start_configured_events()
+
+    async def wait_for_event_wake(self) -> None:
+        """Return once an MCP event from a subscription with ``wake`` set is waiting."""
+        await self._aggregator.start_configured_events()
+        await self._aggregator.events.wait_for_wake()
+
     async def get_server_status(self) -> dict[str, ServerStatus]:
         """Expose server status details for UI and diagnostics consumers."""
         if not self._aggregator:

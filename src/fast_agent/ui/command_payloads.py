@@ -46,6 +46,12 @@ class ProcessCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class EventsCommand(CommandBase):
+    argument: str | None = None
+    kind: Literal["events"] = "events"
+
+
+@dataclass(frozen=True, slots=True)
 class A2ACommand(CommandBase):
     action: str
     argument: str | None
@@ -480,6 +486,14 @@ class EOFCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class EventWakeCommand(CommandBase):
+    """Represents an MCP event that ended an idle prompt to start a turn."""
+
+    buffer_text: str = ""
+    kind: Literal["event_wake"] = "event_wake"
+
+
+@dataclass(frozen=True, slots=True)
 class UnknownCommand(CommandBase):
     command: str
     kind: Literal["unknown_command"] = "unknown_command"
@@ -498,6 +512,7 @@ CommandPayload = (
     | ShowMcpStatusCommand
     | EnvironmentCommand
     | ProcessCommand
+    | EventsCommand
     | A2ACommand
     | CheckCommand
     | CommandsCommand
@@ -554,6 +569,7 @@ CommandPayload = (
     | ModelSwitchCommand
     | InterruptCommand
     | EOFCommand
+    | EventWakeCommand
     | CommandError
     | UnknownCommand
 )

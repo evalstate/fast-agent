@@ -8,6 +8,7 @@ from typing import (
     Literal,
     Protocol,
     cast,
+    runtime_checkable,
 )
 
 from mcp_types import CallToolResult, ContentBlock, ListToolsResult, TextContent
@@ -40,6 +41,13 @@ if TYPE_CHECKING:
 
 class _AgentConfig(Protocol):
     use_history: bool
+
+
+@runtime_checkable
+class _EventMessageSource(Protocol):
+    async def start_configured_events(self) -> None: ...
+
+    def take_event_messages(self) -> list[str]: ...
 
 
 class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
@@ -217,10 +225,12 @@ class ToolRunner:
         # staged. Never insert user messages between tool calls and their results.
         if self._iteration > 0:
             for text in take_queued_messages(self._agent):
-                self.append_messages(text)
-                message = self._delta_messages[-1]
-                self._turn_messages.append(message)
-                self._pending_input_messages.append(message)
+                self._append_input_message(text)
+        # MCP events are appended after the user's own message on the first step.
+        if isinstance(self._agent, _EventMessageSource):
+            await self._agent.start_configured_events()
+            for text in self._agent.take_event_messages():
+                self._append_input_message(text)
 
         await self._run_before_llm_hook()
         assistant_message = await self._call_llm()
@@ -228,6 +238,12 @@ class ToolRunner:
         self._apply_assistant_message_state(assistant_message)
 
         return assistant_message
+
+    def _append_input_message(self, text: str) -> None:
+        self.append_messages(text)
+        message = self._delta_messages[-1]
+        self._turn_messages.append(message)
+        self._pending_input_messages.append(message)
 
     async def _prepare_next_llm_step(self) -> PromptMessageExtended | None:
         staged = self._consume_staged_terminal_response()
