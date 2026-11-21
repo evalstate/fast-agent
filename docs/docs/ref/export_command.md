@@ -74,6 +74,9 @@ fast-agent export latest --hf-url hf://buckets/your-name/fast-agent-traces/
 # Upload to a Hugging Face dataset URL
 fast-agent export latest --hf-url hf://datasets/your-name/fast-agent-traces/trace.jsonl
 
+# Upload to an existing dataset branch
+fast-agent export latest --hf-url hf://datasets/your-name/fast-agent-traces@review/trace.jsonl
+
 # Compatibility: upload into a folder in a dataset repo
 fast-agent export latest \
   --hf-dataset your-name/fast-agent-traces \

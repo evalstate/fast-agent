@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from io import BytesIO
 from typing import TYPE_CHECKING, BinaryIO
+from urllib.parse import quote
 
 import pytest
+from huggingface_hub.utils import parse_hf_uri
 
 from fast_agent.session.trace_export_errors import SessionExportUploadError
 from fast_agent.session.trace_export_hf import HuggingFaceDatasetTraceUploader
@@ -172,6 +174,51 @@ def test_hf_url_uploader_appends_filename_for_dataset_root(tmp_path: Path) -> No
     assert api.create_repo_calls == [("owner/dataset", "dataset", True)]
     assert filesystem.opened == [("hf://datasets/owner/dataset/trace.jsonl", "wb")]
     assert result.file_url == "https://huggingface.co/datasets/owner/dataset/blob/main/trace.jsonl"
+
+
+@pytest.mark.parametrize("revision", ["review", "refs/pr/12", "refs%2Fpr%2F12"])
+@pytest.mark.parametrize("path_in_url", ["", "/exports/trace.jsonl"])
+def test_hf_dataset_uploader_preserves_revision(
+    tmp_path: Path, revision: str, path_in_url: str
+) -> None:
+    api = _ApiStub()
+    filesystem = _FileSystemStub()
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text("{}", encoding="utf-8")
+    hf_url = f"hf://datasets/owner/dataset@{revision}{path_in_url}"
+
+    result = HuggingFaceDatasetTraceUploader(api=api, filesystem=filesystem).upload(
+        trace_path=trace_path,
+        hf_url=hf_url,
+    )
+
+    destination = f"{hf_url}/trace.jsonl" if not path_in_url else hf_url
+    assert filesystem.opened == [(destination, "wb")]
+    parsed = parse_hf_uri(destination)
+    assert api.create_repo_calls == [(parsed.id, "dataset", True)]
+    assert result.repo_id == parsed.id
+    assert result.path_in_repo == parsed.path_in_repo
+    assert result.file_url == (
+        f"https://huggingface.co/datasets/{parsed.id}/blob/"
+        f"{quote(parsed.revision or 'main', safe='')}/{parsed.path_in_repo}"
+    )
+    assert filesystem.files[0].getvalue() == trace_path.read_bytes()
+
+
+def test_hf_dataset_uploader_reports_invalid_destination(tmp_path: Path) -> None:
+    api = _ApiStub()
+    filesystem = _FileSystemStub()
+    trace_path = tmp_path / "trace.jsonl"
+    trace_path.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(SessionExportUploadError, match="Failed to upload trace"):
+        HuggingFaceDatasetTraceUploader(api=api, filesystem=filesystem).upload(
+            trace_path=trace_path,
+            hf_url="hf://datasets/owner",
+        )
+
+    assert api.create_repo_calls == []
+    assert filesystem.opened == []
 
 
 def test_hf_dataset_uploader_reports_missing_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
