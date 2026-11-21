@@ -42,6 +42,9 @@ Manage skills with the `/skills` command, and connect to MCP Servers with `/conn
 
 # Connect to a Streamable HTTP Server
 /connect https://huggingface.co/mcp
+
+# Lantern Works: hosted, free, no-key GPU rental prices
+/connect https://lantern-works-mcp.lantern-works.workers.dev/mcp?ref=fast-agent
 ```
 
 It's recommended to install **`fast-agent`** to set up the shell aliases and other tooling.
