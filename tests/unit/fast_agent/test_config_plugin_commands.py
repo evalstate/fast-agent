@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING
+from pathlib import Path
+
+import pytest
 
 from fast_agent.config import _enabled_plugin_sources, get_settings
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def test_settings_parses_global_plugin_commands(tmp_path: Path) -> None:
@@ -92,7 +91,10 @@ def test_settings_loads_enabled_post_user_turn_plugin(tmp_path: Path, monkeypatc
     assert settings.plugins.config["cost"] == {"precision": 4}
 
 
-def test_settings_merges_fast_agent_home_plugins(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("use_tilde", [False, True])
+def test_settings_merges_fast_agent_home_plugins(
+    tmp_path: Path, monkeypatch, use_tilde: bool
+) -> None:
     home = tmp_path / "home"
     project = tmp_path / "project"
     project_env = tmp_path / "project-env"
@@ -128,7 +130,8 @@ def test_settings_merges_fast_agent_home_plugins(tmp_path: Path, monkeypatch) ->
         f"home: '{project_env.as_posix()}'\nplugins:\n  enabled: ['project-helper']\n",
         encoding="utf-8",
     )
-    monkeypatch.setenv("FAST_AGENT_HOME", home.as_posix())
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    monkeypatch.setenv("FAST_AGENT_HOME", "~/home" if use_tilde else home.as_posix())
     monkeypatch.chdir(project)
 
     settings = get_settings(config_path)
