@@ -1234,17 +1234,54 @@ class ModelFactory:
         if selected_overlay is not None:
             source: Literal["overlay", "preset", "direct"] = "overlay"
             if selected_overlay.preserve_wire_model_name:
-                parsed_placeholder = cls.parse_model_spec(
-                    model_string,
-                    presets={selected_overlay.name: selected_overlay.compiled_placeholder_spec()},
+                _, explicit_overrides = _split_model_spec_and_query(model_string)
+                _, default_overrides = _split_model_spec_and_query(
+                    selected_overlay.compiled_placeholder_spec()
                 )
+                merged_overrides = explicit_overrides.with_defaults(default_overrides)
+                provider = selected_overlay.provider
+                model_name = selected_overlay.model_name
+                profile_model = selected_overlay.manifest.profile
+                reasoning_effort = merged_overrides.reasoning_effort
+                if merged_overrides.instant is not None:
+                    if reasoning_effort is not None:
+                        raise ModelConfigError(
+                            f"Multiple reasoning settings provided for '{selected_overlay.name}'."
+                        )
+                    instant_candidates = {
+                        strip_casefold(model_name),
+                        strip_casefold(model_name.rsplit(":", 1)[0]),
+                    }
+                    if profile_model:
+                        instant_candidates.add(strip_casefold(profile_model))
+                    if not (instant_candidates & {"moonshotai/kimi-k2.5", "moonshotai/kimi-k2.6"}):
+                        raise ModelConfigError(
+                            "Instant mode is only supported for moonshotai/kimi-k2.5 "
+                            f"and moonshotai/kimi-k2.6, got '{model_name}'."
+                        )
+                    reasoning_effort = ReasoningEffortSetting(
+                        kind="toggle",
+                        value=not merged_overrides.instant,
+                    )
+                validation_model = profile_model or model_name
+                _validate_transport_constraints(
+                    provider, validation_model, merged_overrides.transport
+                )
+                _validate_service_tier_constraints(
+                    provider, validation_model, merged_overrides.service_tier
+                )
+                _validate_lite_constraints(provider, validation_model, merged_overrides.lite)
+                _validate_compaction_constraints(
+                    provider, validation_model, merged_overrides.compaction
+                )
+                _validate_max_tokens_constraints(provider, merged_overrides.max_tokens)
                 parsed = ParsedModelSpec(
-                    raw_input=parsed_placeholder.raw_input,
+                    raw_input=model_string,
                     expanded_input=selected_overlay.compiled_model_spec,
-                    provider=selected_overlay.provider,
-                    model_name=selected_overlay.model_name,
-                    reasoning_effort=parsed_placeholder.reasoning_effort,
-                    query_overrides=parsed_placeholder.query_overrides,
+                    provider=provider,
+                    model_name=model_name,
+                    reasoning_effort=reasoning_effort,
+                    query_overrides=merged_overrides,
                 )
             else:
                 parsed = cls.parse_model_spec(

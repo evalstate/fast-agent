@@ -1313,3 +1313,69 @@ def test_saved_overlay_preserves_same_origin_headers_and_isolates_different_orig
     assert "x-corp-key" not in diff_headers
     assert "x-openai-leak" not in diff_headers
     assert "authorization" not in diff_headers
+
+
+def test_opaque_overlay_validates_model_specific_query_flags() -> None:
+    from fast_agent.core.exceptions import ModelConfigError
+    from fast_agent.llm.model_factory import ModelFactory
+    from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+
+    direct_kimi = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="direct-kimi-opaque",
+            provider=Provider.HUGGINGFACE,
+            model="moonshotai/Kimi-K2.5",
+            connection=ModelOverlayConnection(
+                base_url="https://router.example.com/v1",
+                auth="none",
+            ),
+        ),
+        manifest_path=Path("direct-kimi-opaque.yaml"),
+        preserve_wire_model_name=True,
+    )
+    renamed_kimi = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="renamed-kimi-opaque",
+            provider=Provider.HUGGINGFACE,
+            model="acme/kimi-serving-v1",
+            profile="moonshotai/kimi-k2.5",
+            connection=ModelOverlayConnection(
+                base_url="https://router.example.com/v1",
+                auth="none",
+            ),
+        ),
+        manifest_path=Path("renamed-kimi-opaque.yaml"),
+        preserve_wire_model_name=True,
+    )
+    non_kimi = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="non-kimi-opaque",
+            provider=Provider.HUGGINGFACE,
+            model="acme/custom-inkling:fp8",
+            profile="thinkingmachines/inkling-2-small",
+            connection=ModelOverlayConnection(
+                base_url="https://router.example.com/v1",
+                auth="none",
+            ),
+        ),
+        manifest_path=Path("non-kimi-opaque.yaml"),
+        preserve_wire_model_name=True,
+    )
+    register_ephemeral_model_overlay(direct_kimi)
+    register_ephemeral_model_overlay(renamed_kimi)
+    register_ephemeral_model_overlay(non_kimi)
+
+    resolved_direct = ModelFactory.resolve_model_spec(f"{direct_kimi.name}?instant=on")
+    assert resolved_direct.wire_model_name == "moonshotai/Kimi-K2.5"
+    assert resolved_direct.model_config.reasoning_effort == ReasoningEffortSetting(
+        kind="toggle", value=False
+    )
+
+    resolved_renamed = ModelFactory.resolve_model_spec(f"{renamed_kimi.name}?instant=on")
+    assert resolved_renamed.wire_model_name == "acme/kimi-serving-v1"
+    assert resolved_renamed.model_config.reasoning_effort == ReasoningEffortSetting(
+        kind="toggle", value=False
+    )
+
+    with pytest.raises(ModelConfigError, match="Instant mode is only supported"):
+        ModelFactory.resolve_model_spec(f"{non_kimi.name}?instant=on")

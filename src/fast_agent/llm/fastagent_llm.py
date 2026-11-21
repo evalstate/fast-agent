@@ -2001,6 +2001,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return False
 
     def _uses_explicit_no_auth(self) -> bool:
+        if self.provider is not None:
+            from fast_agent.llm.provider_key_manager import ProviderKeyManager
+
+            if ProviderKeyManager.serve_oauth_requires_request_token(self.provider.config_name):
+                return False
         overlay = self._resolved_model_spec.overlay if self._resolved_model_spec else None
         return (
             overlay is not None

@@ -910,7 +910,9 @@ class ResponsesLLM(
         return settings.base_url if settings else None
 
     def _default_provider_base_url(self) -> str | None:
-        return "https://api.openai.com/v1"
+        import os
+
+        return os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 
     def _provider_default_headers(self) -> dict[str, str] | None:
         settings = self._openai_settings()

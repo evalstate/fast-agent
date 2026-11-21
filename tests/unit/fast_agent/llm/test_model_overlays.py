@@ -1615,3 +1615,196 @@ def test_openresponses_no_auth_overlay_omits_authorization_header(
         assert "x-openai-leak" not in headers
     finally:
         clear_ephemeral_model_overlays()
+
+
+def test_serve_oauth_huggingface_takes_precedence_over_no_auth_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openai._models import FinalRequestOptions
+
+    from fast_agent.context import Context
+    from fast_agent.core.exceptions import ProviderKeyError
+    from fast_agent.llm.model_overlays import (
+        clear_ephemeral_model_overlays,
+        register_ephemeral_model_overlay,
+    )
+    from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+    from fast_agent.mcp.auth.context import request_bearer_token
+
+    monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
+    monkeypatch.setenv("HF_TOKEN", "hf_server_secret_should_not_be_used")
+
+    overlay = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="saved-hf-no-auth",
+            provider=Provider.HUGGINGFACE,
+            model="moonshotai/Kimi-K2.5",
+            connection=ModelOverlayConnection(
+                base_url="https://router.huggingface.co/v1",
+                auth="none",
+            ),
+        ),
+        manifest_path=Path("saved-hf-no-auth.yaml"),
+    )
+    register_ephemeral_model_overlay(overlay)
+    try:
+        context = Context(config=Settings())
+        agent = LlmAgent(AgentConfig("hf-oauth"), context=context)
+        llm = ModelFactory.create_factory(overlay.name)(agent, context=context)
+        assert isinstance(llm, HuggingFaceLLM)
+
+        # Missing caller token must fail closed at client creation.
+        with pytest.raises(ProviderKeyError):
+            llm._openai_client()
+
+        # Present caller bearer token must be forwarded on the built request.
+        token_reset = request_bearer_token.set("hf_caller_oauth_token")
+        try:
+            req = llm._openai_client()._build_request(
+                FinalRequestOptions(
+                    method="post",
+                    url="/chat/completions",
+                    json_data={"model": "moonshotai/Kimi-K2.5", "messages": []},
+                )
+            )
+            headers = {k.lower(): v for k, v in req.headers.items()}
+            assert headers.get("authorization") == "Bearer hf_caller_oauth_token"
+        finally:
+            request_bearer_token.reset(token_reset)
+    finally:
+        clear_ephemeral_model_overlays()
+
+
+def test_saved_openai_overlay_origin_compares_against_openai_base_url_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openai._models import FinalRequestOptions
+
+    from fast_agent.context import Context
+    from fast_agent.llm.model_overlays import (
+        clear_ephemeral_model_overlays,
+        register_ephemeral_model_overlay,
+    )
+    from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+    from fast_agent.llm.provider.openai.responses import ResponsesLLM
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-gateway-test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://gateway.corp/v1")
+    monkeypatch.setenv("OPENAI_CUSTOM_HEADERS", "X-Gateway-Key: gw-secret")
+
+    try:
+        for provider, expected_cls, path, payload, client_getter in (
+            (
+                Provider.OPENAI,
+                OpenAILLM,
+                "/chat/completions",
+                {"model": "gpt-4.1", "messages": []},
+                lambda llm: llm._openai_client(),
+            ),
+            (
+                Provider.RESPONSES,
+                ResponsesLLM,
+                "/responses",
+                {"model": "gpt-5-mini", "input": []},
+                lambda llm: llm._responses_client(),
+            ),
+        ):
+            same_gateway = LoadedModelOverlay(
+                manifest=ModelOverlayManifest(
+                    name=f"saved-{provider.config_name}-gateway",
+                    provider=provider,
+                    model="gpt-4.1" if provider == Provider.OPENAI else "gpt-5-mini",
+                    connection=ModelOverlayConnection(
+                        base_url="https://gateway.corp/v1",
+                        auth="env",
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+                manifest_path=Path(f"saved-{provider.config_name}-gateway.yaml"),
+            )
+            default_openai = LoadedModelOverlay(
+                manifest=ModelOverlayManifest(
+                    name=f"saved-{provider.config_name}-public",
+                    provider=provider,
+                    model="gpt-4.1" if provider == Provider.OPENAI else "gpt-5-mini",
+                    connection=ModelOverlayConnection(
+                        base_url="https://api.openai.com/v1",
+                        auth="env",
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+                manifest_path=Path(f"saved-{provider.config_name}-public.yaml"),
+            )
+            register_ephemeral_model_overlay(same_gateway)
+            register_ephemeral_model_overlay(default_openai)
+
+            context = Context(config=Settings())
+            llm_same = ModelFactory.create_factory(same_gateway.name)(
+                LlmAgent(AgentConfig("same-gw"), context=context), context=context
+            )
+            assert isinstance(llm_same, expected_cls)
+            req_same = client_getter(llm_same)._build_request(
+                FinalRequestOptions(method="post", url=path, json_data=payload)
+            )
+            same_headers = {k.lower(): v for k, v in req_same.headers.items()}
+            assert same_headers.get("x-gateway-key") == "gw-secret"
+
+            llm_public = ModelFactory.create_factory(default_openai.name)(
+                LlmAgent(AgentConfig("public-api"), context=context), context=context
+            )
+            assert isinstance(llm_public, expected_cls)
+            req_public = client_getter(llm_public)._build_request(
+                FinalRequestOptions(method="post", url=path, json_data=payload)
+            )
+            public_headers = {k.lower(): v for k, v in req_public.headers.items()}
+            assert "x-gateway-key" not in public_headers
+    finally:
+        clear_ephemeral_model_overlays()
+
+
+def test_same_origin_no_auth_overlay_omits_ambient_authorization_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openai._models import FinalRequestOptions
+
+    from fast_agent.context import Context
+    from fast_agent.llm.model_overlays import (
+        clear_ephemeral_model_overlays,
+        register_ephemeral_model_overlay,
+    )
+    from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_CUSTOM_HEADERS", "Authorization: Bearer ambient\nX-Gateway: 1")
+
+    overlay = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="same-origin-openai-no-auth",
+            provider=Provider.OPENAI,
+            model="gpt-4.1",
+            connection=ModelOverlayConnection(
+                base_url="https://api.openai.com/v1",
+                auth="none",
+            ),
+        ),
+        manifest_path=Path("same-origin-openai-no-auth.yaml"),
+    )
+    register_ephemeral_model_overlay(overlay)
+    try:
+        context = Context(config=Settings())
+        agent = LlmAgent(AgentConfig("same-origin-no-auth"), context=context)
+        llm = ModelFactory.create_factory(overlay.name)(agent, context=context)
+        assert isinstance(llm, OpenAILLM)
+        req = llm._openai_client()._build_request(
+            FinalRequestOptions(
+                method="post",
+                url="/chat/completions",
+                json_data={"model": "gpt-4.1", "messages": []},
+            )
+        )
+        headers = {k.lower(): v for k, v in req.headers.items()}
+        assert "authorization" not in headers
+        assert headers.get("x-gateway") == "1"
+    finally:
+        clear_ephemeral_model_overlays()

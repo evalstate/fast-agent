@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from functools import partial
@@ -242,19 +243,25 @@ def build_async_openai_client(
     client_cls = _NoAuthAsyncOpenAI if no_auth else AsyncOpenAI
     client = client_cls(**kwargs)
 
+    explicit_authorization = bool(
+        default_headers and any(k.lower() == "authorization" for k in default_headers)
+    )
     if isolate_ambient_headers:
         client.organization = None
         client.project = None
         isolated_headers: dict[str, str | Omit] = dict(default_headers) if default_headers else {}
-        if no_auth and not any(k.lower() == "authorization" for k in isolated_headers):
+        if no_auth and not explicit_authorization:
             isolated_headers["Authorization"] = Omit()
         # The SDK merges OPENAI_CUSTOM_HEADERS during construction; only explicit
         # overlay headers belong on an isolated custom-origin client.
         client._custom_headers = isolated_headers
-    elif no_auth:
-        custom_headers: dict[str, str | Omit] = dict(client._custom_headers)
-        if not any(k.lower() == "authorization" for k in custom_headers):
-            custom_headers["Authorization"] = Omit()
+    elif no_auth and not explicit_authorization:
+        # On true no-auth, never inherit an ambient Authorization header from
+        # OPENAI_CUSTOM_HEADERS unless the overlay explicitly defined one.
+        custom_headers: dict[str, str | Omit] = {
+            k: v for k, v in client._custom_headers.items() if k.lower() != "authorization"
+        }
+        custom_headers["Authorization"] = Omit()
         client._custom_headers = custom_headers
 
     return client
@@ -479,7 +486,7 @@ class OpenAILLM(
         return None
 
     def _default_provider_base_url(self) -> str | None:
-        return "https://api.openai.com/v1"
+        return os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
 
     def _provider_default_headers(self) -> dict[str, str] | None:
         """
