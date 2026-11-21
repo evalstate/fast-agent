@@ -38,6 +38,56 @@ class FailingOpenAILLM(OpenAILLM):
         )
 
 
+class RecoveringOpenAILLM(FailingOpenAILLM):
+    """Emit partial text on a failed attempt, then recover with two text chunks."""
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools=None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        if self.attempts == 0:
+            return await super()._apply_prompt_provider_specific(
+                multipart_messages, request_params, tools, is_template
+            )
+
+        self.attempts += 1
+        for text in ("hello ", "world"):
+            self._notify_stream_listeners(StreamChunk(text=text))
+        return Prompt.assistant("hello world", stop_reason=LlmStopReason.END_TURN)
+
+
+@pytest.mark.asyncio
+async def test_retry_recovery_rolls_back_partial_text_and_commits_success() -> None:
+    ctx = SimpleNamespace(executor=None, config=None)
+    llm = RecoveringOpenAILLM(context=ctx, name="recover-llm")
+    llm.retry_count = 1
+    llm.retry_backoff_seconds = 0.0
+    stream_events: list[StreamChunk] = []
+    llm.add_stream_listener(stream_events.append)
+
+    response = await llm.generate([Prompt.user("hi")])
+
+    assert llm.attempts == 2
+    assert [(chunk.event, chunk.text) for chunk in stream_events] == [
+        ("delta", "partial 1"),
+        ("rollback", ""),
+        ("delta", "hello "),
+        ("delta", "world"),
+        ("commit", ""),
+    ]
+    assert response.all_text() == "hello world"
+    assert response.stop_reason == LlmStopReason.END_TURN
+    assert response.channels is not None
+    assert FAST_AGENT_ERROR_CHANNEL not in response.channels
+    retry_payload = json.loads(get_text(response.channels[FAST_AGENT_RETRY][0]) or "")
+    assert retry_payload["provider_attempts"] == 2
+    assert len(retry_payload["retries"]) == 1
+    assert retry_payload["retries"][0]["error_type"] == "APIError"
+
+
 @pytest.mark.asyncio
 async def test_retry_exhaustion_returns_error_channel():
     ctx = SimpleNamespace(executor=None, config=None)
