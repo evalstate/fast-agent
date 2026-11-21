@@ -246,10 +246,10 @@ class AsyncioExecutor(Executor):
         results: list[R | BaseException] = []
 
         try:
-            results.extend([await task for task in running])
+            results.extend(await asyncio.gather(*running))
         except BaseException:
             for task in running:
-                if not task.done():
+                if not task.done() and not task.cancelling():
                     task.cancel()
             await asyncio.gather(*running, return_exceptions=True)
             raise
