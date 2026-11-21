@@ -160,6 +160,74 @@ async def test_execute_propagates_cancellation() -> None:
         await run
 
 
+class _TaskAbort(BaseException):
+    pass
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel_first", [True, False])
+@pytest.mark.parametrize("error_type", [asyncio.CancelledError, _TaskAbort])
+async def test_execute_propagates_child_abort_before_blocked_sibling(
+    cancel_first: bool,
+    error_type: type[BaseException],
+) -> None:
+    executor = AsyncioExecutor()
+    sibling_started = asyncio.Event()
+    sibling_cancelled = asyncio.Event()
+
+    async def cancel() -> int:
+        await sibling_started.wait()
+        raise error_type("child aborted")
+
+    async def wait_forever() -> int:
+        sibling_started.set()
+        try:
+            await asyncio.Event().wait()
+            return 1
+        finally:
+            sibling_cancelled.set()
+
+    tasks = [cancel(), wait_forever()] if cancel_first else [wait_forever(), cancel()]
+    with pytest.raises(error_type, match="child aborted"):
+        await asyncio.wait_for(executor.execute(*tasks), timeout=1)
+
+    assert sibling_cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_execute_parent_cancellation_waits_for_async_sibling_cleanup() -> None:
+    executor = AsyncioExecutor()
+    started = asyncio.Event()
+    cleanup_started = asyncio.Event()
+    release_cleanup = asyncio.Event()
+    cleanup_finished = asyncio.Event()
+
+    async def fast_cancel() -> None:
+        await started.wait()
+        await asyncio.Event().wait()
+
+    async def slow_cleanup() -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleanup_started.set()
+            await release_cleanup.wait()
+            cleanup_finished.set()
+
+    run = asyncio.create_task(executor.execute(fast_cancel(), slow_cleanup()))
+    await started.wait()
+    run.cancel()
+    await cleanup_started.wait()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    release_cleanup.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(run, timeout=1)
+    assert cleanup_finished.is_set()
+
+
 @pytest.mark.asyncio
 async def test_map_runs_one_task_per_input() -> None:
     executor = AsyncioExecutor()
