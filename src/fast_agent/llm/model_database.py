@@ -1854,6 +1854,9 @@ class ModelDatabase:
             "deepseek-ai/DeepSeek-V4.1-Flash-1017"
         ),
         (Provider.HUGGINGFACE, "qwen/qwen3.8-27b"): "Qwen/Qwen3.8-27B",
+        (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-mini"): (
+            "thinkingmachines/Inkling-2-Mini"
+        ),
         (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-small"): (
             "thinkingmachines/Inkling-2-Small"
         ),
