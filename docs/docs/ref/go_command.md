@@ -32,6 +32,9 @@ fast-agent go [OPTIONS]
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers when dynamic client registration is not available
 - `--model`, `--models <model_string>`: Select a model for this run (e.g., haiku, sonnet, gpt-4)
 - `--model`, `--models <model1>,<model2>,...`: Run one agent per model in parallel and print a side-by-side comparison of responses
+- `--model-url <url>`: Auto-configure a vLLM, llama.cpp, or generic OpenAI-compatible model endpoint for this run (bare origin or `.../v1`)
+- `--model-auth <token>`: Bearer token for `--model-url` (optional `Bearer ` prefix; kept in memory only and separate from MCP `--auth`)
+- `--model-api-key-env <ENV_VAR>`: Environment variable name containing the API key for `--model-url`
 - `--environment`, `-E <name>`: Select a named execution environment from config
 - `--pack`, `--card-pack <name>`: Ensure a named card pack is installed in the selected environment before starting
 - `--pack-registry <path or uri>`: Marketplace file path, HTTP(S) URL, `file://` URI, or `hf://` URI used to resolve `--pack` when it is not already installed
@@ -293,8 +296,36 @@ The `--url` parameter allows you to connect directly to HTTP or SSE servers usin
 
 ### Authentication
 
-The `--auth` parameter provides authentication for URL-based servers:
+The `--auth` parameter provides authentication for URL-based MCP servers:
 
 - When provided, it creates an `Authorization: Bearer TOKEN` header for all URL-based servers
 - This is commonly used with API endpoints that require authentication
 - Example: `fast-agent go --url=https://api.example.com/mcp --auth=12345abcde`
+
+### Connecting directly to a model endpoint (`--model-url`)
+
+Use `--model-url <url>` to auto-configure an OpenAI-compatible inference server without creating a config file or saved overlay:
+
+```bash
+# Dedicated Hugging Face Inference Endpoint (vLLM)
+fast-agent --model-url https://<endpoint>.endpoints.huggingface.cloud
+
+# Pass a bearer token directly (optional "Bearer " prefix, kept in memory only)
+fast-agent --model-url https://<endpoint>.endpoints.huggingface.cloud --model-auth "$HF_TOKEN"
+
+# Combine with MCP --url / --auth without flag collision, and pass model query overrides
+fast-agent --model-url http://localhost:8000 --model "?reasoning=medium" --url https://mcp.example.com/mcp --auth "$MCP_TOKEN"
+
+# Read the endpoint API key from a specific environment variable
+fast-agent --model-url https://llm.example.com/v1 --model-api-key-env MY_ENDPOINT_KEY
+```
+
+How `--model-url` resolves the endpoint:
+
+- **URL normalization and backend detection:** Accepts a bare origin or `.../v1`, probes `GET <base_url>/models`, and auto-detects **vLLM** (`owned_by == "vllm"` or `max_model_len`, plus optional `GET /version`), **llama.cpp** (`GET /props`), or a **generic OpenAI-compatible** endpoint.
+- **Model metadata and live limits:** Matches `(id, root, aliases)` against the built-in `ModelDatabase` and overrides `context_window` with live server truth (`max_model_len` on vLLM, `n_ctx` on llama.cpp) inside an ephemeral in-memory overlay.
+- **Fail-closed authentication precedence:**
+  1. `--model-auth <token>` (in-memory only; never written to overlay YAML or logged)
+  2. `--model-api-key-env <ENV_VAR>` (fails closed if unset or empty)
+  3. For `*.endpoints.huggingface.cloud`: defaults provider to `hf` and resolves `HF_TOKEN` then `hf.api_key` in `fastagent.secrets.yaml` (does not silently fall back to `~/.cache/huggingface/token`)
+  4. For non-HF hosts: defaults provider to `generic`, using `GENERIC_API_KEY` if set or unauthenticated otherwise

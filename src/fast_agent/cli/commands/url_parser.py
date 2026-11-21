@@ -28,10 +28,10 @@ def split_url_list(value: str) -> list[str]:
     return [part.strip() for part in _URL_LIST_SEPARATOR.split(value)]
 
 
-def _normalize_auth_token(auth_token: str) -> str:
-    """Normalize ``--auth`` values into the raw token string.
+def normalize_auth_token(auth_token: str) -> str:
+    """Normalize ``--auth`` / ``--model-auth`` values into the raw token string.
 
-    ``parse_server_urls`` always emits ``Authorization: Bearer <token>``.
+    Callers emit ``Authorization: Bearer <token>`` or pass the raw token as an API key.
     Accept optional ``Bearer `` input here to avoid generating duplicated
     prefixes like ``Bearer Bearer <token>``.
     """
@@ -42,6 +42,9 @@ def _normalize_auth_token(auth_token: str) -> str:
     if not normalized:
         raise ValueError("Auth token cannot be empty")
     return normalized
+
+
+_normalize_auth_token = normalize_auth_token
 
 
 def parse_server_url(

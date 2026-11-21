@@ -146,6 +146,23 @@ picker:
 - `provider`: the fast-agent provider to use
 - `model`: the backend model name sent on the wire
 
+### Optional `profile` inheritance
+
+When serving a renamed, quantized, or fine-tuned checkpoint, set top-level `profile` to a known `ModelDatabase` model ID so the overlay inherits its capabilities, modalities, reasoning contract, and defaults while overriding `connection`, `metadata`, or `defaults`:
+
+```yaml
+name: my-inkling-finetune
+provider: generic
+model: acme/inkling-2-mini-fp8
+profile: thinkingmachines/inkling-2-mini
+connection:
+  base_url: http://localhost:8000/v1
+metadata:
+  context_window: 65536
+```
+
+Unknown `profile` values fail manifest validation. For one-off runs against vLLM, llama.cpp, or generic OpenAI-compatible endpoints without writing an overlay file, you can also use `fast-agent --model-url <url>` (with optional `--model-auth` or `--model-api-key-env`).
+
 ### Connection settings
 
 Use `connection` for endpoint and authentication settings (the streaming

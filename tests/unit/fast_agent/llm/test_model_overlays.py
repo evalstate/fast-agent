@@ -13,16 +13,18 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml
+from pydantic import ValidationError
 
 from fast_agent.config import Settings, get_settings, update_global_settings
 from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from pathlib import Path
 
     from openai.types.chat import ChatCompletionToolParam
 
@@ -33,6 +35,7 @@ from fast_agent.core.instruction_utils import build_agent_instruction_context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import (
+    LoadedModelOverlay,
     ModelOverlayConnection,
     ModelOverlayDefaults,
     ModelOverlayManifest,
@@ -1421,3 +1424,77 @@ metadata:
             assert builtin.context_window == 272_000
             assert builtin.model_params is not None
             assert resolved.model_params.tokenizes == builtin.model_params.tokenizes
+
+
+def test_overlay_profile_inherits_database_entry_for_renamed_model(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "custom-inkling.yaml",
+        """
+name: custom-inkling
+provider: generic
+model: acme/inkling-2-mini-fp8-finetune
+profile: thinkingmachines/Inkling-2-Mini
+connection:
+  base_url: http://localhost:8000/v1
+metadata:
+  context_window: 65536
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        resolved = ModelFactory.resolve_model_spec("custom-inkling")
+        assert resolved.source == "overlay"
+        assert resolved.provider is Provider.GENERIC
+        assert resolved.wire_model_name == "acme/inkling-2-mini-fp8-finetune"
+        assert resolved.context_window == 65_536
+        assert resolved.model_params is not None
+        assert resolved.model_params.max_output_tokens == 65_536
+        assert resolved.model_params.default_provider is Provider.GENERIC
+
+        base_params = ModelDatabase.get_model_params("thinkingmachines/inkling-2-mini")
+        assert base_params is not None
+        assert resolved.model_params.tokenizes == base_params.tokenizes
+        assert resolved.model_params.reasoning == base_params.reasoning
+        assert resolved.model_params.reasoning_effort_spec == base_params.reasoning_effort_spec
+        assert resolved.model_params.json_mode == base_params.json_mode
+
+
+def test_overlay_profile_serialization_and_validation() -> None:
+    manifest = ModelOverlayManifest(
+        name="custom-inkling",
+        provider=Provider.GENERIC,
+        model="acme/my-inkling",
+        profile="thinkingmachines/inkling-2-mini",
+    )
+    rendered = serialize_model_overlay_manifest(manifest)
+    assert "profile: thinkingmachines/inkling-2-mini" in rendered
+    reloaded = ModelOverlayManifest.model_validate(yaml.safe_load(rendered))
+    assert reloaded.profile == "thinkingmachines/inkling-2-mini"
+
+    with pytest.raises(ValidationError, match="Unknown model overlay profile"):
+        ModelOverlayManifest(
+            name="bad-profile",
+            provider=Provider.GENERIC,
+            model="acme/my-model",
+            profile="nonexistent/does-not-exist-xyz",
+        )
+
+
+def test_loaded_overlay_override_api_key_stays_in_memory_only() -> None:
+    manifest = ModelOverlayManifest(
+        name="ephemeral-vllm",
+        provider=Provider.HUGGINGFACE,
+        model="thinkingmachines/Inkling-2-Mini",
+        profile="thinkingmachines/inkling-2-mini",
+    )
+    overlay = LoadedModelOverlay(
+        manifest=manifest,
+        manifest_path=Path("<model-url>"),
+        override_api_key="hf_ephemeral_secret_value",
+    )
+    assert overlay.resolved_api_key() == "hf_ephemeral_secret_value"
+    assert overlay.llm_init_kwargs()["api_key"] == "hf_ephemeral_secret_value"
+    assert "hf_ephemeral_secret_value" not in repr(overlay)
+    assert "hf_ephemeral_secret_value" not in serialize_model_overlay_manifest(overlay.manifest)

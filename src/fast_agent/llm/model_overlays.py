@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlencode
@@ -67,6 +67,26 @@ def _prefixed_model_spec(provider: Provider, model_name: str) -> str:
 
 def _existing_model_params(provider: Provider, model_name: str) -> ModelParameters | None:
     return ModelDatabase.get_model_params(model_name, provider=provider)
+
+
+def _profile_model_params(profile: str, *, provider: Provider) -> ModelParameters | None:
+    prefix_provider, bare_model = _split_provider_prefix(profile)
+    if prefix_provider is not None:
+        lookup_name = (
+            f"{Provider.HUGGINGFACE.value}.{bare_model}"
+            if prefix_provider == Provider.HUGGINGFACE
+            and starts_with_casefold(profile, "huggingface.")
+            else profile
+        )
+        params = _existing_model_params(prefix_provider, lookup_name)
+        if params is not None:
+            return params
+        return ModelDatabase.get_model_params(bare_model)
+
+    params = _existing_model_params(provider, profile)
+    if params is not None:
+        return params
+    return ModelDatabase.get_model_params(profile)
 
 
 class ModelOverlayConnection(BaseModel):
@@ -291,6 +311,7 @@ class ModelOverlayManifest(BaseModel):
     name: str
     provider: Provider
     model: str
+    profile: str | None = None
     connection: ModelOverlayConnection = Field(default_factory=ModelOverlayConnection)
     defaults: ModelOverlayDefaults = Field(
         default_factory=ModelOverlayDefaults,
@@ -302,10 +323,24 @@ class ModelOverlayManifest(BaseModel):
     )
     picker: ModelOverlayPicker = Field(default_factory=ModelOverlayPicker)
 
+    @field_validator("profile", mode="before")
+    @classmethod
+    def _normalize_profile(cls, value: object) -> object:
+        if isinstance(value, str):
+            return strip_to_none(value)
+        return value
+
     @model_validator(mode="after")
     def _validate_provider_connection_options(self) -> "ModelOverlayManifest":
         if self.connection.reasoning_field is not None and self.provider is not Provider.GENERIC:
             raise ValueError("connection.reasoning_field is supported only for provider 'generic'")
+        if (
+            self.profile is not None
+            and _profile_model_params(self.profile, provider=self.provider) is None
+        ):
+            raise ValueError(
+                f"Unknown model overlay profile {self.profile!r}: not found in ModelDatabase"
+            )
         return self
 
 
@@ -317,6 +352,7 @@ class LoadedModelOverlay:
     manifest_path: Path
     secret_entry: ModelOverlaySecretEntry | None = None
     override_model_parameters: ModelParameters | None = None
+    override_api_key: str | None = field(default=None, repr=False)
 
     @property
     def name(self) -> str:
@@ -365,6 +401,8 @@ class LoadedModelOverlay:
         return headers or None
 
     def resolved_api_key(self) -> str | None:
+        if self.override_api_key is not None:
+            return self.override_api_key
         auth_mode = self.manifest.connection.auth_mode()
         if auth_mode == "none":
             return ""
@@ -415,7 +453,13 @@ class LoadedModelOverlay:
         if self.override_model_parameters is not None:
             return self.override_model_parameters
 
-        existing = _existing_model_params(self.provider, self.model_name)
+        existing = (
+            _profile_model_params(self.manifest.profile, provider=self.provider)
+            if self.manifest.profile is not None
+            else None
+        )
+        if existing is None:
+            existing = _existing_model_params(self.provider, self.model_name)
         if existing is None and self.provider == Provider.OPENRESPONSES:
             from fast_agent.llm.llamacpp_discovery import match_llamacpp_model_database_entry
 
@@ -474,6 +518,8 @@ class LoadedModelOverlay:
             max_output_tokens = self.manifest.defaults.max_tokens
         if max_output_tokens is None and existing is not None:
             max_output_tokens = existing.max_output_tokens
+            if context_window is not None:
+                max_output_tokens = min(max_output_tokens, context_window)
 
         return context_window, max_output_tokens
 

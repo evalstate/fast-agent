@@ -433,6 +433,201 @@ def _resolve_local_llamacpp_model(
     return overlay.name
 
 
+def _resolve_model_url_options(
+    model_url: str | None,
+    *,
+    model_auth: str | None,
+    model_api_key_env: str | None,
+    local: bool,
+    base_url: str | None,
+    model: str | None,
+    force_model_picker: bool,
+    resume: str | None,
+) -> str | None:
+    if model_url is None:
+        if model_auth is not None:
+            raise typer.BadParameter(
+                "Requires --model-url.",
+                param_hint="--model-auth",
+            )
+        if model_api_key_env is not None:
+            raise typer.BadParameter(
+                "Requires --model-url.",
+                param_hint="--model-api-key-env",
+            )
+        return None
+
+    normalized = model_url.strip()
+    if not normalized:
+        raise typer.BadParameter("Cannot be empty.", param_hint="--model-url")
+    if local:
+        raise typer.BadParameter(
+            "Cannot be combined with --local.",
+            param_hint="--model-url",
+        )
+    if base_url is not None:
+        raise typer.BadParameter(
+            "Cannot be combined with --base-url.",
+            param_hint="--model-url",
+        )
+    if force_model_picker:
+        raise typer.BadParameter(
+            "Cannot be combined with --model without a value.",
+            param_hint="--model-url",
+        )
+    if model is not None and "," in model:
+        raise typer.BadParameter(
+            "Cannot be combined with multiple models.",
+            param_hint="--model-url",
+        )
+    if resume is not None:
+        raise typer.BadParameter(
+            "Cannot be combined with --resume.",
+            param_hint="--model-url",
+        )
+    return normalized
+
+
+def _select_model_url_listing(
+    catalog: Any,
+    *,
+    requested_model: str | None,
+) -> Any:
+    models = catalog.models
+    if requested_model:
+        req = requested_model.strip()
+        req_cf = req.casefold()
+        for item in models:
+            if item.model_id == req or item.model_id.casefold() == req_cf:
+                return item
+            if item.root is not None and item.root.casefold() == req_cf:
+                return item
+            if any(alias.casefold() == req_cf for alias in item.aliases):
+                return item
+        substring_matches = [
+            item
+            for item in models
+            if req_cf in item.model_id.casefold()
+            or (item.root is not None and req_cf in item.root.casefold())
+            or any(req_cf in alias.casefold() for alias in item.aliases)
+        ]
+        if len(substring_matches) == 1:
+            return substring_matches[0]
+        available = ", ".join(item.model_id for item in models)
+        raise typer.BadParameter(
+            f"Endpoint model {requested_model!r} was not found at "
+            f"{catalog.endpoints.request_base_url}. Available: {available}",
+            param_hint="--model",
+        )
+
+    if len(models) == 1:
+        return models[0]
+
+    loaded = [item for item in models if item.status == "loaded"]
+    if loaded:
+        return loaded[0]
+    return models[0]
+
+
+def _resolve_model_url_model(
+    *,
+    model_url: str,
+    model_auth: str | None,
+    model_api_key_env: str | None,
+    requested_model: str | None,
+    config_path: str | None,
+    quiet: bool,
+) -> str:
+    import asyncio
+
+    from fast_agent.cli.command_support import get_settings_or_exit
+    from fast_agent.config import get_settings
+    from fast_agent.llm.model_overlays import register_ephemeral_model_overlay
+    from fast_agent.llm.model_url_discovery import (
+        ModelUrlDiscoveryError,
+        build_ephemeral_model_url_overlay,
+        discover_model_url_catalog,
+        interrogate_model_url_model,
+    )
+
+    selector: str | None = None
+    query_suffix = ""
+    if requested_model is not None:
+        raw_selector, sep, raw_query = requested_model.partition("?")
+        selector = raw_selector.strip() or None
+        query_suffix = raw_query.strip() if sep else ""
+
+    settings: object | None
+    if config_path is not None:
+        settings = get_settings_or_exit(config_path)
+    else:
+        try:
+            settings = get_settings(None)
+        except Exception:
+            settings = None
+
+    async def _discover_and_interrogate():
+        catalog = await discover_model_url_catalog(
+            url=model_url,
+            model_auth=model_auth,
+            api_key_env=model_api_key_env,
+            config=settings,
+        )
+        selected = _select_model_url_listing(
+            catalog,
+            requested_model=selector,
+        )
+        discovered = await interrogate_model_url_model(
+            catalog=catalog,
+            model_id=selected.model_id,
+        )
+        return catalog, discovered
+
+    try:
+        catalog, discovered = asyncio.run(_discover_and_interrogate())
+    except ModelUrlDiscoveryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    overlay = build_ephemeral_model_url_overlay(
+        discovered=discovered,
+        catalog=catalog,
+    )
+    register_ephemeral_model_overlay(overlay)
+
+    if not quiet:
+        details: list[str] = []
+        if discovered.effective_context_window:
+            details.append(f"ctx {discovered.effective_context_window:,}")
+        tokenizes = discovered.tokenizes or ()
+        modalities: list[str] = []
+        if any(m.startswith("image/") for m in tokenizes):
+            modalities.append("vision")
+        if any(m.startswith("audio/") for m in tokenizes):
+            modalities.append("audio")
+        if any(m.startswith("video/") for m in tokenizes):
+            modalities.append("video")
+        if modalities:
+            details.append("+".join(modalities))
+        if discovered.matched_database_model:
+            details.append(f"profile: {discovered.matched_database_model}")
+        detail_suffix = f" ({' | '.join(details)})" if details else ""
+        backend_label = (
+            f"{catalog.server_kind} {catalog.server_version}"
+            if catalog.server_version
+            else catalog.server_kind
+        )
+        typer.echo(
+            f"Endpoint ({backend_label}): {discovered.listing.model_id} @ "
+            f"{catalog.endpoints.request_base_url}{detail_suffix}",
+            err=True,
+        )
+
+    if query_suffix:
+        return f"{overlay.name}?{query_suffix}"
+    return overlay.name
+
+
 @local_app.callback(invoke_without_command=True, no_args_is_help=False)
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def go(
@@ -474,6 +669,24 @@ def go(
         "--base-url",
         metavar="<url>",
         help="Override the selected model endpoint for this run without changing its provider route.",
+    ),
+    model_url: str | None = typer.Option(
+        None,
+        "--model-url",
+        metavar="<url>",
+        help="Auto-configure a vLLM, llama.cpp, or OpenAI-compatible model endpoint for this run.",
+    ),
+    model_auth: str | None = typer.Option(
+        None,
+        "--model-auth",
+        metavar="<token>",
+        help="Bearer token for --model-url (optional 'Bearer ' prefix; kept in memory only).",
+    ),
+    model_api_key_env: str | None = typer.Option(
+        None,
+        "--model-api-key-env",
+        metavar="<ENV_VAR>",
+        help="Environment variable containing the API key for --model-url.",
     ),
     pack: str | None = typer.Option(
         None,
@@ -621,6 +834,16 @@ def go(
         model=model,
         resume=resume,
     )
+    model_url = _resolve_model_url_options(
+        model_url,
+        model_auth=model_auth,
+        model_api_key_env=model_api_key_env,
+        local=local,
+        base_url=base_url,
+        model=model,
+        force_model_picker=force_model_picker,
+        resume=resume,
+    )
 
     resolved_workspace, resolved_home = resolve_workspace_and_home_options(
         ctx,
@@ -710,6 +933,15 @@ def go(
             quiet=quiet,
         )
         base_url = None
+    elif model_url is not None:
+        model = _resolve_model_url_model(
+            model_url=model_url,
+            model_auth=model_auth,
+            model_api_key_env=model_api_key_env,
+            requested_model=model,
+            config_path=config_path,
+            quiet=quiet,
+        )
 
     request = build_command_run_request(
         name=name,

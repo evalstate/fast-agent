@@ -69,6 +69,7 @@ picker:
 - `name` — overlay token used in `--model`, `default_model`, agent cards, or model references.
 - `provider` — fast-agent provider used to dispatch requests.
 - `model` — wire model name sent to the backend.
+- `profile` — optional `ModelDatabase` model ID to inherit capabilities/defaults from (useful for renamed, quantized, or fine-tuned endpoints while overriding `connection`, `metadata`, or `defaults`).
 - `connection` — endpoint and auth settings.
 - `defaults` — request defaults applied unless explicitly overridden.
 - `metadata` — local model metadata for picker/runtime display.
