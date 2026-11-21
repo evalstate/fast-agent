@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from functools import partial
@@ -205,6 +206,9 @@ class _OpenAIStopResult:
     requested_tool_calls: dict[str, CallToolRequest] | None = None
 
 
+_REAL_ASYNC_OPENAI = AsyncOpenAI
+
+
 class _NoAuthAsyncOpenAI(AsyncOpenAI):
     """AsyncOpenAI subclass that permits requests with Authorization explicitly omitted."""
 
@@ -225,6 +229,7 @@ def build_async_openai_client(
     no_auth: bool = False,
     isolate_ambient_headers: bool = False,
     strip_authorization_headers: bool = False,
+    client_cls: Callable[..., AsyncOpenAI] | None = None,
 ) -> AsyncOpenAI:
     """Build an AsyncOpenAI client with optional no-auth and ambient-header isolation."""
     effective_headers: dict[str, str] | None = (
@@ -250,8 +255,11 @@ def build_async_openai_client(
         kwargs["project"] = ""
         kwargs["admin_api_key"] = ""
 
-    client_cls = _NoAuthAsyncOpenAI if no_auth else AsyncOpenAI
-    client = client_cls(**kwargs)
+    resolved_cls: Callable[..., AsyncOpenAI] = AsyncOpenAI if client_cls is None else client_cls
+    factory: Callable[..., AsyncOpenAI] = (
+        _NoAuthAsyncOpenAI if no_auth and resolved_cls is _REAL_ASYNC_OPENAI else resolved_cls
+    )
+    client = factory(**kwargs)
 
     explicit_authorization = bool(
         effective_headers and any(k.lower() == "authorization" for k in effective_headers)
