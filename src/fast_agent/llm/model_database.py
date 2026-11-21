@@ -1854,6 +1854,9 @@ class ModelDatabase:
             "deepseek-ai/DeepSeek-V4.1-Flash-1017"
         ),
         (Provider.HUGGINGFACE, "qwen/qwen3.8-27b"): "Qwen/Qwen3.8-27B",
+        (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-mini"): (
+            "thinkingmachines/Inkling-2-Mini"
+        ),
         (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-small"): (
             "thinkingmachines/Inkling-2-Small"
         ),
@@ -1890,6 +1893,23 @@ class ModelDatabase:
         if params is not None:
             return params
         return cls._RUNTIME_MODEL_PARAMS.get(normalized)
+
+    @classmethod
+    def get_static_model_params(
+        cls,
+        model_key: str,
+        *,
+        provider: Provider | None = None,
+    ) -> ModelParameters | None:
+        """Look up static ModelDatabase parameters without invoking ModelFactory or overlays."""
+        normalized = strip_casefold(model_key)
+        if not normalized or normalized in cls.REMOVED_MODEL_NAMES:
+            return None
+        if provider is not None:
+            provider_override = cls._PROVIDER_MODEL_OVERRIDES.get((provider, normalized))
+            if provider_override is not None:
+                return provider_override
+        return cls.MODELS.get(normalized)
 
     @classmethod
     def get_request_model_params(

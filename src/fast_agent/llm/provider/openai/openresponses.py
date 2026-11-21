@@ -91,6 +91,8 @@ class OpenResponsesLLM(OpenResponsesStreamingMixin, ResponsesLLM):
         return base_url
 
     def _responses_client(self) -> AsyncOpenAI:
+        if self._uses_explicit_no_auth():
+            return super()._responses_client()
         api_key = self._api_key()
         if api_key:
             return super()._responses_client()

@@ -909,6 +909,11 @@ class ResponsesLLM(
         settings = self._openai_settings()
         return settings.base_url if settings else None
 
+    def _default_provider_base_url(self) -> str | None:
+        import os
+
+        return os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+
     def _provider_default_headers(self) -> dict[str, str] | None:
         settings = self._openai_settings()
         return settings.default_headers if settings else None
@@ -920,15 +925,19 @@ class ResponsesLLM(
 
     def _responses_client(self) -> AsyncOpenAI:
         try:
-            kwargs: dict[str, Any] = {
-                "api_key": self._api_key(),
-                "base_url": self._base_url(),
-                "http_client": DefaultAioHttpClient(),
-            }
-            default_headers = self._default_headers()
-            if default_headers:
-                kwargs["default_headers"] = default_headers
-            return AsyncOpenAI(**kwargs)
+            from fast_agent.llm.provider.openai.llm_openai import build_async_openai_client
+
+            no_auth = self._uses_explicit_no_auth()
+            return build_async_openai_client(
+                api_key="" if no_auth else self._api_key(),
+                base_url=self._base_url(),
+                default_headers=self._default_headers(),
+                http_client=DefaultAioHttpClient(),
+                no_auth=no_auth,
+                isolate_ambient_headers=self._should_isolate_origin_headers(),
+                strip_authorization_headers=self._requires_serve_oauth_request_token(),
+                client_cls=AsyncOpenAI,
+            )
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid OpenAI API key",

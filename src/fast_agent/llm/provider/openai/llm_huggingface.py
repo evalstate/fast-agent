@@ -142,7 +142,10 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             kwargs.get("model"),
             DEFAULT_HUGGINGFACE_MODEL,
         )
-        base_model, explicit_provider = self._split_provider_suffix(requested_model)
+        if self._preserves_opaque_wire_model_name():
+            base_model, explicit_provider = requested_model, None
+        else:
+            base_model, explicit_provider = self._split_provider_suffix(requested_model)
         base_model = base_model or requested_model
         kwargs["model"] = base_model
 
@@ -389,12 +392,31 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def _route_profile(self, model: str | None) -> HuggingFaceRouteProfile | None:
         route = self._router_route(model)
-        return HUGGINGFACE_ROUTE_PROFILES.resolve(route) if route else None
+        if route is None:
+            return None
+        profile = HUGGINGFACE_ROUTE_PROFILES.resolve(route)
+        if profile is not None:
+            return profile
+        overlay = self._resolved_model_spec.overlay if self._resolved_model_spec else None
+        if overlay is not None and overlay.manifest.profile is not None:
+            profile_model = ModelDatabase.normalize_model_name(overlay.manifest.profile)
+            if profile_model:
+                return HUGGINGFACE_ROUTE_PROFILES.resolve(
+                    RouterRoute(model=profile_model, backend=route.backend)
+                )
+        return None
+
+    def _preserves_opaque_wire_model_name(self) -> bool:
+        overlay = self._resolved_model_spec.overlay if self._resolved_model_spec else None
+        return bool(overlay is not None and overlay.preserve_wire_model_name)
 
     def _router_route(self, model: str | None) -> RouterRoute | None:
         if not model:
             return None
-        base_model, explicit_provider = self._split_provider_suffix(model)
+        if self._preserves_opaque_wire_model_name():
+            base_model, explicit_provider = model, None
+        else:
+            base_model, explicit_provider = self._split_provider_suffix(model)
         normalized_model = ModelDatabase.normalize_model_name(base_model or model)
         if not normalized_model:
             return None
@@ -423,6 +445,8 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         )
 
     def _resolve_default_provider(self) -> str | None:
+        if not self._uses_huggingface_router():
+            return None
         config_provider = None
         if self.context and self.context.config and self.context.config.hf:
             config_provider = self.context.config.hf.default_provider

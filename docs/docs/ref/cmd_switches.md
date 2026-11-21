@@ -186,6 +186,10 @@ fast-agent model doctor
 fast-agent local
 fast-agent --local --attach screenshot.png -m "Describe this image"
 
+# Auto-configure a vLLM, llama.cpp, or OpenAI-compatible endpoint by URL
+fast-agent --model-url http://localhost:8000
+fast-agent --model-url "https://<endpoint>.endpoints.huggingface.cloud" --model-api-key-env HF_TOKEN
+
 # Interactively discover llama.cpp models and import one as a local overlay
 fast-agent model llamacpp
 

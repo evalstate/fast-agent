@@ -131,6 +131,21 @@ class LlamaCppChatTemplateCaps:
 
 
 @dataclass(frozen=True, slots=True)
+class LlamaCppPropsDetails:
+    """Parsed metadata from a llama.cpp `/props` response."""
+
+    runtime_context_window: int | None
+    max_output_tokens: int | None
+    temperature: float | None
+    top_k: int | None
+    top_p: float | None
+    min_p: float | None
+    tokenizes: tuple[str, ...]
+    model_alias: str | None
+    chat_template_caps: LlamaCppChatTemplateCaps | None
+
+
+@dataclass(frozen=True, slots=True)
 class LlamaCppModelListing:
     """A model entry discovered from the llama.cpp model list endpoint."""
 
@@ -438,15 +453,7 @@ async def interrogate_llamacpp_model(
     )
 
 
-def _normalize_gguf_candidate(value: str) -> str:
-    candidate = value.strip()
-    if not candidate:
-        return ""
-    if candidate.lower().endswith(".gguf"):
-        candidate = candidate.rsplit("/", 1)[-1]
-        candidate = candidate[:-5]
-    elif candidate.count("/") > 1:
-        candidate = candidate.rsplit("/", 1)[-1]
+def _strip_gguf_quant_suffixes(candidate: str) -> str:
     if ":" in candidate:
         candidate = candidate.split(":", 1)[0]
     candidate = candidate.strip()
@@ -458,30 +465,61 @@ def _normalize_gguf_candidate(value: str) -> str:
     return candidate.lower()
 
 
+def _normalize_gguf_candidate(value: str) -> str:
+    candidate = value.strip()
+    if not candidate:
+        return ""
+    if candidate.lower().endswith(".gguf"):
+        candidate = candidate.rsplit("/", 1)[-1]
+        candidate = candidate[:-5]
+    elif candidate.count("/") > 1:
+        candidate = candidate.rsplit("/", 1)[-1]
+    return _strip_gguf_quant_suffixes(candidate)
+
+
+def _normalize_endpoint_candidates(value: str) -> list[str]:
+    candidate = value.strip().strip("/")
+    if not candidate:
+        return []
+    results: list[str] = []
+    if not candidate.lower().endswith(".gguf") and candidate.count("/") >= 2:
+        parts = [part for part in candidate.split("/") if part]
+        if len(parts) >= 2:
+            tail_pair = _strip_gguf_quant_suffixes(f"{parts[-2]}/{parts[-1]}")
+            if tail_pair:
+                results.append(tail_pair)
+    norm = _normalize_gguf_candidate(value)
+    if norm and norm not in results:
+        results.append(norm)
+    if "/" in norm:
+        prefix, leaf = norm.split("/", 1)
+        if prefix in _GGUF_PUBLISHER_PREFIXES and leaf and leaf not in results:
+            results.append(leaf)
+        elif leaf and leaf not in results:
+            results.append(leaf)
+    return results
+
+
 def match_llamacpp_model_database_entry(
     model_id: str,
     *,
+    root: str | None = None,
     model_alias: str | None = None,
     aliases: tuple[str, ...] = (),
 ) -> tuple[str, ModelParameters] | None:
-    """Match a llama.cpp / GGUF model name against `ModelDatabase.MODELS`."""
+    """Match a discovered endpoint model name (GGUF/vLLM/OpenAI-compatible) against `ModelDatabase.MODELS`."""
     raw_candidates: list[str] = [model_id]
+    if root:
+        raw_candidates.append(root)
     if model_alias:
         raw_candidates.append(model_alias)
     raw_candidates.extend(aliases)
 
     normalized_candidates: list[str] = []
     for raw in raw_candidates:
-        norm = _normalize_gguf_candidate(raw)
-        if not norm:
-            continue
-        normalized_candidates.append(norm)
-        if "/" in norm:
-            prefix, leaf = norm.split("/", 1)
-            if prefix in _GGUF_PUBLISHER_PREFIXES and leaf:
-                normalized_candidates.append(leaf)
-            elif leaf:
-                normalized_candidates.append(leaf)
+        for norm in _normalize_endpoint_candidates(raw):
+            if norm not in normalized_candidates:
+                normalized_candidates.append(norm)
 
     if not normalized_candidates:
         return None
@@ -506,7 +544,28 @@ def match_llamacpp_model_database_entry(
     return None
 
 
-def _resolve_live_reasoning_effort_spec(
+def parse_llamacpp_props_details(payload: object) -> LlamaCppPropsDetails:
+    """Parse runtime metadata from a llama.cpp `/props` JSON payload."""
+    props = _parse_props_payload(payload)
+    generation = props.default_generation_settings
+    params = generation.params or _LlamaCppGenerationParamsPayload()
+    max_output_tokens = positive_int_or_none(params.n_predict)
+    if max_output_tokens is None:
+        max_output_tokens = positive_int_or_none(params.max_tokens)
+    return LlamaCppPropsDetails(
+        runtime_context_window=positive_int_or_none(generation.n_ctx),
+        max_output_tokens=max_output_tokens,
+        temperature=_normalize_llamacpp_float(params.temperature),
+        top_k=positive_int_or_none(params.top_k),
+        top_p=_normalize_llamacpp_float(params.top_p),
+        min_p=_normalize_llamacpp_float(params.min_p),
+        tokenizes=_derive_tokenizes(props.modalities),
+        model_alias=_normalize_text(props.model_alias),
+        chat_template_caps=_parse_chat_template_caps(props.chat_template_caps),
+    )
+
+
+def resolve_live_reasoning_effort_spec(
     *,
     base_spec: ReasoningEffortSpec | None,
     caps: LlamaCppChatTemplateCaps | None,
@@ -580,7 +639,7 @@ def build_llamacpp_runtime_model_parameters(
         max_output_tokens = min(context_window, 16384)
 
     live_tokenizes = list(discovered_model.tokenizes)
-    live_reasoning_spec = _resolve_live_reasoning_effort_spec(
+    live_reasoning_spec = resolve_live_reasoning_effort_spec(
         base_spec=base_params.reasoning_effort_spec if base_params is not None else None,
         caps=discovered_model.chat_template_caps,
     )

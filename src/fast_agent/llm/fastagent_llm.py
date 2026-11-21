@@ -1928,12 +1928,16 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self.history.clear(clear_prompts=clear_prompts)
         self._usage_accumulator.reset()
 
-    def _api_key(self):
-        if self.provider is not None:
-            from fast_agent.llm.provider_key_manager import ProviderKeyManager
+    def _requires_serve_oauth_request_token(self) -> bool:
+        if self.provider is None:
+            return False
+        from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
-            if ProviderKeyManager.serve_oauth_requires_request_token(self.provider.config_name):
-                return self._provider_api_key()
+        return ProviderKeyManager.serve_oauth_requires_request_token(self.provider.config_name)
+
+    def _api_key(self):
+        if self._requires_serve_oauth_request_token():
+            return self._provider_api_key()
 
         if self._init_api_key is not None:
             return self._init_api_key
@@ -1942,14 +1946,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     def validate_provider_credentials(self) -> None:
         """Validate that this provider has a locally configured credential source."""
-        if self.provider is not None:
-            from fast_agent.llm.provider_key_manager import ProviderKeyManager
-
-            if ProviderKeyManager.serve_oauth_requires_request_token(self.provider.config_name):
-                # Credentials are supplied per-request via the caller's forwarded
-                # OAuth token; there is no local credential source to validate and
-                # a request-time call would (correctly) fail closed here.
-                return
+        if self._requires_serve_oauth_request_token():
+            # Credentials are supplied per-request via the caller's forwarded
+            # OAuth token; there is no local credential source to validate and
+            # a request-time call would (correctly) fail closed here.
+            return
         self._api_key()
 
     def _provider_api_key(self):
@@ -1966,9 +1967,55 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _provider_base_url(self) -> str | None:
         return None
 
+    def _default_provider_base_url(self) -> str | None:
+        return None
+
+    @staticmethod
+    def _url_origin(url: str | None) -> tuple[str, str, int] | None:
+        if not url:
+            return None
+        from urllib.parse import urlsplit
+
+        try:
+            parsed = urlsplit(url.strip())
+            port = parsed.port
+        except ValueError:
+            return None
+        scheme = parsed.scheme.lower()
+        hostname = parsed.hostname
+        if not scheme or not hostname:
+            return None
+        effective_port = port if port is not None else (443 if scheme == "https" else 80)
+        return (scheme, hostname.rstrip(".").lower(), effective_port)
+
+    def _should_isolate_origin_headers(self) -> bool:
+        overlay = self._resolved_model_spec.overlay if self._resolved_model_spec else None
+        if overlay is None:
+            return False
+        if overlay.isolate_origin_headers:
+            return True
+        if self._init_base_url is not None:
+            provider_base_url = self._provider_base_url() or self._default_provider_base_url()
+            if provider_base_url is None:
+                return True
+            return self._url_origin(self._init_base_url) != self._url_origin(provider_base_url)
+        return False
+
+    def _uses_explicit_no_auth(self) -> bool:
+        if self._requires_serve_oauth_request_token():
+            return False
+        overlay = self._resolved_model_spec.overlay if self._resolved_model_spec else None
+        return (
+            overlay is not None
+            and overlay.manifest.connection.auth == "none"
+            and overlay.override_api_key is None
+        )
+
     def _default_headers(self) -> dict[str, str] | None:
         if self._init_default_headers is not None:
             return dict(self._init_default_headers)
+        if self._should_isolate_origin_headers():
+            return {}
 
         return self._provider_default_headers()
 

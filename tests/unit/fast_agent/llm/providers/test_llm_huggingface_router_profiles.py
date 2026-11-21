@@ -15,6 +15,9 @@ from fast_agent.config import HuggingFaceSettings, Settings
 from fast_agent.constants import REASONING
 from fast_agent.context import Context
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.provider.openai.huggingface_router_profiles import (
+    HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND,
+)
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.request_params import RequestParams
@@ -287,12 +290,6 @@ def test_inkling_configured_backend_selects_route_profile() -> None:
         ("thinkingmachines/Inkling-2-Small", Settings(), True),
         # Explicit untested backend: unchanged generic behaviour.
         ("thinkingmachines/Inkling-2-Small:fireworks-ai", Settings(), False),
-        # Dedicated endpoint without a backend suffix: unchanged generic behaviour.
-        (
-            "thinkingmachines/Inkling-2-Small",
-            Settings(hf=HuggingFaceSettings(base_url="https://dedicated.example.test/v1")),
-            False,
-        ),
     ),
 )
 def test_inkling_unpinned_fallback_is_scoped_to_router_choice(
@@ -326,6 +323,54 @@ def test_inkling_stream_path_is_selected_per_route(model: str, stream_mode: str)
     llm = HuggingFaceLLM(context=Context(config=Settings()), model=model)
 
     assert llm._get_model_stream_mode(model) == stream_mode
+
+
+@pytest.mark.parametrize(
+    ("model", "expected_wire_model"),
+    (
+        ("thinkingmachines/Inkling-2-Mini", "thinkingmachines/Inkling-2-Mini"),
+        ("thinkingmachines/inkling-2-mini", "thinkingmachines/Inkling-2-Mini"),
+        ("thinkingmachines/Inkling-2-Small", "thinkingmachines/Inkling-2-Small"),
+        ("thinkingmachines/inkling-2-small", "thinkingmachines/Inkling-2-Small"),
+    ),
+)
+def test_inkling_custom_endpoint_uses_direct_profile_and_openai_streaming(
+    model: str,
+    expected_wire_model: str,
+) -> None:
+    settings = Settings(
+        hf=HuggingFaceSettings(base_url="https://dedicated.endpoints.huggingface.cloud/v1")
+    )
+    resolved = ModelFactory.resolve_model_spec(f"hf.{model}")
+    assert resolved.wire_model_name == expected_wire_model
+    assert resolved.model_params is not None
+    assert resolved.model_params.shell_edit_tool is None
+    assert resolved.model_params.shell_tool_name is None
+
+    llm = HuggingFaceLLM(context=Context(config=settings), model=resolved.wire_model_name)
+    request = llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert request["model"] == expected_wire_model
+    assert request["reasoning_effort"] == "high"
+    assert "max_tokens" not in request
+    assert llm._preserves_raw_reasoning_history(resolved.wire_model_name) is True
+    assert llm._get_model_stream_mode(resolved.wire_model_name) == "openai"
+
+    explicit_max_llm = ModelFactory.create_factory(f"hf.{model}?max_tokens=100000")(
+        agent=LlmAgent(AgentConfig(name="inkling-custom")),
+        context=Context(config=settings),
+    )
+    assert isinstance(explicit_max_llm, HuggingFaceLLM)
+    explicit_max_request = explicit_max_llm._prepare_api_request(
+        [{"role": "user", "content": "hello"}],
+        None,
+        explicit_max_llm.default_request_params,
+    )
+    assert explicit_max_request["max_tokens"] == 100_000
 
 
 @pytest.mark.parametrize(
@@ -1894,3 +1939,35 @@ async def test_beam_streamed_reasoning_replays_on_tool_turn() -> None:
             ],
         }
     ]
+
+
+def test_hf_default_provider_not_applied_to_dedicated_custom_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HF_DEFAULT_PROVIDER", "together")
+    settings = Settings(
+        hf=HuggingFaceSettings(
+            api_key="hf-test-key",
+            default_provider="deepinfra",
+            base_url="https://demo.endpoints.huggingface.cloud/v1",
+        )
+    )
+    context = Context(config=settings)
+    llm = HuggingFaceLLM(
+        context=context,
+        model="thinkingmachines/Inkling-2-Mini",
+    )
+
+    route = llm._router_route(llm.default_request_params.model)
+    assert route is not None
+    assert route.backend == HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND
+    assert llm._hf_provider_suffix is None
+
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "Hello"}],
+        None,
+        llm.default_request_params,
+    )
+    assert args["model"] == "thinkingmachines/Inkling-2-Mini"
+    assert args["reasoning_effort"] == "high"
+    assert "max_tokens" not in args

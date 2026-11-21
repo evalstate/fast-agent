@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from functools import partial
@@ -15,7 +17,7 @@ from mcp_types import (
     ContentBlock,
     TextContent,
 )
-from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
+from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient, Omit
 from openai.lib.streaming.chat import ChatCompletionStreamState
 
 # from openai.types.beta.chat import
@@ -202,6 +204,93 @@ class _OpenAICompletionResponse:
 class _OpenAIStopResult:
     stop_reason: LlmStopReason
     requested_tool_calls: dict[str, CallToolRequest] | None = None
+
+
+_REAL_ASYNC_OPENAI = AsyncOpenAI
+
+
+class _NoAuthAsyncOpenAI(AsyncOpenAI):
+    """AsyncOpenAI subclass that permits requests with Authorization explicitly omitted."""
+
+    def _validate_headers(
+        self,
+        headers: Any,
+        custom_headers: Any,
+    ) -> None:
+        return None
+
+
+def build_async_openai_client(
+    *,
+    api_key: str,
+    base_url: str | None,
+    default_headers: dict[str, str] | None,
+    http_client: Any,
+    no_auth: bool = False,
+    isolate_ambient_headers: bool = False,
+    strip_authorization_headers: bool = False,
+    client_cls: Callable[..., AsyncOpenAI] | None = None,
+) -> AsyncOpenAI:
+    """Build an AsyncOpenAI client with optional no-auth and ambient-header isolation."""
+    effective_headers: dict[str, str] | None = (
+        {
+            k: v
+            for k, v in default_headers.items()
+            if not strip_authorization_headers or k.lower() != "authorization"
+        }
+        if default_headers
+        else None
+    )
+    kwargs: dict[str, Any] = {
+        "api_key": "" if no_auth else api_key,
+        "base_url": base_url,
+        "http_client": http_client,
+    }
+    if effective_headers:
+        kwargs["default_headers"] = dict(effective_headers)
+    if no_auth:
+        kwargs["_enforce_credentials"] = False
+    if isolate_ambient_headers:
+        kwargs["organization"] = ""
+        kwargs["project"] = ""
+        kwargs["admin_api_key"] = ""
+
+    resolved_cls: Callable[..., AsyncOpenAI] = AsyncOpenAI if client_cls is None else client_cls
+    factory: Callable[..., AsyncOpenAI] = (
+        _NoAuthAsyncOpenAI if no_auth and resolved_cls is _REAL_ASYNC_OPENAI else resolved_cls
+    )
+    client = factory(**kwargs)
+
+    explicit_authorization = bool(
+        effective_headers and any(k.lower() == "authorization" for k in effective_headers)
+    )
+    if isolate_ambient_headers:
+        client.organization = None
+        client.project = None
+        isolated_headers: dict[str, str | Omit] = (
+            dict(effective_headers) if effective_headers else {}
+        )
+        if no_auth and not explicit_authorization:
+            isolated_headers["Authorization"] = Omit()
+        # The SDK merges OPENAI_CUSTOM_HEADERS during construction; only explicit
+        # overlay headers belong on an isolated custom-origin client.
+        client._custom_headers = isolated_headers
+    elif strip_authorization_headers:
+        # In mandatory caller-token serve-OAuth mode, strip any competing ambient or
+        # configured Authorization header so only the caller's bearer token is sent.
+        client._custom_headers = {
+            k: v for k, v in client._custom_headers.items() if k.lower() != "authorization"
+        }
+    elif no_auth and not explicit_authorization:
+        # On true no-auth, never inherit an ambient Authorization header from
+        # OPENAI_CUSTOM_HEADERS unless the overlay explicitly defined one.
+        custom_headers: dict[str, str | Omit] = {
+            k: v for k, v in client._custom_headers.items() if k.lower() != "authorization"
+        }
+        custom_headers["Authorization"] = Omit()
+        client._custom_headers = custom_headers
+
+    return client
 
 
 class OpenAILLM(
@@ -422,6 +511,9 @@ class OpenAILLM(
             return self.context.config.openai.base_url
         return None
 
+    def _default_provider_base_url(self) -> str | None:
+        return os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
+
     def _provider_default_headers(self) -> dict[str, str] | None:
         """
         Get custom headers from configuration.
@@ -439,18 +531,16 @@ class OpenAILLM(
         to ensure proper cleanup of aiohttp sessions.
         """
         try:
-            kwargs: dict[str, Any] = {
-                "api_key": self._api_key(),
-                "base_url": self._base_url(),
-                "http_client": DefaultAioHttpClient(),
-            }
-
-            # Add custom headers if configured
-            default_headers = self._default_headers()
-            if default_headers:
-                kwargs["default_headers"] = default_headers
-
-            return AsyncOpenAI(**kwargs)
+            no_auth = self._uses_explicit_no_auth()
+            return build_async_openai_client(
+                api_key="" if no_auth else self._api_key(),
+                base_url=self._base_url(),
+                default_headers=self._default_headers(),
+                http_client=DefaultAioHttpClient(),
+                no_auth=no_auth,
+                isolate_ambient_headers=self._should_isolate_origin_headers(),
+                strip_authorization_headers=self._requires_serve_oauth_request_token(),
+            )
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid OpenAI API key",

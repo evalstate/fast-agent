@@ -232,6 +232,7 @@ _KIMI_K3 = "moonshotai/kimi-k3"
 _GEMMA_4 = "google/gemma-4-31b-it"
 _MUSE_GLIMMER = "meta-models/muse-glimmer-30b"
 _QWEN_38 = "qwen/qwen3.8-27b"
+_INKLING_2_MINI = "thinkingmachines/inkling-2-mini"
 _INKLING_2_SMALL = "thinkingmachines/inkling-2-small"
 _BEAM_1 = "reflection/beam-1.0-501b-a23b"
 _MUSE_GLIMMER_PROMPT_CONTEXT_WINDOW = 131_072 - 32_768
@@ -360,6 +361,14 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
                 ("zai-org/glm-5.3", ThinkingWithReasoningEffort(), True),
                 ("zai-org/glm-5.3-flash", ThinkingWithReasoningEffort(), True),
             )
+        ),
+        *(
+            RouterProfileRule(
+                model=model,
+                backends=frozenset({HUGGINGFACE_CUSTOM_ENDPOINT_BACKEND}),
+                profile=_INKLING_2_PROFILE,
+            )
+            for model in (_INKLING_2_MINI, _INKLING_2_SMALL)
         ),
         RouterProfileRule(
             model=_DEEPSEEK_V41_FLASH_1017,
@@ -497,8 +506,7 @@ HUGGINGFACE_ROUTE_PROFILES = RouterProfileRegistry(
         # PROVISIONAL: un-pinned router requests only (no backend suffix, default router
         # URL). The router may serve these from any backend; DeepInfra was selected when
         # tested, so they get its profile. If the router picks Together, standard schema
-        # output fails with HTTP 400. Explicit untested backends and custom endpoints get
-        # no Inkling profile.
+        # output fails with HTTP 400. Explicit untested backends get no Inkling profile.
         RouterProfileRule(
             model=_INKLING_2_SMALL,
             backends=frozenset({None}),
