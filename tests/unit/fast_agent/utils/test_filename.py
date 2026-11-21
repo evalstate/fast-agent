@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from fast_agent.utils.filename import sanitize_filename_component, sanitize_filename_suffix
 
 
@@ -57,3 +59,15 @@ def test_sanitize_filename_suffix_uses_fallback_for_empty_result() -> None:
 def test_sanitize_filename_suffix_uses_fallback_for_windows_reserved_names() -> None:
     assert sanitize_filename_suffix("aux", fallback="item") == "item"
     assert sanitize_filename_suffix("LPT9.log", fallback="item") == "item"
+
+
+@pytest.mark.parametrize("value", ["COM¹", "com².txt", "LPT³.log", "lpt¹", "COM².LOG", "com³"])
+def test_sanitizers_use_fallback_for_superscript_device_names(value: str) -> None:
+    assert sanitize_filename_component(value, fallback="item") == "item"
+    assert sanitize_filename_suffix(value, fallback="item") == "item"
+
+
+@pytest.mark.parametrize("value", ["agent¹", "COM⁴", "LPT⁰", "COM¹x", "LPT³backup"])
+def test_sanitizers_preserve_nonreserved_superscript_names(value: str) -> None:
+    assert sanitize_filename_component(value, fallback="item") == value
+    assert sanitize_filename_suffix(value, fallback="item") == value
