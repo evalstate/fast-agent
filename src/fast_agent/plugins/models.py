@@ -95,6 +95,8 @@ class PluginPostUserTurnContext:
     turn_messages: tuple[PromptMessageExtended, ...] = ()
     """The completed turn in the selected agent's history, as stored (process polls
     may be folded; see ``restore_process_poll_history``)."""
+    session_id: str | None = None
+    """The active session ID, if the turn belongs to a session."""
 
 
 class PluginPostUserTurnFunction(Protocol):

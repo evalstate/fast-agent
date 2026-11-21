@@ -88,7 +88,8 @@ Key options:
 - `--workspace` – Override the workspace root; when `--home` is omitted, the home defaults to `<workspace>/.fast-agent`
 - `--no-home` – Run without implicit home side effects (no implicit card discovery, no session persistence/resume, and no ACP permission-store writes)
 - `--no-permissions` – Disable ACP tool permission requests
-- `--prefer-local-shell` – In ACP shell mode, use fast-agent's local shell runtime instead of the ACP client's terminal capability
+- `--acp-client-tools` / `--no-acp-client-tools` – Opt in to delegating shell and filesystem tools to client-advertised ACP capabilities (default: keep fast-agent native shell, filesystem, and PTC tools)
+- `--prefer-local-shell` – When `--acp-client-tools` is enabled in ACP shell mode, keep fast-agent's local shell runtime instead of the ACP client's terminal capability
 - `--missing-shell-cwd [ask|create|warn|error]` – Override the shell missing-cwd policy
 - `--reload` – Enable manual AgentCard reloads. `--watch` is not supported for MCP serving because clients discover a fixed tool surface at startup.
 

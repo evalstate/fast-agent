@@ -1848,3 +1848,42 @@ async def test_gather_return_exceptions_and_semaphore_give_targeted_hints() -> N
     assert r_sem.is_error
     sem_text = "\n".join(b.text for b in r_sem.content if isinstance(b, TextContent))
     assert "batching calls into chunks" in sem_text
+
+
+@pytest.mark.asyncio
+async def test_nested_ptc_calls_record_start_offset_and_timing_ms(runtime) -> None:
+    async def dispatch(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        if args.get("customer_id") == "slow":
+            await asyncio.sleep(0.03)
+        if args.get("customer_id") == "boom":
+            await asyncio.sleep(0.01)
+            raise RuntimeError("boom")
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    result = await runtime.execute(
+        {
+            "code": (
+                "await orders__get_orders(customer_id='slow')\n"
+                "await orders__get_orders(customer_id='fast')\n"
+            )
+        },
+        dispatch,
+    )
+    assert not result.is_error
+    records = (result.meta or {})[FAST_AGENT_PTC_CALLS]
+    assert len(records) == 2
+    first, second = records
+    assert isinstance(first["start_offset_ms"], float) and first["start_offset_ms"] >= 0.0
+    assert isinstance(first["timing_ms"], float) and first["timing_ms"] >= 20.0
+    assert isinstance(second["start_offset_ms"], float)
+    assert second["start_offset_ms"] >= first["start_offset_ms"] + 20.0
+    assert isinstance(second["timing_ms"], float) and second["timing_ms"] >= 0.0
+
+    err_result = await runtime.execute(
+        {"code": "await orders__get_orders(customer_id='boom')"},
+        dispatch,
+    )
+    assert err_result.is_error
+    [err_record] = (err_result.meta or {})[FAST_AGENT_PTC_CALLS]
+    assert err_record["status"] == "raised"
+    assert isinstance(err_record["timing_ms"], float) and err_record["timing_ms"] >= 5.0

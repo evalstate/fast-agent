@@ -140,10 +140,11 @@ async def test_prompt_records_and_reports_user_text_before_sending(monkeypatch) 
     agent = cast("AgentProtocol", _Agent("main", default=True))
     app = AgentApp(agents={"main": agent})
     session = SimpleNamespace(
+        info=SimpleNamespace(name="session-id"),
         set_last_user_prompt=lambda prompt: (
             events.append(("prompt", prompt)),
             "latest prompt",
-        )[1]
+        )[1],
     )
     manager = SimpleNamespace(current_session=session)
 

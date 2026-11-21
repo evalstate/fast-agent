@@ -343,6 +343,20 @@ class HarnessAppSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class ACPSettings(BaseModel):
+    """Configuration for ACP (Agent Client Protocol) server behavior."""
+
+    use_client_tools: bool = Field(
+        default=False,
+        description=(
+            "Opt in to delegating shell and filesystem tools to the ACP client when "
+            "the client advertises terminal or fs capabilities. When False (default), "
+            "ACP mode keeps fast-agent's native local shell, filesystem, and PTC tools."
+        ),
+    )
+    model_config = ConfigDict(extra="ignore")
+
+
 class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
@@ -2624,6 +2638,9 @@ class Settings(BaseSettings):
 
     mcp: MCPSettings | None = Field(default_factory=MCPSettings)
     """MCP config, such as MCP servers"""
+
+    acp: ACPSettings = Field(default_factory=ACPSettings)
+    """ACP (Agent Client Protocol) server settings."""
 
     harness_app: HarnessAppSettings = Field(default_factory=HarnessAppSettings)
     """Harness application boundary configuration."""
