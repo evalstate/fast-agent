@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import inspect
 import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import httpx
 import pytest
 import typer
+from openai._models import FinalRequestOptions
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -20,6 +23,9 @@ from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import (
+    LoadedModelOverlay,
+    ModelOverlayConnection,
+    ModelOverlayManifest,
     clear_ephemeral_model_overlays,
     register_ephemeral_model_overlay,
     serialize_model_overlay_manifest,
@@ -563,7 +569,6 @@ async def test_no_auth_model_url_overlay_constructs_openai_client_without_api_ke
     assert isinstance(llm, GenericLLM)
 
     client = llm._openai_client()
-    assert client.api_key == "fast-agent-no-auth"
     assert str(client.base_url).rstrip("/") == "http://localhost:8000/v1"
     request_args = llm._prepare_api_request(
         [{"role": "user", "content": "hi"}],
@@ -572,14 +577,23 @@ async def test_no_auth_model_url_overlay_constructs_openai_client_without_api_ke
     )
     assert request_args["model"] == "local-qwen"
 
+    built_request = client._build_request(
+        FinalRequestOptions(method="post", url="/chat/completions", json_data=request_args)
+    )
+    lower_headers = {k.lower(): v for k, v in built_request.headers.items()}
+    assert "authorization" not in lower_headers
+
 
 @pytest.mark.asyncio
-async def test_model_url_overlay_suppresses_inherited_provider_default_headers(
+async def test_model_url_overlay_suppresses_inherited_provider_and_sdk_ambient_headers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("GENERIC_API_KEY", raising=False)
     monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+    monkeypatch.setenv("OPENAI_CUSTOM_HEADERS", "X-OpenAI-Gateway: sdk-leak, X-API-Key: sdk-key")
+    monkeypatch.setenv("OPENAI_ORG_ID", "org-leak")
+    monkeypatch.setenv("OPENAI_PROJECT_ID", "proj-leak")
 
     settings = Settings(
         generic=GenericSettings(default_headers={"X-API-Key": "generic-gateway-secret"}),
@@ -595,11 +609,28 @@ async def test_model_url_overlay_suppresses_inherited_provider_default_headers(
         return httpx.Response(404)
 
     transport = httpx.MockTransport(handler)
-    for url, overlay_name in (
-        ("http://localhost:8000", "ephemeral-generic-origin"),
-        ("https://demo.endpoints.huggingface.cloud", "ephemeral-hf-origin"),
-    ):
-        catalog = await discover_model_url_catalog(url, config=settings, transport=transport)
+    cases: tuple[tuple[str, str | None, str, str | None], ...] = (
+        ("http://localhost:8000", None, "ephemeral-generic-no-auth", None),
+        (
+            "https://llm.example.com/v1",
+            "explicit_model_auth_tok",
+            "ephemeral-generic-explicit-auth",
+            "Bearer explicit_model_auth_tok",
+        ),
+        (
+            "https://demo.endpoints.huggingface.cloud",
+            None,
+            "ephemeral-hf-origin",
+            "Bearer hf_test_token",
+        ),
+    )
+    for url, model_auth, overlay_name, expected_auth in cases:
+        catalog = await discover_model_url_catalog(
+            url,
+            model_auth=model_auth,
+            config=settings,
+            transport=transport,
+        )
         discovered = await interrogate_model_url_model(
             catalog=catalog,
             model_id="served-model",
@@ -614,12 +645,27 @@ async def test_model_url_overlay_suppresses_inherited_provider_default_headers(
 
         context = Context(config=settings)
         agent = LlmAgent(AgentConfig(f"agent-{overlay_name}"), context=context)
-        llm = ModelFactory.create_factory(overlay.name)(agent)
+        llm = ModelFactory.create_factory(overlay.name)(agent, context=context)
         assert isinstance(llm, (GenericLLM, HuggingFaceLLM))
         assert llm._default_headers() == {}
         client = llm._openai_client()
-        assert "X-API-Key" not in client.default_headers
-        assert "X-Gateway-Key" not in client.default_headers
+        built = client._build_request(
+            FinalRequestOptions(
+                method="post",
+                url="/chat/completions",
+                json_data={"model": "served-model", "messages": []},
+            )
+        )
+        lower_headers = {k.lower(): v for k, v in built.headers.items()}
+        assert "x-api-key" not in lower_headers
+        assert "x-gateway-key" not in lower_headers
+        assert "x-openai-gateway" not in lower_headers
+        assert "openai-organization" not in lower_headers
+        assert "openai-project" not in lower_headers
+        if expected_auth is None:
+            assert "authorization" not in lower_headers
+        else:
+            assert lower_headers.get("authorization") == expected_auth
 
 
 def test_schemeless_hf_endpoint_defaults_to_https_and_handles_trailing_dot() -> None:
@@ -712,6 +758,7 @@ async def test_transport_error_does_not_leak_raw_exception_secret() -> None:
     assert "ConnectError" in message
     assert "super-secret-transport-token" not in message
     assert "hf_real_token" not in message
+    assert exc_info.value.__cause__ is None
 
 
 @pytest.mark.asyncio
@@ -1030,3 +1077,239 @@ def test_resolve_model_url_model_handles_malformed_url_and_userinfo_cleanly(
     assert "Error:" in captured.err
     assert "topsecret" not in captured.err
     assert "topsecret" not in captured.out
+
+
+def test_malformed_nfkc_host_with_userinfo_does_not_leak_credentials() -> None:
+    with pytest.raises(ModelUrlDiscoveryError) as exc_info:
+        normalize_model_url("https://alice:super-secret-nfkc@bad℀host.example/v1")
+    message = str(exc_info.value)
+    assert "super-secret-nfkc" not in message
+    assert "alice" not in message
+    assert exc_info.value.__cause__ is None
+
+
+def test_discover_model_url_catalog_does_not_expose_unvalidated_auth_override() -> None:
+    params = inspect.signature(discover_model_url_catalog).parameters
+    assert "auth" not in params
+
+
+def test_cli_rejects_combining_model_auth_and_model_api_key_env() -> None:
+    with pytest.raises(typer.BadParameter, match="--model-api-key-env"):
+        _resolve_model_url_options(
+            model_url="https://llm.example.com/v1",
+            model_auth="Bearer secret",
+            model_api_key_env="MY_ENDPOINT_KEY",
+            local=False,
+            base_url=None,
+            model=None,
+            force_model_picker=False,
+            resume=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_model_url_discovery_matches_google_gemma_4_without_validation_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "google/gemma-4-31b-it",
+                            "owned_by": "vllm",
+                            "max_model_len": 131072,
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    catalog = await discover_model_url_catalog("http://localhost:8000", transport=transport)
+    discovered = await interrogate_model_url_model(
+        catalog=catalog,
+        model_id="google/gemma-4-31b-it",
+        transport=transport,
+    )
+    assert discovered.matched_database_model == "google/gemma-4-31b-it"
+    overlay = build_ephemeral_model_url_overlay(discovered=discovered, catalog=catalog)
+    assert overlay.manifest.profile == "google/gemma-4-31b-it"
+    assert overlay.manifest.model == "google/gemma-4-31b-it"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "opaque_id",
+    [
+        "generic/foo",
+        "generic.foo",
+        "myalias.high",
+        "model?v=2",
+    ],
+)
+async def test_opaque_discovered_wire_model_ids_survive_spec_resolution(opaque_id: str) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={"data": [{"id": opaque_id, "owned_by": "vllm", "max_model_len": 16384}]},
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    catalog = await discover_model_url_catalog("http://localhost:8000", transport=transport)
+    discovered = await interrogate_model_url_model(
+        catalog=catalog,
+        model_id=opaque_id,
+        transport=transport,
+    )
+    overlay = build_ephemeral_model_url_overlay(
+        discovered=discovered,
+        catalog=catalog,
+        overlay_name="opaque-wire-test",
+    )
+    register_ephemeral_model_overlay(overlay)
+
+    resolved = ModelFactory.resolve_model_spec(overlay.name)
+    assert resolved.wire_model_name == opaque_id
+    assert resolved.model_config.model_name == opaque_id
+
+    context = Context(config=Settings())
+    agent = LlmAgent(AgentConfig("opaque-agent"), context=context)
+    llm = ModelFactory.create_factory_for_resolved_model(resolved)(agent)
+    assert isinstance(llm, GenericLLM)
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+    assert args["model"] == opaque_id
+
+
+@pytest.mark.asyncio
+async def test_dedicated_hf_opaque_id_with_colon_retains_wire_id_and_custom_profile() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/models":
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "acme/custom-inkling:fp8",
+                            "root": "thinkingmachines/Inkling-2-Mini",
+                            "owned_by": "vllm",
+                            "max_model_len": 131072,
+                        }
+                    ]
+                },
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    catalog = await discover_model_url_catalog(
+        "https://demo.endpoints.huggingface.cloud",
+        model_auth="hf_test_tok",
+        transport=transport,
+    )
+    discovered = await interrogate_model_url_model(
+        catalog=catalog,
+        model_id="acme/custom-inkling:fp8",
+        transport=transport,
+    )
+    assert discovered.matched_database_model == "thinkingmachines/inkling-2-mini"
+    overlay = build_ephemeral_model_url_overlay(
+        discovered=discovered,
+        catalog=catalog,
+        overlay_name="hf-colon-inkling",
+    )
+    register_ephemeral_model_overlay(overlay)
+
+    context = Context(config=Settings())
+    agent = LlmAgent(AgentConfig("hf-colon"), context=context)
+    llm = ModelFactory.create_factory(overlay.name)(agent)
+    assert isinstance(llm, HuggingFaceLLM)
+    assert llm._hf_provider_suffix is None
+    profile = llm._route_profile(llm.default_request_params.model)
+    assert profile is not None
+    assert profile.preserve_raw_reasoning is True
+    assert profile.omit_default_max_tokens is True
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+    assert args["model"] == "acme/custom-inkling:fp8"
+    assert args["reasoning_effort"] == "high"
+    assert "max_tokens" not in args
+
+
+def test_saved_overlay_preserves_same_origin_headers_and_isolates_different_origin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_CUSTOM_HEADERS", "X-OpenAI-Leak: should-not-leak")
+    settings = Settings(
+        generic=GenericSettings(
+            base_url="https://gateway.corp/v1",
+            default_headers={"X-Corp-Key": "keep-same-origin"},
+        )
+    )
+    context = Context(config=settings)
+
+    same_origin = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="saved-same-origin",
+            provider=Provider.GENERIC,
+            model="corp-model",
+            connection=ModelOverlayConnection(
+                base_url="https://gateway.corp/v1",
+                auth="none",
+            ),
+        ),
+        manifest_path=Path("saved-same-origin.yaml"),
+    )
+    register_ephemeral_model_overlay(same_origin)
+    agent_same = LlmAgent(AgentConfig("same-origin"), context=context)
+    llm_same = ModelFactory.create_factory(same_origin.name)(agent_same, context=context)
+    assert isinstance(llm_same, GenericLLM)
+    assert llm_same._default_headers() == {"X-Corp-Key": "keep-same-origin"}
+    req_same = llm_same._openai_client()._build_request(
+        FinalRequestOptions(
+            method="post",
+            url="/chat/completions",
+            json_data={"model": "corp-model", "messages": []},
+        )
+    )
+    same_headers = {k.lower(): v for k, v in req_same.headers.items()}
+    assert same_headers.get("x-corp-key") == "keep-same-origin"
+    assert "authorization" not in same_headers
+
+    diff_origin = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="saved-diff-origin",
+            provider=Provider.GENERIC,
+            model="other-model",
+            connection=ModelOverlayConnection(
+                base_url="https://other-host.example/v1",
+                auth="none",
+            ),
+        ),
+        manifest_path=Path("saved-diff-origin.yaml"),
+    )
+    register_ephemeral_model_overlay(diff_origin)
+    agent_diff = LlmAgent(AgentConfig("diff-origin"), context=context)
+    llm_diff = ModelFactory.create_factory(diff_origin.name)(agent_diff, context=context)
+    assert isinstance(llm_diff, GenericLLM)
+    assert llm_diff._default_headers() == {}
+    req_diff = llm_diff._openai_client()._build_request(
+        FinalRequestOptions(
+            method="post",
+            url="/chat/completions",
+            json_data={"model": "other-model", "messages": []},
+        )
+    )
+    diff_headers = {k.lower(): v for k, v in req_diff.headers.items()}
+    assert "x-corp-key" not in diff_headers
+    assert "x-openai-leak" not in diff_headers
+    assert "authorization" not in diff_headers

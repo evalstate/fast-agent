@@ -1966,9 +1966,53 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _provider_base_url(self) -> str | None:
         return None
 
+    def _default_provider_base_url(self) -> str | None:
+        return None
+
+    @staticmethod
+    def _url_origin(url: str | None) -> tuple[str, str, int] | None:
+        if not url:
+            return None
+        from urllib.parse import urlsplit
+
+        try:
+            parsed = urlsplit(url.strip())
+            port = parsed.port
+        except ValueError:
+            return None
+        scheme = parsed.scheme.lower()
+        hostname = parsed.hostname
+        if not scheme or not hostname:
+            return None
+        effective_port = port if port is not None else (443 if scheme == "https" else 80)
+        return (scheme, hostname.rstrip(".").lower(), effective_port)
+
+    def _should_isolate_origin_headers(self) -> bool:
+        overlay = self._resolved_model_spec.overlay if self._resolved_model_spec else None
+        if overlay is None:
+            return False
+        if overlay.isolate_origin_headers:
+            return True
+        if self._init_base_url is not None:
+            provider_base_url = self._provider_base_url() or self._default_provider_base_url()
+            if provider_base_url is None:
+                return True
+            return self._url_origin(self._init_base_url) != self._url_origin(provider_base_url)
+        return False
+
+    def _uses_explicit_no_auth(self) -> bool:
+        overlay = self._resolved_model_spec.overlay if self._resolved_model_spec else None
+        return (
+            overlay is not None
+            and overlay.manifest.connection.auth == "none"
+            and overlay.override_api_key is None
+        )
+
     def _default_headers(self) -> dict[str, str] | None:
         if self._init_default_headers is not None:
             return dict(self._init_default_headers)
+        if self._should_isolate_origin_headers():
+            return {}
 
         return self._provider_default_headers()
 

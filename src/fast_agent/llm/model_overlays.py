@@ -82,20 +82,35 @@ def _profile_model_params(profile: str, *, provider: Provider) -> ModelParameter
     if not spec_without_query:
         return None
 
-    prefix_provider, bare_model = _split_provider_prefix(spec_without_query)
-    lookup_provider = prefix_provider or provider
+    direct_candidates = [spec_without_query]
+    if ":" in spec_without_query:
+        base_direct = _strip_hf_provider_suffix(spec_without_query)
+        if base_direct != spec_without_query:
+            direct_candidates.append(base_direct)
 
-    candidates = [bare_model]
+    for candidate in direct_candidates:
+        params = ModelDatabase.get_static_model_params(candidate, provider=provider)
+        if params is not None:
+            return params
+        params = ModelDatabase.get_static_model_params(candidate)
+        if params is not None:
+            return params
+
+    prefix_provider, bare_model = _split_provider_prefix(spec_without_query)
+    if prefix_provider is None:
+        return None
+
+    stripped_candidates = [bare_model]
     if ":" in bare_model:
         base_without_route = _strip_hf_provider_suffix(bare_model)
         if base_without_route != bare_model:
-            candidates.append(base_without_route)
+            stripped_candidates.append(base_without_route)
 
-    for candidate in candidates:
-        params = ModelDatabase.get_static_model_params(candidate, provider=lookup_provider)
+    for candidate in stripped_candidates:
+        params = ModelDatabase.get_static_model_params(candidate, provider=prefix_provider)
         if params is not None:
             return params
-        if lookup_provider != provider:
+        if prefix_provider != provider:
             params = ModelDatabase.get_static_model_params(candidate, provider=provider)
             if params is not None:
                 return params
@@ -370,6 +385,7 @@ class LoadedModelOverlay:
     override_model_parameters: ModelParameters | None = None
     override_api_key: str | None = field(default=None, repr=False)
     preserve_wire_model_name: bool = False
+    isolate_origin_headers: bool = False
 
     @property
     def name(self) -> str:
@@ -406,6 +422,14 @@ class LoadedModelOverlay:
     @property
     def compiled_model_spec(self) -> str:
         model_spec = _prefixed_model_spec(self.provider, self.model_name)
+        query = self.manifest.defaults.to_query_pairs()
+        if not query:
+            return model_spec
+        return f"{model_spec}?{urlencode(query)}"
+
+    def compiled_placeholder_spec(self, placeholder: str = "__opaque_wire_model__") -> str:
+        """Compile provider + default query params without exposing the raw wire ID to spec parsing."""
+        model_spec = f"{self.provider.value}.{placeholder}"
         query = self.manifest.defaults.to_query_pairs()
         if not query:
             return model_spec
@@ -462,9 +486,6 @@ class LoadedModelOverlay:
         default_headers = self.resolved_default_headers()
         if default_headers is not None:
             kwargs["default_headers"] = default_headers
-        elif self.manifest.connection.base_url is not None:
-            # Suppress inherited provider default_headers when routing to a different origin.
-            kwargs["default_headers"] = {}
         if self.manifest.connection.reasoning_field is not None:
             kwargs["reasoning_field"] = self.manifest.connection.reasoning_field
         return kwargs

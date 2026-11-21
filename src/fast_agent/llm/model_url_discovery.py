@@ -209,8 +209,10 @@ def normalize_model_url(url: str) -> LlamaCppServerEndpoints:
     try:
         parsed = urlsplit(raw)
         _ = parsed.port
-    except ValueError as exc:
-        raise ModelUrlDiscoveryError(f"Invalid model URL: {exc}") from exc
+    except ValueError:
+        raise ModelUrlDiscoveryError(
+            "Invalid model URL. Check the scheme, host, and port (and do not embed credentials)."
+        ) from None
 
     scheme = parsed.scheme.lower()
     if scheme not in {"http", "https"}:
@@ -231,8 +233,10 @@ def normalize_model_url(url: str) -> LlamaCppServerEndpoints:
         endpoints = normalize_llamacpp_url(raw)
         httpx.URL(endpoints.request_base_url)
         httpx.URL(endpoints.server_url)
-    except (LlamaCppDiscoveryError, ValueError, httpx.InvalidURL) as exc:
-        raise ModelUrlDiscoveryError(f"Invalid model URL: {exc}") from exc
+    except (LlamaCppDiscoveryError, ValueError, httpx.InvalidURL):
+        raise ModelUrlDiscoveryError(
+            "Invalid model URL. Check the scheme, host, and port."
+        ) from None
     return endpoints
 
 
@@ -348,7 +352,6 @@ def resolve_model_url_auth(
 async def discover_model_url_catalog(
     url: str,
     *,
-    auth: ModelUrlAuth | None = None,
     model_auth: str | None = None,
     api_key_env: str | None = None,
     config: object | None = None,
@@ -357,7 +360,7 @@ async def discover_model_url_catalog(
 ) -> ModelUrlDiscoveryCatalog:
     """Probe `<base_url>/models` and auto-detect vLLM, llama.cpp, or generic endpoints."""
     endpoints = normalize_model_url(url)
-    resolved_auth = auth or resolve_model_url_auth(
+    resolved_auth = resolve_model_url_auth(
         endpoints.request_base_url,
         model_auth=model_auth,
         api_key_env=api_key_env,
@@ -372,7 +375,7 @@ async def discover_model_url_catalog(
         except httpx.HTTPError as exc:
             raise ModelUrlDiscoveryError(
                 f"Unable to reach model endpoint {models_url} ({type(exc).__name__})."
-            ) from exc
+            ) from None
 
         if response.status_code in {401, 403}:
             raise ModelUrlDiscoveryError(
@@ -657,6 +660,7 @@ def build_ephemeral_model_url_overlay(
         override_model_parameters=runtime_params,
         override_api_key=override_api_key,
         preserve_wire_model_name=True,
+        isolate_origin_headers=True,
     )
 
 

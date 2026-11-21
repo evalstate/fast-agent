@@ -1546,3 +1546,72 @@ def test_on_disk_overlay_profile_does_not_recurse_for_qualified_or_unknown_names
     assert params.context_window == 1_048_576
     assert params.reasoning == "reasoning_content"
     assert "invalid-namespaced-profile" not in by_name
+
+
+@pytest.mark.parametrize(
+    "gemma_profile",
+    [
+        "google/gemma-4-31b-it",
+        "google/gemma-4-26b-a4b-it",
+    ],
+)
+def test_overlay_profile_resolves_literal_google_gemma_4_models(gemma_profile: str) -> None:
+    manifest = ModelOverlayManifest(
+        name="local-gemma-4",
+        provider=Provider.GENERIC,
+        model=gemma_profile,
+        profile=gemma_profile,
+    )
+    overlay = LoadedModelOverlay(
+        manifest=manifest,
+        manifest_path=Path("local-gemma-4.yaml"),
+    )
+    params = overlay.build_model_parameters()
+    assert params is not None
+    assert params.context_window > 0
+
+
+def test_openresponses_no_auth_overlay_omits_authorization_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openai._models import FinalRequestOptions
+
+    from fast_agent.context import Context
+    from fast_agent.llm.model_overlays import (
+        clear_ephemeral_model_overlays,
+        register_ephemeral_model_overlay,
+    )
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_CUSTOM_HEADERS", "X-OpenAI-Leak: should-not-leak")
+
+    overlay = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="local-openresponses-no-auth",
+            provider=Provider.OPENRESPONSES,
+            model="local-r1",
+            connection=ModelOverlayConnection(
+                base_url="http://localhost:8000/v1",
+                auth="none",
+            ),
+        ),
+        manifest_path=Path("local-openresponses-no-auth.yaml"),
+    )
+    register_ephemeral_model_overlay(overlay)
+    try:
+        context = Context(config=Settings())
+        agent = LlmAgent(AgentConfig("or-no-auth"), context=context)
+        llm = ModelFactory.create_factory(overlay.name)(agent, context=context)
+        assert isinstance(llm, OpenResponsesLLM)
+        req = llm._responses_client()._build_request(
+            FinalRequestOptions(
+                method="post",
+                url="/responses",
+                json_data={"model": "local-r1", "input": []},
+            )
+        )
+        headers = {k.lower(): v for k, v in req.headers.items()}
+        assert "authorization" not in headers
+        assert "x-openai-leak" not in headers
+    finally:
+        clear_ephemeral_model_overlays()

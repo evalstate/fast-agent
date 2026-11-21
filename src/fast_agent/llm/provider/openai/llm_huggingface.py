@@ -142,7 +142,10 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             kwargs.get("model"),
             DEFAULT_HUGGINGFACE_MODEL,
         )
-        base_model, explicit_provider = self._split_provider_suffix(requested_model)
+        if self._preserves_opaque_wire_model_name():
+            base_model, explicit_provider = requested_model, None
+        else:
+            base_model, explicit_provider = self._split_provider_suffix(requested_model)
         base_model = base_model or requested_model
         kwargs["model"] = base_model
 
@@ -403,10 +406,17 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
                 )
         return None
 
+    def _preserves_opaque_wire_model_name(self) -> bool:
+        overlay = self._resolved_model_spec.overlay if self._resolved_model_spec else None
+        return bool(overlay is not None and overlay.preserve_wire_model_name)
+
     def _router_route(self, model: str | None) -> RouterRoute | None:
         if not model:
             return None
-        base_model, explicit_provider = self._split_provider_suffix(model)
+        if self._preserves_opaque_wire_model_name():
+            base_model, explicit_provider = model, None
+        else:
+            base_model, explicit_provider = self._split_provider_suffix(model)
         normalized_model = ModelDatabase.normalize_model_name(base_model or model)
         if not normalized_model:
             return None

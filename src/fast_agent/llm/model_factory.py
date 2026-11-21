@@ -1233,10 +1233,24 @@ class ModelFactory:
 
         if selected_overlay is not None:
             source: Literal["overlay", "preset", "direct"] = "overlay"
-            parsed = cls.parse_model_spec(
-                model_string,
-                presets={selected_overlay.name: selected_overlay.compiled_model_spec},
-            )
+            if selected_overlay.preserve_wire_model_name:
+                parsed_placeholder = cls.parse_model_spec(
+                    model_string,
+                    presets={selected_overlay.name: selected_overlay.compiled_placeholder_spec()},
+                )
+                parsed = ParsedModelSpec(
+                    raw_input=parsed_placeholder.raw_input,
+                    expanded_input=selected_overlay.compiled_model_spec,
+                    provider=selected_overlay.provider,
+                    model_name=selected_overlay.model_name,
+                    reasoning_effort=parsed_placeholder.reasoning_effort,
+                    query_overrides=parsed_placeholder.query_overrides,
+                )
+            else:
+                parsed = cls.parse_model_spec(
+                    model_string,
+                    presets={selected_overlay.name: selected_overlay.compiled_model_spec},
+                )
         else:
             if presets is None:
                 presets = cls.get_runtime_presets()

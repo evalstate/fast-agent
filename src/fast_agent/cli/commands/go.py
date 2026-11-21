@@ -460,6 +460,11 @@ def _resolve_model_url_options(
     normalized = model_url.strip()
     if not normalized:
         raise typer.BadParameter("Cannot be empty.", param_hint="--model-url")
+    if model_auth is not None and model_api_key_env is not None:
+        raise typer.BadParameter(
+            "Cannot be combined with --model-api-key-env.",
+            param_hint="--model-auth",
+        )
     if local:
         raise typer.BadParameter(
             "Cannot be combined with --local.",
@@ -621,6 +626,10 @@ def _resolve_model_url_model(
 
     try:
         catalog, discovered = asyncio.run(_discover_and_interrogate())
+        overlay = build_ephemeral_model_url_overlay(
+            discovered=discovered,
+            catalog=catalog,
+        )
     except (
         ModelUrlDiscoveryError,
         LlamaCppDiscoveryError,
@@ -629,11 +638,6 @@ def _resolve_model_url_model(
     ) as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
-
-    overlay = build_ephemeral_model_url_overlay(
-        discovered=discovered,
-        catalog=catalog,
-    )
     register_ephemeral_model_overlay(overlay)
 
     if not quiet:
