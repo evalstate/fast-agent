@@ -77,6 +77,13 @@ async def test_pushed_event_arrives_on_the_stream_and_wakes_the_agent(fast_agent
             await app.probe.call_tool("set_job_stage", {"job_id": "job-2", "stage": "RUNNING"})
             await app.probe.call_tool("set_job_stage", {"job_id": "job-1", "stage": "COMPLETED"})
             await asyncio.wait_for(app.probe.wait_for_event_wake(), timeout=10)
+            # Each subscription has its own stream, so job-2's event can land after the wake.
+            for _ in range(100):
+                if manager.pending_count == 2:
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                pytest.fail("the job-2 event did not arrive")
 
             [text] = app.probe.take_event_messages()
             assert text.count("<mcp-event ") == 2
