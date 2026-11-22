@@ -11,6 +11,7 @@ import typer
 
 from fast_agent.a2a.connect import normalize_a2a_transport, normalize_a2a_url
 from fast_agent.cli.command_support import ensure_context_object
+from fast_agent.cli.constants import MODEL_PICKER_SENTINEL
 from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.prompt_argument_hint import PromptArgumentHintGroup
 from fast_agent.cli.runtime.request_builders import (
@@ -50,6 +51,12 @@ DEFAULT_TOOL_CARDS_DIR = _DEFAULT_TOOL_CARDS_DIR
 app = typer.Typer(
     cls=PromptArgumentHintGroup,
     help="Run an interactive agent directly from the command line without creating an agent.py file",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
+    add_completion=False,
+)
+local_app = typer.Typer(
+    cls=PromptArgumentHintGroup,
+    help="Connect directly to a running local llama.cpp server (shorthand for 'go --local')",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
     add_completion=False,
 )
@@ -284,6 +291,389 @@ def _resolve_model_base_url_option(
     return normalized
 
 
+def _select_local_llamacpp_listing(
+    catalog: Any,
+    *,
+    requested_model: str | None,
+) -> Any:
+    models = catalog.models
+    if requested_model:
+        req = requested_model.strip()
+        req_cf = req.casefold()
+        for item in models:
+            if item.model_id == req or item.model_id.casefold() == req_cf:
+                return item
+            if any(alias.casefold() == req_cf for alias in item.aliases):
+                return item
+        substring_matches = [
+            item
+            for item in models
+            if req_cf in item.model_id.casefold()
+            or any(req_cf in alias.casefold() for alias in item.aliases)
+        ]
+        if len(substring_matches) == 1:
+            return substring_matches[0]
+        available = ", ".join(item.model_id for item in models)
+        raise typer.BadParameter(
+            f"Local llama.cpp model {requested_model!r} was not found. Available: {available}",
+            param_hint="--model",
+        )
+
+    if len(models) == 1:
+        return models[0]
+
+    loaded = [item for item in models if item.status == "loaded"]
+    if len(loaded) == 1:
+        return loaded[0]
+    if loaded:
+        return loaded[0]
+    return models[0]
+
+
+def _resolve_local_llamacpp_model(
+    *,
+    base_url: str | None,
+    requested_model: str | None,
+    quiet: bool,
+) -> str:
+    import asyncio
+    import sys
+
+    from fast_agent.llm.llamacpp_discovery import (
+        LlamaCppDiscoveryError,
+        build_ephemeral_llamacpp_overlay,
+        discover_local_llamacpp_catalog,
+        interrogate_llamacpp_model,
+    )
+    from fast_agent.llm.model_overlays import register_ephemeral_model_overlay
+
+    async def _discover_and_interrogate():
+        catalog = await discover_local_llamacpp_catalog(url=base_url)
+        selected = None
+        if (
+            requested_model is None
+            and len(catalog.models) > 1
+            and sum(1 for item in catalog.models if item.status == "loaded") != 1
+            and sys.stdin.isatty()
+            and sys.stdout.isatty()
+        ):
+            from fast_agent.ui.llamacpp_model_picker import (
+                LlamaCppModelPickerContext,
+                run_llamacpp_model_picker_async,
+            )
+
+            async def _load_ctx(model_id: str) -> LlamaCppModelPickerContext:
+                discovered = await interrogate_llamacpp_model(
+                    catalog=catalog,
+                    model_id=model_id,
+                    autoload=False if catalog.router_mode else None,
+                )
+                return LlamaCppModelPickerContext(
+                    runtime_context_window=discovered.runtime_context_window,
+                    training_context_window=discovered.listing.training_context_window,
+                )
+
+            picker_result = await run_llamacpp_model_picker_async(
+                catalog.models,
+                runtime_context_loader=_load_ctx,
+            )
+            if picker_result is None:
+                raise typer.Exit(0)
+            selected = next(
+                (item for item in catalog.models if item.model_id == picker_result.model_id),
+                None,
+            )
+
+        if selected is None:
+            selected = _select_local_llamacpp_listing(
+                catalog,
+                requested_model=requested_model,
+            )
+
+        discovered = await interrogate_llamacpp_model(
+            catalog=catalog,
+            model_id=selected.model_id,
+        )
+        return catalog, discovered
+
+    try:
+        catalog, discovered = asyncio.run(_discover_and_interrogate())
+    except LlamaCppDiscoveryError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    overlay = build_ephemeral_llamacpp_overlay(
+        discovered_model=discovered,
+        base_url=catalog.endpoints.request_base_url,
+    )
+    register_ephemeral_model_overlay(overlay)
+
+    if not quiet:
+        details: list[str] = []
+        if discovered.effective_context_window:
+            details.append(f"ctx {discovered.effective_context_window:,}")
+        modalities: list[str] = []
+        if any(m.startswith("image/") for m in discovered.tokenizes):
+            modalities.append("vision")
+        if any(m.startswith("audio/") for m in discovered.tokenizes):
+            modalities.append("audio")
+        if any(m.startswith("video/") for m in discovered.tokenizes):
+            modalities.append("video")
+        if modalities:
+            details.append("+".join(modalities))
+        if discovered.matched_database_model:
+            details.append(f"profile: {discovered.matched_database_model}")
+        detail_suffix = f" ({' | '.join(details)})" if details else ""
+        typer.echo(
+            f"Local llama.cpp: {discovered.listing.model_id} @ "
+            f"{catalog.endpoints.request_base_url}{detail_suffix}",
+            err=True,
+        )
+
+    return overlay.name
+
+
+def _resolve_model_url_options(
+    model_url: str | None,
+    *,
+    model_auth: str | None,
+    model_api_key_env: str | None,
+    local: bool,
+    base_url: str | None,
+    model: str | None,
+    force_model_picker: bool,
+    resume: str | None,
+) -> str | None:
+    if model_url is None:
+        if model_auth is not None:
+            raise typer.BadParameter(
+                "Requires --model-url.",
+                param_hint="--model-auth",
+            )
+        if model_api_key_env is not None:
+            raise typer.BadParameter(
+                "Requires --model-url.",
+                param_hint="--model-api-key-env",
+            )
+        return None
+
+    normalized = model_url.strip()
+    if not normalized:
+        raise typer.BadParameter("Cannot be empty.", param_hint="--model-url")
+    if model_auth is not None and model_api_key_env is not None:
+        raise typer.BadParameter(
+            "Cannot be combined with --model-api-key-env.",
+            param_hint="--model-auth",
+        )
+    if local:
+        raise typer.BadParameter(
+            "Cannot be combined with --local.",
+            param_hint="--model-url",
+        )
+    if base_url is not None:
+        raise typer.BadParameter(
+            "Cannot be combined with --base-url.",
+            param_hint="--model-url",
+        )
+    if force_model_picker:
+        raise typer.BadParameter(
+            "Cannot be combined with --model without a value.",
+            param_hint="--model-url",
+        )
+    if model is not None and "," in model:
+        raise typer.BadParameter(
+            "Cannot be combined with multiple models.",
+            param_hint="--model-url",
+        )
+    if resume is not None:
+        raise typer.BadParameter(
+            "Cannot be combined with --resume.",
+            param_hint="--model-url",
+        )
+    return normalized
+
+
+def _select_model_url_listing(
+    catalog: Any,
+    *,
+    requested_model: str | None,
+) -> Any:
+    models = catalog.models
+    if requested_model:
+        req = requested_model.strip()
+        req_cf = req.casefold()
+
+        exact_id_matches = [item for item in models if item.model_id == req]
+        if len(exact_id_matches) == 1:
+            return exact_id_matches[0]
+
+        casefold_id_matches = [item for item in models if item.model_id.casefold() == req_cf]
+        if len(casefold_id_matches) == 1:
+            return casefold_id_matches[0]
+        if len(casefold_id_matches) > 1:
+            matched = ", ".join(item.model_id for item in casefold_id_matches)
+            raise typer.BadParameter(
+                f"Endpoint model {requested_model!r} is ambiguous at "
+                f"{catalog.endpoints.request_base_url}. Matches: {matched}",
+                param_hint="--model",
+            )
+
+        alias_root_matches = [
+            item
+            for item in models
+            if (item.root is not None and item.root.casefold() == req_cf)
+            or any(alias.casefold() == req_cf for alias in item.aliases)
+        ]
+        if len(alias_root_matches) == 1:
+            return alias_root_matches[0]
+        if len(alias_root_matches) > 1:
+            matched = ", ".join(item.model_id for item in alias_root_matches)
+            raise typer.BadParameter(
+                f"Endpoint model {requested_model!r} matched multiple models by root/alias at "
+                f"{catalog.endpoints.request_base_url}. Matches: {matched}",
+                param_hint="--model",
+            )
+
+        substring_matches = [
+            item
+            for item in models
+            if req_cf in item.model_id.casefold()
+            or (item.root is not None and req_cf in item.root.casefold())
+            or any(req_cf in alias.casefold() for alias in item.aliases)
+        ]
+        if len(substring_matches) == 1:
+            return substring_matches[0]
+        if len(substring_matches) > 1:
+            matched = ", ".join(item.model_id for item in substring_matches)
+            raise typer.BadParameter(
+                f"Endpoint model {requested_model!r} is ambiguous at "
+                f"{catalog.endpoints.request_base_url}. Matches: {matched}",
+                param_hint="--model",
+            )
+
+        available = ", ".join(item.model_id for item in models)
+        raise typer.BadParameter(
+            f"Endpoint model {requested_model!r} was not found at "
+            f"{catalog.endpoints.request_base_url}. Available: {available}",
+            param_hint="--model",
+        )
+
+    if len(models) == 1:
+        return models[0]
+
+    loaded = [item for item in models if item.status == "loaded"]
+    if loaded:
+        return loaded[0]
+    return models[0]
+
+
+def _resolve_model_url_model(
+    *,
+    model_url: str,
+    model_auth: str | None,
+    model_api_key_env: str | None,
+    requested_model: str | None,
+    config_path: str | None,
+    quiet: bool,
+) -> str:
+    import asyncio
+
+    import httpx
+
+    from fast_agent.cli.command_support import get_settings_or_exit
+    from fast_agent.config import get_settings
+    from fast_agent.llm.llamacpp_discovery import LlamaCppDiscoveryError
+    from fast_agent.llm.model_overlays import register_ephemeral_model_overlay
+    from fast_agent.llm.model_url_discovery import (
+        ModelUrlDiscoveryError,
+        build_ephemeral_model_url_overlay,
+        discover_model_url_catalog,
+        interrogate_model_url_model,
+    )
+
+    selector: str | None = None
+    query_suffix = ""
+    if requested_model is not None:
+        raw_selector, sep, raw_query = requested_model.partition("?")
+        selector = raw_selector.strip() or None
+        query_suffix = raw_query.strip() if sep else ""
+
+    settings: object | None
+    if config_path is not None:
+        settings = get_settings_or_exit(config_path)
+    else:
+        try:
+            settings = get_settings(None)
+        except Exception:
+            settings = None
+
+    async def _discover_and_interrogate():
+        catalog = await discover_model_url_catalog(
+            url=model_url,
+            model_auth=model_auth,
+            api_key_env=model_api_key_env,
+            config=settings,
+        )
+        selected = _select_model_url_listing(
+            catalog,
+            requested_model=selector,
+        )
+        discovered = await interrogate_model_url_model(
+            catalog=catalog,
+            model_id=selected.model_id,
+        )
+        return catalog, discovered
+
+    try:
+        catalog, discovered = asyncio.run(_discover_and_interrogate())
+        overlay = build_ephemeral_model_url_overlay(
+            discovered=discovered,
+            catalog=catalog,
+        )
+    except (
+        ModelUrlDiscoveryError,
+        LlamaCppDiscoveryError,
+        ValueError,
+        httpx.InvalidURL,
+    ) as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    register_ephemeral_model_overlay(overlay)
+
+    if not quiet:
+        details: list[str] = []
+        if discovered.effective_context_window:
+            details.append(f"ctx {discovered.effective_context_window:,}")
+        tokenizes = discovered.tokenizes or ()
+        modalities: list[str] = []
+        if any(m.startswith("image/") for m in tokenizes):
+            modalities.append("vision")
+        if any(m.startswith("audio/") for m in tokenizes):
+            modalities.append("audio")
+        if any(m.startswith("video/") for m in tokenizes):
+            modalities.append("video")
+        if modalities:
+            details.append("+".join(modalities))
+        if discovered.matched_database_model:
+            details.append(f"profile: {discovered.matched_database_model}")
+        detail_suffix = f" ({' | '.join(details)})" if details else ""
+        backend_label = (
+            f"{catalog.server_kind} {catalog.server_version}"
+            if catalog.server_version
+            else catalog.server_kind
+        )
+        typer.echo(
+            f"Endpoint ({backend_label}): {discovered.listing.model_id} @ "
+            f"{catalog.endpoints.request_base_url}{detail_suffix}",
+            err=True,
+        )
+
+    if query_suffix:
+        return f"{overlay.name}?{query_suffix}"
+    return overlay.name
+
+
+@local_app.callback(invoke_without_command=True, no_args_is_help=False)
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def go(
     ctx: typer.Context,
@@ -314,11 +704,34 @@ def go(
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
     mcp_protocol: McpProtocolOption | None = CommonAgentOptions.mcp_protocol(),
     model: str | None = CommonAgentOptions.model(),
+    local: bool = typer.Option(
+        False,
+        "--local",
+        help="Connect directly to a running local llama.cpp server (probes localhost:9931 then localhost:8080, or uses --base-url).",
+    ),
     base_url: str | None = typer.Option(
         None,
         "--base-url",
         metavar="<url>",
         help="Override the selected model endpoint for this run without changing its provider route.",
+    ),
+    model_url: str | None = typer.Option(
+        None,
+        "--model-url",
+        metavar="<url>",
+        help="Auto-configure a vLLM, llama.cpp, or OpenAI-compatible model endpoint for this run.",
+    ),
+    model_auth: str | None = typer.Option(
+        None,
+        "--model-auth",
+        metavar="<token>",
+        help="Bearer token for --model-url (optional 'Bearer ' prefix; kept in memory only).",
+    ),
+    model_api_key_env: str | None = typer.Option(
+        None,
+        "--model-api-key-env",
+        metavar="<ENV_VAR>",
+        help="Environment variable containing the API key for --model-url.",
     ),
     pack: str | None = typer.Option(
         None,
@@ -396,6 +809,8 @@ def go(
     subagents: bool | None = CommonAgentOptions.subagents(),
     subagent_model: str | None = CommonAgentOptions.subagent_model(),
     ptc: bool | None = CommonAgentOptions.ptc(),
+    ptc_all: bool = CommonAgentOptions.ptc_all(),
+    ptc_search: bool = CommonAgentOptions.ptc_search(),
     reload: bool = typer.Option(
         False,
         "--reload",
@@ -445,9 +860,33 @@ def go(
         },
     )
 
+    force_model_picker = model == MODEL_PICKER_SENTINEL
+    if force_model_picker:
+        model = None
+        if message is not None or prompt_file is not None:
+            raise typer.BadParameter(
+                "--model without a value opens the interactive model picker and cannot be used with --message or --prompt-file.",
+                param_hint="--model",
+            )
+        if resume is not None:
+            raise typer.BadParameter(
+                "--model without a value cannot be combined with --resume.",
+                param_hint="--model",
+            )
+
     base_url = _resolve_model_base_url_option(
         base_url,
         model=model,
+        resume=resume,
+    )
+    model_url = _resolve_model_url_options(
+        model_url,
+        model_auth=model_auth,
+        model_api_key_env=model_api_key_env,
+        local=local,
+        base_url=base_url,
+        model=model,
+        force_model_picker=force_model_picker,
         resume=resume,
     )
 
@@ -532,6 +971,23 @@ def go(
             "Only 'atif' is currently supported.", param_hint="--trajectory-format"
         )
 
+    if local:
+        model = _resolve_local_llamacpp_model(
+            base_url=base_url,
+            requested_model=model,
+            quiet=quiet,
+        )
+        base_url = None
+    elif model_url is not None:
+        model = _resolve_model_url_model(
+            model_url=model_url,
+            model_auth=model_auth,
+            model_api_key_env=model_api_key_env,
+            requested_model=model,
+            config_path=config_path,
+            quiet=quiet,
+        )
+
     request = build_command_run_request(
         name=name,
         instruction_option=instruction,
@@ -570,6 +1026,9 @@ def go(
         subagents=subagents,
         subagent_model=subagent_model,
         ptc=ptc,
+        ptc_all=ptc_all,
+        force_model_picker=force_model_picker,
+        ptc_search=ptc_search,
         mode="interactive",
         instance_scope="shared",
         reload=reload,

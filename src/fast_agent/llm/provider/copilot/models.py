@@ -11,7 +11,7 @@ from fast_agent.core.exceptions import ModelConfigError
 @dataclass(frozen=True)
 class CopilotModelSpec:
     model_id: str
-    wire_api: Literal["messages", "responses"]
+    wire_api: Literal["messages", "responses", "chat_completions"]
     supports_named_tool_choice: bool
     transports: tuple[Literal["sse", "websocket"], ...]
     supports_web_search: bool = False
@@ -19,6 +19,9 @@ class CopilotModelSpec:
     """Anthropic threshold compaction passes the gateway (on-demand compaction does not)."""
     supports_native_compaction: bool = False
     """OpenAI ``compaction_trigger`` checkpoints pass the gateway."""
+    max_prompt_images: int | None = None
+    max_prompt_image_bytes: int | None = None
+    max_prompt_tokens: int | None = None
 
 
 def _messages_model(
@@ -51,38 +54,67 @@ def _responses_model(
     )
 
 
+COPILOT_PICKER_MODELS: Final = (
+    _messages_model("claude-fable-5.2", False),
+    _messages_model("claude-opus-5.5", False),
+    _messages_model("claude-sonnet-5.5", False),
+    _messages_model("claude-haiku-5.5", True),
+    # Base Responses route: WebSockets return internal_error (rechecked 2026-11-18);
+    # web search and native compaction are unverified.
+    *(
+        _responses_model(model_id, websocket=False, web_search=False, native_compaction=False)
+        for model_id in ("gpt-6.2-astra", "gpt-6.2-sol")
+    ),
+    *(
+        _responses_model(model_id)
+        for model_id in (
+            "gpt-6-astra",
+            "gpt-6.1-sol",
+            "gpt-6.1-terra",
+            "gpt-6-luna",
+        )
+    ),
+    # Confirmed by Copilot /models; no native Google wire features implied.
+    *(
+        CopilotModelSpec(
+            model_id,
+            "chat_completions",
+            False,
+            ("sse",),
+            max_prompt_images=10,
+            max_prompt_image_bytes=3_145_728,
+            max_prompt_tokens=936_000 if model_id == "gemini-4-carbon" else 983_040,
+        )
+        for model_id in (
+            "gemini-4-neon",
+            "gemini-4-argon",
+            "gemini-4-hydrogen",
+            "gemini-4-carbon",
+        )
+    ),
+    # xAI on the Copilot gateway: SSE only, and no compaction_trigger support.
+    *(
+        _responses_model(model_id, websocket=False, native_compaction=False)
+        for model_id in ("grok-4.7", "grok-4.6")
+    ),
+)
+
 COPILOT_MODELS: Final[Mapping[str, CopilotModelSpec]] = MappingProxyType(
     {
         spec.model_id: spec
         for spec in (
-            _messages_model("claude-fable-5.2", False),
+            *COPILOT_PICKER_MODELS,
+            # Existing configurations and saved sessions can still select these routes.
             _messages_model("claude-fable-5.1", False),
-            _messages_model("claude-opus-5.5", False),
-            _messages_model("claude-sonnet-5.5", False),
             _messages_model("claude-opus-4-8", True),
             _messages_model("claude-opus-5", True),
             _messages_model("claude-sonnet-5", True),
             _messages_model("claude-haiku-4.5", True, threshold_compaction=False),
-            _messages_model("claude-haiku-5.5", True),
             _messages_model("claude-fable-5", True),
-            *(
-                _responses_model(model_id)
-                for model_id in (
-                    "gpt-6-astra",
-                    "gpt-6.1-sol",
-                    "gpt-6.1-terra",
-                    "gpt-6-sol",
-                    "gpt-6-luna",
-                    "gpt-5.6-sol",
-                )
-            ),
+            _responses_model("gpt-6-sol"),
+            _responses_model("gpt-5.6-sol"),
             _responses_model("gpt-5.6-terra", web_search=False),
             _responses_model("gpt-5.6-luna"),
-            # xAI on the Copilot gateway: SSE only, and no compaction_trigger support.
-            *(
-                _responses_model(model_id, websocket=False, native_compaction=False)
-                for model_id in ("grok-4.7", "grok-4.6")
-            ),
         )
     }
 )

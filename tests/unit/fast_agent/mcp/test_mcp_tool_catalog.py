@@ -47,3 +47,30 @@ def test_tool_catalog_is_an_ordered_structural_snapshot() -> None:
     assert catalog.resolve_tool_name("first-server__other").server_name == "first-server"
     assert catalog.resolve_tool_name("render").server_name == "second"
     assert catalog.resolve_tool_name("missing").server_name == "first-server"
+
+
+def test_filtered_routable_names_match_execution_destinations() -> None:
+    first_tools = [_tool("first", name) for name in ("shared", "only_first", "second__shared")]
+    second_tools = [
+        _tool("second", name)
+        for name in ("shared", "only_second", "first__missing", "unknown__alias")
+    ]
+    # Display order deliberately differs from the router's first-server precedence.
+    catalog = MCPToolCatalog.snapshot(
+        by_namespaced_name={
+            tool.namespaced_tool_name: tool for tool in [*second_tools, *first_tools]
+        },
+        by_server={"first": first_tools, "second": second_tools},
+        server_names=["first", "second"],
+    )
+    for allowed_server in ("first", "second"):
+
+        def permitted(name: str) -> bool:
+            return name.startswith(f"{allowed_server}__")
+
+        allowed_names = catalog.routable_tool_names(permitted)
+        for name in catalog.routable_tool_names():
+            destination = catalog.resolve_tool(name)
+            assert (name in allowed_names) == (
+                destination is not None and permitted(destination.namespaced_tool_name)
+            )

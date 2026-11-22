@@ -47,7 +47,9 @@ class _TemplateParseState:
         self.preamble_lines = []
 
     def append_current_section(self) -> None:
-        if self.current_role is None or not self.current_content_lines:
+        if self.current_role is None or (
+            not self.current_content_lines and not self.current_resources
+        ):
             return
         self.sections.append(
             PromptContent(

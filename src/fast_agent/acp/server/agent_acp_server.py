@@ -25,14 +25,12 @@ from acp import (
     run_agent,
 )
 from acp.exceptions import RequestError
-from acp.helpers import ContentBlock as ACPContentBlock
 from acp.schema import (
     AcpMcpServer,
     AgentCapabilities,
     AuthenticateResponse,
     AuthMethodAgent,
     AvailableCommandsUpdate,
-    EnvVarAuthMethod,
     HttpMcpServer,
     Implementation,
     ListSessionsResponse,
@@ -62,6 +60,8 @@ from fast_agent.acp.server.prompt_flow import ACPPromptFlow, PromptFlowHost
 from fast_agent.acp.server.session_runtime import ACPServerSessionRuntime, SessionRuntimeHost
 from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionStoreHost
 from fast_agent.acp.server.slash_runtime import ACPServerSlashRuntime, SlashRuntimeHost
+from fast_agent.acp.server.unsupported_methods import UnsupportedACPMethods
+from fast_agent.acp.types import ACPContentBlock
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.config import MCPServerSettings, get_settings
 from fast_agent.constants import DEFAULT_HOME_DIR
@@ -91,7 +91,7 @@ ACP_AUTH_RECOMMENDED_COMMANDS: tuple[str, ...] = (
 )
 
 
-class AgentACPServer(ACPAgent):
+class AgentACPServer(UnsupportedACPMethods, ACPAgent):
     """
     Exposes FastAgent agents as an ACP agent through stdio.
 
@@ -111,6 +111,7 @@ class AgentACPServer(ACPAgent):
         server_version: str | None = None,
         skills_directory_override: Sequence[str | Path] | str | Path | None = None,
         permissions_enabled: bool = True,
+        use_client_tools: bool = False,
         load_card_callback: Callable[[str, str | None], Awaitable[AgentCardLoadResult]]
         | None = None,
         attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
@@ -131,6 +132,7 @@ class AgentACPServer(ACPAgent):
             server_version: Version of the server (defaults to fast-agent version)
             skills_directory_override: Optional skills directory override (relative to session cwd)
             permissions_enabled: Whether to request tool permissions from client (default: True)
+            use_client_tools: Opt in to delegating shell/filesystem tools to client-advertised ACP capabilities (default: False)
             load_card_callback: Optional callback to load AgentCards at runtime
             attach_agent_tools_callback: Optional callback to attach agent tools at runtime
             detach_agent_tools_callback: Optional callback to detach agent tools at runtime
@@ -152,6 +154,7 @@ class AgentACPServer(ACPAgent):
         self.server_name = server_name
         self._skills_directory_override = skills_directory_override
         self._permissions_enabled = permissions_enabled
+        self._use_client_tools = use_client_tools
         # Use provided version or get fast-agent version
         if server_version is None:
             try:
@@ -349,7 +352,7 @@ class AgentACPServer(ACPAgent):
             #
             # In ACP 0.9.x this uses the explicit agent auth schema, but we still
             # keep it to the minimal id/name/description shape.
-            auth_methods: list[EnvVarAuthMethod | TerminalAuthMethod | AuthMethodAgent] = [
+            auth_methods: list[TerminalAuthMethod | AuthMethodAgent] = [
                 AuthMethodAgent(
                     id=ACP_AUTH_METHOD_ID,
                     name="Configure fast-agent",

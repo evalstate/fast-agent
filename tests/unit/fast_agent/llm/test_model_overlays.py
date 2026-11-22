@@ -13,16 +13,18 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml
+from pydantic import ValidationError
 
 from fast_agent.config import Settings, get_settings, update_global_settings
 from fast_agent.constants import FAST_AGENT_RUNTIME_HOME
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from pathlib import Path
 
     from openai.types.chat import ChatCompletionToolParam
 
@@ -33,6 +35,7 @@ from fast_agent.core.instruction_utils import build_agent_instruction_context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import (
+    LoadedModelOverlay,
     ModelOverlayConnection,
     ModelOverlayDefaults,
     ModelOverlayManifest,
@@ -1160,7 +1163,9 @@ metadata:
 
 
 @pytest.mark.asyncio
-async def test_overlay_model_switch_reapplies_overlay_max_tokens_defaults(tmp_path: Path) -> None:
+async def test_overlay_model_switch_reapplies_destination_defaults_and_endpoint(
+    tmp_path: Path,
+) -> None:
     home = tmp_path / ".fast-agent"
     _write_overlay(
         home,
@@ -1199,17 +1204,22 @@ metadata:
 
     with _isolated_overlay_environment(home, cleanup_base=tmp_path):
         agent = LlmAgent(AgentConfig(name="switcher"))
-        await agent.attach_llm(ModelFactory.create_factory("big-local"))
+        await agent.attach_llm(
+            ModelFactory.create_factory("big-local"), base_url="http://localhost:8082/v1"
+        )
 
-        assert agent.llm is not None
+        assert isinstance(agent.llm, OpenResponsesLLM)
         assert agent.llm.default_request_params.max_tokens == 8192
+        async with agent.llm._responses_client() as client:
+            assert client.base_url.port == 8082
 
         await agent.set_model("tiny-local")
 
-        assert agent.llm is not None
+        assert isinstance(agent.llm, OpenResponsesLLM)
         assert agent.llm.default_request_params.max_tokens == 1024
-        assert agent.llm.resolved_model is not None
         assert agent.llm.resolved_model.overlay_name == "tiny-local"
+        async with agent.llm._responses_client() as client:
+            assert client.base_url.port == 8080
 
 
 def test_overlay_secret_ref_resolves_api_key_from_companion_file(tmp_path: Path) -> None:
@@ -1414,3 +1424,398 @@ metadata:
             assert builtin.context_window == 272_000
             assert builtin.model_params is not None
             assert resolved.model_params.tokenizes == builtin.model_params.tokenizes
+
+
+def test_overlay_profile_inherits_database_entry_for_renamed_model(tmp_path: Path) -> None:
+    home = tmp_path / ".fast-agent"
+    _write_overlay(
+        home,
+        "custom-inkling.yaml",
+        """
+name: custom-inkling
+provider: generic
+model: acme/inkling-2-mini-fp8-finetune
+profile: thinkingmachines/Inkling-2-Mini
+connection:
+  base_url: http://localhost:8000/v1
+metadata:
+  context_window: 65536
+""".strip(),
+    )
+
+    with _isolated_overlay_environment(home, cleanup_base=tmp_path):
+        resolved = ModelFactory.resolve_model_spec("custom-inkling")
+        assert resolved.source == "overlay"
+        assert resolved.provider is Provider.GENERIC
+        assert resolved.wire_model_name == "acme/inkling-2-mini-fp8-finetune"
+        assert resolved.context_window == 65_536
+        assert resolved.model_params is not None
+        assert resolved.model_params.max_output_tokens == 65_536
+        assert resolved.model_params.default_provider is Provider.GENERIC
+
+        base_params = ModelDatabase.get_model_params("thinkingmachines/inkling-2-mini")
+        assert base_params is not None
+        assert resolved.model_params.tokenizes == base_params.tokenizes
+        assert resolved.model_params.reasoning == base_params.reasoning
+        assert resolved.model_params.reasoning_effort_spec == base_params.reasoning_effort_spec
+        assert resolved.model_params.json_mode == base_params.json_mode
+
+
+def test_overlay_profile_serialization_and_validation() -> None:
+    manifest = ModelOverlayManifest(
+        name="custom-inkling",
+        provider=Provider.GENERIC,
+        model="acme/my-inkling",
+        profile="thinkingmachines/inkling-2-mini",
+    )
+    rendered = serialize_model_overlay_manifest(manifest)
+    assert "profile: thinkingmachines/inkling-2-mini" in rendered
+    reloaded = ModelOverlayManifest.model_validate(yaml.safe_load(rendered))
+    assert reloaded.profile == "thinkingmachines/inkling-2-mini"
+
+    with pytest.raises(ValidationError, match="Unknown model overlay profile"):
+        ModelOverlayManifest(
+            name="bad-profile",
+            provider=Provider.GENERIC,
+            model="acme/my-model",
+            profile="nonexistent/does-not-exist-xyz",
+        )
+
+
+def test_loaded_overlay_override_api_key_stays_in_memory_only() -> None:
+    manifest = ModelOverlayManifest(
+        name="ephemeral-vllm",
+        provider=Provider.HUGGINGFACE,
+        model="thinkingmachines/Inkling-2-Mini",
+        profile="thinkingmachines/inkling-2-mini",
+    )
+    overlay = LoadedModelOverlay(
+        manifest=manifest,
+        manifest_path=Path("<model-url>"),
+        override_api_key="hf_ephemeral_secret_value",
+    )
+    assert overlay.resolved_api_key() == "hf_ephemeral_secret_value"
+    assert overlay.llm_init_kwargs()["api_key"] == "hf_ephemeral_secret_value"
+    assert "hf_ephemeral_secret_value" not in repr(overlay)
+    assert "hf_ephemeral_secret_value" not in serialize_model_overlay_manifest(overlay.manifest)
+
+
+def test_on_disk_overlay_profile_does_not_recurse_for_qualified_or_unknown_namespaced_profiles(
+    tmp_path: Path,
+) -> None:
+    overlays_dir = tmp_path / ".fast-agent" / "model-overlays"
+    overlays_dir.mkdir(parents=True, exist_ok=True)
+    (overlays_dir / "valid_qualified.yaml").write_text(
+        "\n".join(
+            [
+                "name: valid-qualified-profile",
+                "provider: generic",
+                "model: acme/renamed-inkling",
+                "profile: hf.thinkingmachines/inkling-2-mini",
+                "connection:",
+                "  base_url: http://localhost:8000/v1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (overlays_dir / "invalid_namespaced.yaml").write_text(
+        "\n".join(
+            [
+                "name: invalid-namespaced-profile",
+                "provider: generic",
+                "model: acme/unknown-model",
+                "profile: unknown/foo",
+                "connection:",
+                "  base_url: http://localhost:8000/v1",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    registry = load_model_overlay_registry(
+        start_path=tmp_path,
+        home=tmp_path / ".fast-agent",
+    )
+    by_name = registry.by_name()
+    loaded = by_name.get("valid-qualified-profile")
+    assert loaded is not None
+    params = loaded.build_model_parameters()
+    assert params is not None
+    assert params.context_window == 1_048_576
+    assert params.reasoning == "reasoning_content"
+    assert "invalid-namespaced-profile" not in by_name
+
+
+@pytest.mark.parametrize(
+    "gemma_profile",
+    [
+        "google/gemma-4-31b-it",
+        "google/gemma-4-26b-a4b-it",
+    ],
+)
+def test_overlay_profile_resolves_literal_google_gemma_4_models(gemma_profile: str) -> None:
+    manifest = ModelOverlayManifest(
+        name="local-gemma-4",
+        provider=Provider.GENERIC,
+        model=gemma_profile,
+        profile=gemma_profile,
+    )
+    overlay = LoadedModelOverlay(
+        manifest=manifest,
+        manifest_path=Path("local-gemma-4.yaml"),
+    )
+    params = overlay.build_model_parameters()
+    assert params is not None
+    assert params.context_window > 0
+
+
+def test_openresponses_no_auth_overlay_omits_authorization_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openai._models import FinalRequestOptions
+
+    from fast_agent.context import Context
+    from fast_agent.llm.model_overlays import (
+        clear_ephemeral_model_overlays,
+        register_ephemeral_model_overlay,
+    )
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_CUSTOM_HEADERS", "X-OpenAI-Leak: should-not-leak")
+
+    overlay = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="local-openresponses-no-auth",
+            provider=Provider.OPENRESPONSES,
+            model="local-r1",
+            connection=ModelOverlayConnection(
+                base_url="http://localhost:8000/v1",
+                auth="none",
+            ),
+        ),
+        manifest_path=Path("local-openresponses-no-auth.yaml"),
+    )
+    register_ephemeral_model_overlay(overlay)
+    try:
+        context = Context(config=Settings())
+        agent = LlmAgent(AgentConfig("or-no-auth"), context=context)
+        llm = ModelFactory.create_factory(overlay.name)(agent, context=context)
+        assert isinstance(llm, OpenResponsesLLM)
+        req = llm._responses_client()._build_request(
+            FinalRequestOptions(
+                method="post",
+                url="/responses",
+                json_data={"model": "local-r1", "input": []},
+            )
+        )
+        headers = {k.lower(): v for k, v in req.headers.items()}
+        assert "authorization" not in headers
+        assert "x-openai-leak" not in headers
+    finally:
+        clear_ephemeral_model_overlays()
+
+
+def test_serve_oauth_huggingface_takes_precedence_over_no_auth_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openai._models import FinalRequestOptions
+
+    from fast_agent.context import Context
+    from fast_agent.core.exceptions import ProviderKeyError
+    from fast_agent.llm.model_overlays import (
+        clear_ephemeral_model_overlays,
+        register_ephemeral_model_overlay,
+    )
+    from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+    from fast_agent.mcp.auth.context import request_bearer_token
+
+    monkeypatch.setenv("FAST_AGENT_SERVE_OAUTH", "huggingface")
+    monkeypatch.setenv("HF_TOKEN", "hf_server_secret_should_not_be_used")
+    monkeypatch.setenv(
+        "OPENAI_CUSTOM_HEADERS",
+        "Authorization: Bearer ambient_operator_secret\nX-Gateway: keep-me",
+    )
+
+    overlay = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="saved-hf-no-auth",
+            provider=Provider.HUGGINGFACE,
+            model="moonshotai/Kimi-K2.5",
+            connection=ModelOverlayConnection(
+                base_url="https://router.huggingface.co/v1",
+                auth="none",
+                default_headers={
+                    "authorization": "Bearer overlay_operator_secret",
+                    "X-Overlay": "keep-overlay",
+                },
+            ),
+        ),
+        manifest_path=Path("saved-hf-no-auth.yaml"),
+    )
+    register_ephemeral_model_overlay(overlay)
+    try:
+        context = Context(config=Settings())
+        agent = LlmAgent(AgentConfig("hf-oauth"), context=context)
+        llm = ModelFactory.create_factory(overlay.name)(agent, context=context)
+        assert isinstance(llm, HuggingFaceLLM)
+
+        # Missing caller token must fail closed at client creation.
+        with pytest.raises(ProviderKeyError):
+            llm._openai_client()
+
+        # Present caller bearer token must win over ambient OPENAI_CUSTOM_HEADERS
+        # and overlay/config Authorization headers while preserving other headers.
+        token_reset = request_bearer_token.set("hf_caller_oauth_token")
+        try:
+            req = llm._openai_client()._build_request(
+                FinalRequestOptions(
+                    method="post",
+                    url="/chat/completions",
+                    json_data={"model": "moonshotai/Kimi-K2.5", "messages": []},
+                )
+            )
+            headers = {k.lower(): v for k, v in req.headers.items()}
+            assert headers.get("authorization") == "Bearer hf_caller_oauth_token"
+            assert headers.get("x-gateway") == "keep-me"
+            assert headers.get("x-overlay") == "keep-overlay"
+        finally:
+            request_bearer_token.reset(token_reset)
+    finally:
+        clear_ephemeral_model_overlays()
+
+
+def test_saved_openai_overlay_origin_compares_against_openai_base_url_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openai._models import FinalRequestOptions
+
+    from fast_agent.context import Context
+    from fast_agent.llm.model_overlays import (
+        clear_ephemeral_model_overlays,
+        register_ephemeral_model_overlay,
+    )
+    from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+    from fast_agent.llm.provider.openai.responses import ResponsesLLM
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-gateway-test")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://gateway.corp/v1")
+    monkeypatch.setenv("OPENAI_CUSTOM_HEADERS", "X-Gateway-Key: gw-secret")
+
+    try:
+        for provider, expected_cls, path, payload, client_getter in (
+            (
+                Provider.OPENAI,
+                OpenAILLM,
+                "/chat/completions",
+                {"model": "gpt-4.1", "messages": []},
+                lambda llm: llm._openai_client(),
+            ),
+            (
+                Provider.RESPONSES,
+                ResponsesLLM,
+                "/responses",
+                {"model": "gpt-5-mini", "input": []},
+                lambda llm: llm._responses_client(),
+            ),
+        ):
+            same_gateway = LoadedModelOverlay(
+                manifest=ModelOverlayManifest(
+                    name=f"saved-{provider.config_name}-gateway",
+                    provider=provider,
+                    model="gpt-4.1" if provider == Provider.OPENAI else "gpt-5-mini",
+                    connection=ModelOverlayConnection(
+                        base_url="https://gateway.corp/v1",
+                        auth="env",
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+                manifest_path=Path(f"saved-{provider.config_name}-gateway.yaml"),
+            )
+            default_openai = LoadedModelOverlay(
+                manifest=ModelOverlayManifest(
+                    name=f"saved-{provider.config_name}-public",
+                    provider=provider,
+                    model="gpt-4.1" if provider == Provider.OPENAI else "gpt-5-mini",
+                    connection=ModelOverlayConnection(
+                        base_url="https://api.openai.com/v1",
+                        auth="env",
+                        api_key_env="OPENAI_API_KEY",
+                    ),
+                ),
+                manifest_path=Path(f"saved-{provider.config_name}-public.yaml"),
+            )
+            register_ephemeral_model_overlay(same_gateway)
+            register_ephemeral_model_overlay(default_openai)
+
+            context = Context(config=Settings())
+            llm_same = ModelFactory.create_factory(same_gateway.name)(
+                LlmAgent(AgentConfig("same-gw"), context=context), context=context
+            )
+            assert isinstance(llm_same, expected_cls)
+            req_same = client_getter(llm_same)._build_request(
+                FinalRequestOptions(method="post", url=path, json_data=payload)
+            )
+            same_headers = {k.lower(): v for k, v in req_same.headers.items()}
+            assert same_headers.get("x-gateway-key") == "gw-secret"
+
+            llm_public = ModelFactory.create_factory(default_openai.name)(
+                LlmAgent(AgentConfig("public-api"), context=context), context=context
+            )
+            assert isinstance(llm_public, expected_cls)
+            req_public = client_getter(llm_public)._build_request(
+                FinalRequestOptions(method="post", url=path, json_data=payload)
+            )
+            public_headers = {k.lower(): v for k, v in req_public.headers.items()}
+            assert "x-gateway-key" not in public_headers
+    finally:
+        clear_ephemeral_model_overlays()
+
+
+def test_same_origin_no_auth_overlay_omits_ambient_authorization_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openai._models import FinalRequestOptions
+
+    from fast_agent.context import Context
+    from fast_agent.llm.model_overlays import (
+        clear_ephemeral_model_overlays,
+        register_ephemeral_model_overlay,
+    )
+    from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_CUSTOM_HEADERS", "Authorization: Bearer ambient\nX-Gateway: 1")
+
+    overlay = LoadedModelOverlay(
+        manifest=ModelOverlayManifest(
+            name="same-origin-openai-no-auth",
+            provider=Provider.OPENAI,
+            model="gpt-4.1",
+            connection=ModelOverlayConnection(
+                base_url="https://api.openai.com/v1",
+                auth="none",
+            ),
+        ),
+        manifest_path=Path("same-origin-openai-no-auth.yaml"),
+    )
+    register_ephemeral_model_overlay(overlay)
+    try:
+        context = Context(config=Settings())
+        agent = LlmAgent(AgentConfig("same-origin-no-auth"), context=context)
+        llm = ModelFactory.create_factory(overlay.name)(agent, context=context)
+        assert isinstance(llm, OpenAILLM)
+        req = llm._openai_client()._build_request(
+            FinalRequestOptions(
+                method="post",
+                url="/chat/completions",
+                json_data={"model": "gpt-4.1", "messages": []},
+            )
+        )
+        headers = {k.lower(): v for k, v in req.headers.items()}
+        assert "authorization" not in headers
+        assert headers.get("x-gateway") == "1"
+    finally:
+        clear_ephemeral_model_overlays()

@@ -69,6 +69,7 @@ picker:
 - `name` — overlay token used in `--model`, `default_model`, agent cards, or model references.
 - `provider` — fast-agent provider used to dispatch requests.
 - `model` — wire model name sent to the backend.
+- `profile` — optional static `ModelDatabase` model ID to inherit capabilities/defaults from (useful for renamed, quantized, or fine-tuned endpoints while overriding `connection`, `metadata`, or `defaults`; also retains Hugging Face route-profile behavior on dedicated HF endpoints).
 - `connection` — endpoint and auth settings.
 - `defaults` — request defaults applied unless explicitly overridden.
 - `metadata` — local model metadata for picker/runtime display.
@@ -170,10 +171,10 @@ Common fields:
 - `compaction_trigger_tokens`: input tokens at which auto-compaction fires (at least
   1,000), e.g. to stay below a long-context price tier. A model-string `compact_at`
   or `compaction.threshold` in config takes precedence
-- `shell_tool_name`: optional model-facing name for the minimal-process shell tool
+- `shell_tool_name`: optional direct-mode name for the shell tool (canonical PTC ignores it)
 - `shell_tool_requires_description`: require a short operator-facing `description`
   argument on the minimal-process shell tool
-- `shell_edit_tool`: model default for local file editing: `write_text_file`,
+- `shell_edit_tool`: direct-mode model default for local file editing: `write_text_file`,
   `edit_file`, `apply_patch`, or `off`
 - `model_specific`: text made available to system prompts as `{{model_specific}}`
 - `fast`

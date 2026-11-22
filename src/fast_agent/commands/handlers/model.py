@@ -6,9 +6,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
+from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.commands import model_capabilities as _model_capabilities
 from fast_agent.commands.handlers import sessions as sessions_handlers
-from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.model_capabilities import (
     SERVICE_TIER_VALUES,
     ServiceTierValue,
@@ -54,6 +54,7 @@ from fast_agent.core.exceptions import (
     ModelConfigError,
     format_fast_agent_error,
 )
+from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortLevel,
     ReasoningEffortSetting,
@@ -440,19 +441,6 @@ def _resolve_reasoning_command_setting(
     if parsed.kind != "toggle":
         return parsed
 
-    if (
-        spec.kind == "effort"
-        and parsed.value is False
-        and "none" not in (spec.allowed_efforts or [])
-        and not spec.allow_toggle_disable
-    ):
-        outcome.add_message(
-            f"{REASONING_LABEL} disable is not supported for this model. "
-            f"Allowed values: {_reasoning_allowed_values_text(spec)}.",
-            channel="error",
-            right_info="model",
-        )
-        return None
     return _resolve_toggle_to_default(spec, bool(parsed.value))
 
 
@@ -463,7 +451,8 @@ def _set_reasoning_command_setting(
     setting: ReasoningEffortSetting,
     spec: ReasoningEffortSpec,
 ) -> None:
-    if setting.kind == "effort" and spec.kind == "budget":
+    # HF owns route-specific disable normalization; budget providers own effort mapping.
+    if isinstance(llm, HuggingFaceLLM) or (setting.kind == "effort" and spec.kind == "budget"):
         try:
             set_reasoning_effort(llm, setting)
         except ValueError as exc:
@@ -496,9 +485,15 @@ async def _set_agent_model_for_switch(
     outcome: CommandOutcome,
     agent: "LlmAgentProtocol",
     selected_model: str,
+    *,
+    start_session: Callable[[], Awaitable[None]],
 ) -> bool:
     try:
-        await agent.set_model(selected_model)
+        if isinstance(agent, LlmDecorator):
+            await agent.set_model_for_new_session(selected_model, start_session=start_session)
+        else:
+            await agent.set_model(selected_model)
+            await start_session()
     except (AgentConfigError, ModelConfigError) as exc:
         outcome.add_message(
             format_fast_agent_error(exc),
@@ -535,12 +530,7 @@ async def _start_model_switch_session(ctx: CommandContext, outcome: CommandOutco
             channel="info",
         )
 
-    cleared = clear_agent_histories(ctx.agent_provider.registered_agents())
-    if cleared:
-        outcome.add_message(
-            f"Cleared agent history: {', '.join(sorted(cleared))}",
-            channel="info",
-        )
+    await sessions_handlers.apply_session_new_history_reset(ctx, outcome)
 
 
 async def handle_model_switch(
@@ -599,9 +589,12 @@ async def handle_model_switch(
         )
         return outcome
 
-    await _start_model_switch_session(ctx, outcome)
+    async def start_session() -> None:
+        await _start_model_switch_session(ctx, outcome)
 
-    if not await _set_agent_model_for_switch(outcome, agent, selected_model):
+    if not await _set_agent_model_for_switch(
+        outcome, agent, selected_model, start_session=start_session
+    ):
         return outcome
 
     updated_llm = agent.llm

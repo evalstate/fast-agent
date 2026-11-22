@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pytest
 from acp.exceptions import RequestError
-from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation
+from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation, TextContentBlock
 from acp.stdio import spawn_agent_process
 
 TEST_DIR = Path(__file__).parent
@@ -89,7 +88,7 @@ async def test_acp_initialize_survives_missing_provider_keys_and_prompts_fail_la
         with pytest.raises(RequestError) as exc_info:
             await connection.prompt(
                 session_id=session_response.session_id,
-                prompt=[text_block("hello")],
+                prompt=[TextContentBlock(text="hello")],
             )
 
     assert exc_info.value.code == -32000

@@ -252,6 +252,11 @@ def _cast_recorders() -> dict[Path, CastRecorder]:
         )
         for scenario in _scenarios().values()
     }
+    recorders[(ASSETS / "models" / "llamacpp-local.cast").relative_to(ROOT)] = CastRecorder(
+        name="llamacpp-local",
+        command="fast-agent local -m 'What is MCP in one sentence?'",
+        notes="Live recording of llama server startup and fast-agent local auto-discovery.",
+    )
     recorders.update(_a2a_recorders())
     return recorders
 

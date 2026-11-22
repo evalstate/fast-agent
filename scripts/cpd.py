@@ -32,8 +32,8 @@ from typing import Final
 from xml.etree import ElementTree
 
 # Tool versions and URLs
-JRE_VERSION = "17.0.9+9"
-PMD_VERSION = "7.27.0"
+JRE_VERSION = "17.0.21+9"
+PMD_VERSION = "7.29.0"
 
 TOOLS_DIR = Path.home() / "tools"
 JRE_DIR = TOOLS_DIR / f"jdk-{JRE_VERSION}-jre"
@@ -189,7 +189,7 @@ def ensure_jre() -> Path:
 
     print("Extracting Java JRE...")
     with tarfile.open(archive_path, "r:gz") as tar:
-        tar.extractall(TOOLS_DIR)
+        tar.extractall(TOOLS_DIR, filter="data")
 
     # Handle different directory naming conventions
     extracted_dir = TOOLS_DIR / f"jdk-{JRE_VERSION}-jre"

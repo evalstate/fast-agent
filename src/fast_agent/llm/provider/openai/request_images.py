@@ -36,6 +36,8 @@ class ImageBudget:
     max_dimension: int | None
     reencode_min_bytes: int | None
     max_request_bytes: int | None
+    max_images: int | None = None
+    max_image_bytes: int | None = None
 
 
 @dataclass(slots=True)
@@ -72,7 +74,9 @@ class ChatRequestImageFitter:
     """Stateful only for its normalization cache (images repeat on every turn)."""
 
     def __init__(self) -> None:
-        self._cache: OrderedDict[tuple[str, int | None, int | None], _Normalized] = OrderedDict()
+        self._cache: OrderedDict[tuple[str, int | None, int | None, int | None], _Normalized] = (
+            OrderedDict()
+        )
 
     def fit(
         self, arguments: dict[str, Any], budget: ImageBudget
@@ -117,31 +121,50 @@ class ChatRequestImageFitter:
         fitted = {**arguments, "messages": new_messages}
         report.request_bytes_before = request_bytes(arguments)
         size = request_bytes(fitted)
+
+        def omit_location(message_index: int, part_index: int) -> None:
+            nonlocal size
+            message = new_messages[message_index]
+            content = list(message["content"])
+            removed = content[part_index]
+            placeholder = {"type": "text", "text": IMAGE_OMITTED_PLACEHOLDER}
+            size -= request_bytes(removed) - request_bytes(placeholder)
+            content[part_index] = placeholder
+            new_messages[message_index] = {**message, "content": content}
+            report.omitted += 1
+
+        remaining = locations
+        if budget.max_images is not None and len(remaining) > budget.max_images:
+            # Oldest first: the newest image is usually the one the model just asked for.
+            excess = len(remaining) - budget.max_images
+            for message_index, part_index in remaining[:excess]:
+                omit_location(message_index, part_index)
+            remaining = remaining[excess:]
+
         limit = budget.max_request_bytes
         if limit is not None and size > limit:
-            # Oldest first: the newest image is usually the one the model just asked for.
-            for message_index, part_index in locations:
+            for message_index, part_index in remaining:
                 if size <= limit:
                     break
-                message = new_messages[message_index]
-                content = list(message["content"])
-                removed = content[part_index]
-                placeholder = {"type": "text", "text": IMAGE_OMITTED_PLACEHOLDER}
-                size -= request_bytes(removed) - request_bytes(placeholder)
-                content[part_index] = placeholder
-                new_messages[message_index] = {**message, "content": content}
-                report.omitted += 1
+                omit_location(message_index, part_index)
+
+        if report.omitted:
             size = request_bytes(fitted)
         report.request_bytes_after = size
         return (fitted if report.changed else arguments), report
 
     def _normalize(self, url: str, budget: ImageBudget) -> _Normalized:
-        if budget.max_dimension is None and budget.reencode_min_bytes is None:
+        if (
+            budget.max_dimension is None
+            and budget.reencode_min_bytes is None
+            and budget.max_image_bytes is None
+        ):
             return _Normalized(url, False, False, None)
         key = (
             hashlib.sha256(url.encode()).hexdigest(),
             budget.max_dimension,
             budget.reencode_min_bytes,
+            budget.max_image_bytes,
         )
         cached = self._cache.get(key)
         if cached is not None:
@@ -177,25 +200,38 @@ def _normalize_data_url(url: str, budget: ImageBudget) -> _Normalized:
             image_format = opened.format or "PNG"
             original = opened.size
             too_large = budget.max_dimension is not None and max(original) > budget.max_dimension
+            over_cap = budget.max_image_bytes is not None and len(data) > budget.max_image_bytes
             heavy = budget.reencode_min_bytes is not None and len(data) > budget.reencode_min_bytes
-            if not too_large and not heavy:
+            if not too_large and not over_cap and not heavy:
                 return unchanged
             image = ImageOps.exif_transpose(opened)
+            resized = False
             if too_large and budget.max_dimension is not None:
                 image.thumbnail(
                     (budget.max_dimension, budget.max_dimension), Image.Resampling.LANCZOS
                 )
+                resized = True
             candidates = _encode_candidates(image, image_format)
+            mime, encoded = min(candidates, key=lambda candidate: len(candidate[1]))
+            while (
+                budget.max_image_bytes is not None
+                and len(encoded) > budget.max_image_bytes
+                and max(image.size) > 64
+            ):
+                next_side = max(64, int(max(image.size) * 0.75))
+                image.thumbnail((next_side, next_side), Image.Resampling.LANCZOS)
+                resized = True
+                candidates = _encode_candidates(image, image_format)
+                mime, encoded = min(candidates, key=lambda candidate: len(candidate[1]))
     except (OSError, SyntaxError, ValueError, binascii.Error, Image.DecompressionBombError):
         return unchanged  # not decodable here; the provider decides, the budget still applies
-    mime, encoded = min(candidates, key=lambda candidate: len(candidate[1]))
-    if not too_large and len(encoded) >= len(data):
+    if not resized and len(encoded) >= len(data):
         return unchanged
-    note = f"{original[0]}x{original[1]}->{image.width}x{image.height}" if too_large else None
+    note = f"{original[0]}x{original[1]}->{image.width}x{image.height}" if resized else None
     return _Normalized(
         f"data:{mime};base64,{base64.b64encode(encoded).decode('ascii')}",
-        resized=too_large,
-        reencoded=not too_large or mime != Image.MIME.get(image_format),
+        resized=resized,
+        reencoded=not resized or mime != Image.MIME.get(image_format),
         dimension_note=note,
     )
 

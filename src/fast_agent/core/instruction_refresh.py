@@ -22,9 +22,9 @@ from weakref import WeakKeyDictionary
 
 from fast_agent.core.instruction import InstructionBuilder
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.common import create_namespaced_name
+from fast_agent.mcp.common import create_namespaced_name, matches_server_filter
 from fast_agent.skills import SKILLS_DEFAULT
-from fast_agent.tools.skill_reader import READ_SKILL_TOOL_NAME
+from fast_agent.tools.file_read_access import SKILL_READER_FILE_READS, FileReadAccess
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -95,7 +95,7 @@ class McpInstructionCapable(InstructionCapable, Protocol):
     def set_instruction_context(self, context: dict[str, str]) -> None: ...
 
     @property
-    def skill_read_tool_name(self) -> str: ...
+    def skill_read_access(self) -> FileReadAccess: ...
 
 
 class ConfiguredMcpInstructionCapable(McpInstructionCapable, Protocol):
@@ -105,6 +105,19 @@ class ConfiguredMcpInstructionCapable(McpInstructionCapable, Protocol):
     def name(self) -> str: ...
 
     config: "AgentConfig"
+
+
+@runtime_checkable
+class PtcSearchAware(Protocol):
+    """Agent whose PTC tool search may defer function definitions."""
+
+    @property
+    def ptc_search_enabled(self) -> bool: ...
+
+
+def lists_server_tools(agent: object) -> bool:
+    """Whether ``{{serverInstructions}}`` lists each server's tools for ``agent``."""
+    return not (isinstance(agent, PtcSearchAware) and agent.ptc_search_enabled)
 
 
 @runtime_checkable
@@ -151,12 +164,20 @@ def resolve_instruction_skill_manifests(
     return skill_manifests
 
 
-def format_server_instructions(instructions_data: dict[str, tuple[str | None, list[str]]]) -> str:
+def format_server_instructions(
+    instructions_data: dict[str, tuple[str | None, list[str]]],
+    tool_filters: Mapping[str, Sequence[str]] | None = None,
+    *,
+    include_tool_names: bool = True,
+) -> str:
     """
     Format server instructions with XML tags and tool lists.
 
     Args:
         instructions_data: Dict mapping server name to (instructions, tool_names)
+        tool_filters: The agent's tools: filter; excluded tool names are not rendered
+        include_tool_names: Render each server's tool list. PTC tool search omits it: the
+            tools are discoverable on demand, and a list would change with the server's tools.
 
     Returns:
         Formatted string with server instructions
@@ -169,12 +190,19 @@ def format_server_instructions(instructions_data: dict[str, tuple[str | None, li
         if instructions is None:
             continue
 
-        prefixed_tools = [create_namespaced_name(server_name, tool) for tool in tool_names]
-        tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
+        tools_line = ""
+        if include_tool_names:
+            prefixed_tools = [
+                create_namespaced_name(server_name, tool)
+                for tool in tool_names
+                if matches_server_filter(tool_filters, server_name, tool)
+            ]
+            tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
+            tools_line = f"<tools>{tools_list}</tools>\n"
 
         formatted_parts.append(
             f'<fastagent:mcp-server name="{server_name}">\n'
-            f"<tools>{tools_list}</tools>\n"
+            f"{tools_line}"
             f"<instructions>\n{instructions}\n</instructions>\n"
             f"</fastagent:mcp-server>"
         )
@@ -184,31 +212,33 @@ def format_server_instructions(instructions_data: dict[str, tuple[str | None, li
 
 def format_agent_skills(
     manifests: Sequence["SkillManifest"],
-    read_tool_name: str = READ_SKILL_TOOL_NAME,
+    read_access: FileReadAccess = SKILL_READER_FILE_READS,
 ) -> str:
     """
     Format skill manifests for inclusion in the instruction.
 
     Args:
         manifests: List of skill manifests
-        read_tool_name: Tool name used to read skill files in prompts
+        read_access: How the model reads skill files
 
     Returns:
         Formatted skills text
     """
     from fast_agent.skills.registry import format_skills_for_prompt
 
-    return format_skills_for_prompt(manifests, read_tool_name=read_tool_name)
+    return format_skills_for_prompt(manifests, read_access=read_access)
 
 
 async def build_instruction(
     template: str,
     *,
     aggregator: "MCPAggregator | None" = None,
+    tool_filters: Mapping[str, Sequence[str]] | None = None,
     skill_manifests: Sequence["SkillManifest"] | None = None,
-    skill_read_tool_name: str = READ_SKILL_TOOL_NAME,
+    skill_read_access: FileReadAccess = SKILL_READER_FILE_READS,
     context: Mapping[str, str] | None = None,
     source: str | None = None,
+    include_tool_names: bool = True,
 ) -> str:
     """
     Build an instruction string from a template with all placeholders resolved.
@@ -222,10 +252,12 @@ async def build_instruction(
     Args:
         template: The instruction template with {{placeholder}} patterns
         aggregator: MCP aggregator for fetching server instructions
+        tool_filters: The agent's tools: filter applied to rendered server tool names
         skill_manifests: List of skill manifests for {{agentSkills}}
-        skill_read_tool_name: Tool name used to read skill files in prompts
+        skill_read_access: How the model reads skill files, reported by the agent
         context: Additional context values (env, workspaceRoot, etc.)
         source: Optional label for diagnostics (agent name, card, etc.)
+        include_tool_names: Render server tool lists in {{serverInstructions}}
 
     Returns:
         The fully resolved instruction string
@@ -240,7 +272,9 @@ async def build_instruction(
         async def resolve_server_instructions() -> str:
             try:
                 instructions_data = await aggregator.get_server_instructions()
-                return format_server_instructions(instructions_data)
+                return format_server_instructions(
+                    instructions_data, tool_filters, include_tool_names=include_tool_names
+                )
             except Exception as e:
                 logger.warning(f"Failed to get server instructions: {e}")
                 return ""
@@ -251,7 +285,7 @@ async def build_instruction(
     if skill_manifests is not None:
 
         async def resolve_agent_skills() -> str:
-            return format_agent_skills(skill_manifests, skill_read_tool_name)
+            return format_agent_skills(skill_manifests, skill_read_access)
 
         builder.set_resolver("agentSkills", resolve_agent_skills)
 
@@ -367,13 +401,15 @@ async def rebuild_agent_instruction(
         new_instruction = await build_instruction(
             template,
             aggregator=configured_agent.aggregator,
+            tool_filters=configured_agent.config.tools,
             skill_manifests=resolve_instruction_skill_manifests(
                 configured_agent,
                 configured_agent.skill_manifests,
             ),
-            skill_read_tool_name=configured_agent.skill_read_tool_name,
+            skill_read_access=configured_agent.skill_read_access,
             context=build_context,
             source=configured_agent.name,
+            include_tool_names=lists_server_tools(agent),
         )
         if isinstance(agent, RenderedInstructionProcessor):
             new_instruction = agent.process_rendered_instruction(new_instruction)
@@ -386,7 +422,7 @@ async def rebuild_agent_instruction(
 
         if (
             needs_tool_update
-            and configured_agent.skill_read_tool_name == READ_SKILL_TOOL_NAME
+            and configured_agent.skill_read_access == SKILL_READER_FILE_READS
             and isinstance(configured_agent, ToolUpdateNotifyingAgent)
         ):
             try:

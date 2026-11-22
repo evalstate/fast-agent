@@ -18,6 +18,7 @@ from fast_agent.core.instruction_utils import (
     build_agent_instruction_context,
 )
 from fast_agent.skills import SKILLS_DEFAULT
+from fast_agent.tools.file_read_access import SKILL_READER_FILE_READS, FileReadAccess
 
 if TYPE_CHECKING:
     from fast_agent.core.instruction_refresh import ConfiguredMcpInstructionCapable
@@ -47,10 +48,10 @@ class StubAgent:
         self._instruction_template = template
         self._instruction_context: dict[str, str] = {}
         self._skill_manifests: list = []
-        self.config = SimpleNamespace(skills=SKILLS_DEFAULT)
+        self.config = SimpleNamespace(skills=SKILLS_DEFAULT, tools={})
         self._skill_registry = None
         self._aggregator = aggregator or StubAggregator()
-        self._skill_read_tool_name = "read_skill"
+        self._skill_read_access: FileReadAccess = SKILL_READER_FILE_READS
 
     @property
     def instruction(self) -> str:
@@ -90,8 +91,8 @@ class StubAgent:
         self._instruction_context.update(context)
 
     @property
-    def skill_read_tool_name(self) -> str:
-        return self._skill_read_tool_name
+    def skill_read_access(self) -> FileReadAccess:
+        return self._skill_read_access
 
 
 # Ensure StubAgent is recognized as McpInstructionCapable

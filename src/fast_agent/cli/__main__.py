@@ -6,6 +6,7 @@ from fast_agent.cli.constants import (
     GO_SPECIFIC_OPTIONS,
     KNOWN_SUBCOMMANDS,
     normalize_convenience_flag_args,
+    normalize_model_flag_args,
     normalize_resume_flag_args,
 )
 from fast_agent.cli.main import LAZY_SUBCOMMANDS, app
@@ -15,6 +16,7 @@ from fast_agent.utils.async_utils import configure_uvloop, ensure_event_loop
 # if the arguments would work with "go" we'll just route to it
 
 _OPTIONS_WITHOUT_VALUES = {
+    "--local",
     "--no-home",
     "--shell",
     "--no-shell",
@@ -24,13 +26,25 @@ _OPTIONS_WITHOUT_VALUES = {
     "--reload",
     "--a2a-oauth",
     "--no-a2a-oauth",
+    "--ptc",
+    "--no-ptc",
+    "--ptc-all",
+    "--ptc-search",
     "-x",
+}
+
+_LONG_OPTIONS_WITH_OPTIONAL_VALUES = {
+    "--model",
+    "--models",
+    "--resume",
 }
 
 _LONG_OPTIONS_WITH_VALUES = {
     option
     for option in GO_SPECIFIC_OPTIONS
-    if option.startswith("--") and option not in _OPTIONS_WITHOUT_VALUES
+    if option.startswith("--")
+    and option not in _OPTIONS_WITHOUT_VALUES
+    and option not in _LONG_OPTIONS_WITH_OPTIONAL_VALUES
 }
 
 _SHORT_OPTIONS_WITH_VALUES = {
@@ -94,6 +108,12 @@ def _first_positional_argument(arguments: list[str]) -> str | None:
         if arg.startswith("--"):
             if "=" in arg:
                 index += 1
+                continue
+            if arg in _LONG_OPTIONS_WITH_OPTIONAL_VALUES:
+                if index + 1 < len(arguments) and not arguments[index + 1].startswith("-"):
+                    index += 2
+                else:
+                    index += 1
                 continue
             if arg in _LONG_OPTIONS_WITH_VALUES:
                 index += 2
@@ -170,6 +190,7 @@ def main():
 
         if _first_positional_argument(sys.argv[1:]) == "go":
             normalize_resume_flag_args(sys.argv, start_index=1)
+            normalize_model_flag_args(sys.argv, start_index=1)
 
     try:
         app()

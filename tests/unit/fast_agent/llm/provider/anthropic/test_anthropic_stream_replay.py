@@ -100,7 +100,7 @@ class _SyntheticAnthropicStream:
         return self._final_message
 
 
-def _anthropic_message(*, text: str = "", stop_reason: str = "end_turn") -> BetaMessage:
+def _anthropic_message(*, text: str = "", stop_reason: str | None = "end_turn") -> BetaMessage:
     content = [{"type": "text", "text": text}] if text else []
     return BetaMessage.model_validate(
         {
@@ -245,6 +245,57 @@ async def test_anthropic_incomplete_tool_call_uses_shared_error_message() -> Non
         await harness._process_stream(
             cast("Any", stream),
             model="claude-sonnet-4-6",
+            capture_filename=None,
+        )
+
+
+def _open_thinking_events() -> list[Any]:
+    return [
+        BetaRawContentBlockStartEvent.model_validate(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+            }
+        ),
+        BetaRawContentBlockDeltaEvent.model_validate(
+            {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "thinking_delta", "thinking": "Next"},
+            }
+        ),
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_anthropic_stream_cut_inside_thinking_block_fails() -> None:
+    harness = _AnthropicReplayHarness()
+    stream = _SyntheticAnthropicStream(
+        _open_thinking_events(), final_message=_anthropic_message(stop_reason=None)
+    )
+
+    with pytest.raises(RuntimeError, match="thinking block finished"):
+        await harness._process_stream(
+            cast("Any", stream),
+            model="claude-opus-5.5",
+            capture_filename=None,
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_anthropic_stream_without_stop_reason_fails() -> None:
+    harness = _AnthropicReplayHarness()
+    stream = _SyntheticAnthropicStream(
+        [], final_message=_anthropic_message(text="partial", stop_reason=None)
+    )
+
+    with pytest.raises(RuntimeError, match="no stop_reason"):
+        await harness._process_stream(
+            cast("Any", stream),
+            model="claude-opus-5.5",
             capture_filename=None,
         )
 

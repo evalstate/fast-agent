@@ -20,6 +20,8 @@ class ArithmeticResult(BaseModel):
 @pytest.mark.parametrize(
     "model_name",
     [
+        "inkling",
+        "Inkling 2 Small (together)",
         "responses.gpt-6-astra",
         "responses.gpt-6.1-sol",
         "responses.gpt-6-sol",
@@ -36,6 +38,8 @@ class ArithmeticResult(BaseModel):
         "copilot.sonnet55?reasoning=off",
         "copilot.claude-fable-5.1",
         "copilot.claude-fable-5.2",
+        "deepseek-hf",
+        "beam",
     ],
 )
 @pytest.mark.parametrize("with_tools", [False, True], ids=["schema-only", "with-tools"])

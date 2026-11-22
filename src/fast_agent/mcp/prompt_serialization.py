@@ -18,7 +18,7 @@ and PromptMessageExtended objects. It includes functionality for:
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
 from mcp_types import (
     AudioContent,
@@ -29,7 +29,7 @@ from mcp_types import (
     TextContent,
     TextResourceContents,
 )
-from pydantic import TypeAdapter
+from pydantic import JsonValue, TypeAdapter
 
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.message_roles import MessageRole
@@ -66,15 +66,24 @@ def serialize_to_dict(obj, exclude_none: bool = True):
 
 class _SerializedMessages(TypedDict):
     messages: list[PromptMessageExtended]
+    metadata: NotRequired[dict[str, JsonValue]]
 
 
 _SERIALIZED_MESSAGES_ADAPTER = TypeAdapter(_SerializedMessages)
 
 
-def to_json_bytes(messages: list[PromptMessageExtended], *, indent: int | None = 2) -> bytes:
+def to_json_bytes(
+    messages: list[PromptMessageExtended],
+    *,
+    indent: int | None = 2,
+    metadata: dict[str, JsonValue] | None = None,
+) -> bytes:
     """Serialize messages directly to UTF-8 JSON bytes."""
+    payload: _SerializedMessages = {"messages": messages}
+    if metadata:
+        payload["metadata"] = metadata
     return _SERIALIZED_MESSAGES_ADAPTER.dump_json(
-        {"messages": messages},
+        payload,
         by_alias=True,
         exclude_none=True,
         indent=indent,

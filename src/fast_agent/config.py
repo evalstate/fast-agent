@@ -9,7 +9,7 @@ import sys
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from mcp_types import Implementation
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
@@ -20,6 +20,7 @@ from fast_agent.command_actions import PluginCommandActionSpec, parse_plugin_com
 from fast_agent.constants import (
     DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES,
     DEFAULT_PROCESS_POLL_MAX_WAIT_SECONDS,
+    DEFAULT_PTC_OUTPUT_BYTE_LIMIT,
     MAX_FOREGROUND_AUTO_AWAIT_SECONDS,
     MAX_PROCESS_POLL_WAIT_SECONDS,
 )
@@ -66,7 +67,35 @@ from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.transports import McpClientTransport
 
 MOONSHOT_DEFAULT_MODEL = "kimi-k3.1-pro"
+TENCENT_EVAL_DEFAULT_MODEL = "hy4-flash-dev"
 HUGGINGFACE_DEFAULT_MODEL = "moonshotai/Kimi-K3.1-Pro:together"
+DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES: Final = 10_485_760
+
+
+def _default_hf_max_request_bytes() -> int | None:
+    raw = os.getenv("HF_MAX_REQUEST_BYTES")
+    if raw is None or not raw.strip():
+        return DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES
+    normalized = raw.strip().casefold()
+    if normalized in {"none", "null", "off", "0"}:
+        return None
+    try:
+        parsed = int(normalized)
+    except ValueError:
+        warnings.warn(
+            f"Ignoring invalid HF_MAX_REQUEST_BYTES={raw!r}; "
+            f"using default {DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES}",
+            stacklevel=2,
+        )
+        return DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES
+    if parsed < 1:
+        warnings.warn(
+            f"Ignoring non-positive HF_MAX_REQUEST_BYTES={raw!r}; "
+            f"using default {DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES}",
+            stacklevel=2,
+        )
+        return DEFAULT_HUGGINGFACE_MAX_REQUEST_BYTES
+    return parsed
 
 
 type TerminalImageSize = int | Literal["auto"] | str | None
@@ -314,13 +343,28 @@ class HarnessAppSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class ACPSettings(BaseModel):
+    """Configuration for ACP (Agent Client Protocol) server behavior."""
+
+    use_client_tools: bool = Field(
+        default=False,
+        description=(
+            "Opt in to delegating shell and filesystem tools to the ACP client when "
+            "the client advertises terminal or fs capabilities. When False (default), "
+            "ACP mode keeps fast-agent's native local shell, filesystem, and PTC tools."
+        ),
+    )
+    model_config = ConfigDict(extra="ignore")
+
+
 class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
     tool_profile: ShellToolProfile = Field(
         default="auto",
         description=(
-            "Model-facing shell contract: 'auto' selects a model-specific contract; "
+            "Direct-mode shell contract (canonical PTC always uses shell/process): "
+            "'auto' selects a model-specific contract; "
             "'minimal_process' exposes Bash and Process; "
             "'native' retains the legacy execute/poll_process/terminate_process tools; "
             "'grok_shell' exposes aligned shell plus Process; "
@@ -624,6 +668,35 @@ class CompactionSettings(BaseModel):
     def has_custom_prompt(self) -> bool:
         """Whether a custom prompt is configured; it requires a written summary."""
         return self.configured_prompt() is not None
+
+
+class CacheWarmSettings(BaseModel):
+    """Configuration for keeping provider prompt caches warm between model requests."""
+
+    auto: bool = Field(
+        default=True,
+        description=(
+            "Keep the prompt cache warm automatically while a turn waits on tools or "
+            "subagents, and while an idle session waits for herdr-core children to report"
+        ),
+    )
+    max_minutes: int = Field(
+        default=30,
+        ge=1,
+        le=24 * 60,
+        description=(
+            "How long automatic warming continues after the last model request; also the "
+            "default /warm duration"
+        ),
+    )
+    interval_seconds: int | None = Field(
+        default=None,
+        ge=10,
+        description=(
+            "Seconds between keep-warm requests. Unset derives it from the provider's cache "
+            "retention; set it to warm a model whose retention fast-agent does not know"
+        ),
+    )
 
 
 class MCPRootSettings(BaseModel):
@@ -1378,7 +1451,7 @@ class OpenAIWebSearchSettings(BaseModel):
 class XAIWebSearchSettings(OpenAIWebSearchSettings):
     """xAI Responses web_search tool settings."""
 
-    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[invalid-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
+    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[incompatible-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
     excluded_domains: list[str] | None = Field(
         default=None,
         description="Domains to exclude from xAI web search results (maximum 5).",
@@ -1574,6 +1647,23 @@ class MoonshotSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class TencentEvalSettings(BaseModel):
+    """Settings for using Tencent Eval models in the fast-agent application."""
+
+    api_key: str | None = Field(default=None, description="Tencent Eval API key")
+    base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_model: str | None = Field(
+        default=TENCENT_EVAL_DEFAULT_MODEL,
+        description="Default model when Tencent Eval provider is selected without an explicit model",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class GoogleSettings(BaseModel):
     """Settings for using Google models in the fast-agent application."""
 
@@ -1653,7 +1743,7 @@ class XAISettings(BaseModel):
 class MetaAIWebSearchSettings(OpenAIWebSearchSettings):
     """MetaAI Responses web_search (search grounding) settings."""
 
-    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[invalid-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
+    tool_type: Literal["web_search"] = "web_search"  # ty: ignore[incompatible-mutable-override] -- provider restricts accepted config values; settings are not mutated after validation
 
 
 class MetaAISettings(BaseModel):
@@ -1882,12 +1972,12 @@ class HuggingFaceSettings(BaseModel):
         description="Custom headers for all API requests",
     )
     max_request_bytes: int | None = Field(
-        default=4_718_592,
+        default_factory=_default_hf_max_request_bytes,
         ge=1,
         description=(
-            "Request body budget (bytes). The router rejects bodies above about 5 MB with "
-            "HTTP 413; if inline images exceed this budget, the oldest are replaced with a "
-            "placeholder. Null disables the budget."
+            "Request body budget (bytes, default 10 MiB; also configurable via "
+            "HF_MAX_REQUEST_BYTES). If inline images exceed this budget, the oldest are "
+            "replaced with a placeholder. Null disables the budget."
         ),
     )
     image_max_dimension: int | None = Field(
@@ -1993,6 +2083,16 @@ class ProgrammaticToolCallingSettings(BaseModel):
     """Expose tools through the Python code tool; null uses the model default.
     Override with `--ptc` / `--no-ptc` or the `ptc` model query. Local POSIX only."""
 
+    search: bool = True
+    """Defer non-built-in sandbox function stubs behind `search_tools()` when more than three
+    extra functions are present. `--ptc-all` disables this and includes all function stubs upfront."""
+
+    # ptc-vocab-v0: remove the temporary comparison setting after matched rollout.
+    function_names: Literal["canonical", "profile"] = "canonical"
+    """Temporary benchmark comparison switch: canonical PTC vocabulary v1 (default), or
+    previous per-model profiles. Remove after the matched naming evaluation; not a permanent
+    compatibility setting. Direct (non-PTC) tools are unaffected."""
+
     direct_tools: list[str] = Field(default_factory=list)
     """Tool names (fnmatch patterns) that stay directly callable alongside the code tool."""
 
@@ -2021,6 +2121,9 @@ class ProgrammaticToolCallingSettings(BaseModel):
 
     max_memory_mb: int = Field(default=256, gt=0)
     """Sandbox memory limit per execution."""
+
+    output_byte_limit: int = Field(default=DEFAULT_PTC_OUTPUT_BYTE_LIMIT, ge=256)
+    """Model-facing byte limit for `exec_sandbox` tool results."""
 
     model_config = ConfigDict(extra="ignore")
 
@@ -2182,6 +2285,33 @@ def deep_merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+_PROVIDER_SECTION_ALIASES: Final[dict[str, str]] = {
+    "tencent-eval": "tencent_eval",
+}
+
+
+def _normalize_provider_section_aliases(values: Any) -> Any:
+    """Normalize aliased provider section names and merge mixed spellings."""
+    if not isinstance(values, dict):
+        return values
+
+    if not any(alias in values for alias in _PROVIDER_SECTION_ALIASES):
+        return values
+
+    normalized: dict[str, Any] = {}
+    for key, value in values.items():
+        target = _PROVIDER_SECTION_ALIASES.get(key, key)
+        if target in normalized:
+            existing = normalized[target]
+            if isinstance(existing, dict) and isinstance(value, dict):
+                normalized[target] = deep_merge(existing, value)
+            elif value is not None:
+                normalized[target] = value
+        else:
+            normalized[target] = value
+    return normalized
+
+
 def load_yaml_mapping(path: Path | None) -> dict[str, Any]:
     if path is None or not path.exists():
         return {}
@@ -2195,7 +2325,7 @@ def load_yaml_mapping(path: Path | None) -> dict[str, Any]:
         raise ConfigFileError(f"Failed to parse YAML file: {path}", str(exc)) from exc
     if not isinstance(payload, dict):
         return {}
-    return resolve_env_vars(payload)
+    return _normalize_provider_section_aliases(resolve_env_vars(payload))
 
 
 def load_implicit_settings(
@@ -2474,6 +2604,9 @@ def _migrate_legacy_mcp_settings_values(values: Any) -> Any:
     return normalized
 
 
+DEFAULT_SESSION_HISTORY_WINDOW: Final = 30
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -2512,6 +2645,7 @@ class Settings(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def _migrate_legacy_mcp_settings(cls, values: Any) -> Any:
+        values = _normalize_provider_section_aliases(values)
         if isinstance(values, dict):
             removed = sorted({"mcp_ui_mode", "mcp_ui_output_dir"} & values.keys())
             if removed:
@@ -2524,6 +2658,9 @@ class Settings(BaseSettings):
 
     mcp: MCPSettings | None = Field(default_factory=MCPSettings)
     """MCP config, such as MCP servers"""
+
+    acp: ACPSettings = Field(default_factory=ACPSettings)
+    """ACP (Agent Client Protocol) server settings."""
 
     harness_app: HarnessAppSettings = Field(default_factory=HarnessAppSettings)
     """Harness application boundary configuration."""
@@ -2561,14 +2698,17 @@ class Settings(BaseSettings):
     session_history: bool = True
     """Persist session history in the environment sessions folder (default: True)."""
 
-    session_history_window: int = 20
-    """Maximum number of sessions to keep in the rolling window (default: 20)."""
+    session_history_window: int = DEFAULT_SESSION_HISTORY_WINDOW
+    """Maximum number of sessions to keep in the rolling window (0 disables pruning)."""
 
     git_aware: bool = False
     """Persist git repository provenance in session snapshots and trace exports."""
 
     compaction: CompactionSettings = Field(default_factory=CompactionSettings)
     """History compaction settings (auto trigger threshold, retained turns, prompt)."""
+
+    cache_warm: CacheWarmSettings = Field(default_factory=CacheWarmSettings)
+    """Prompt-cache keep-warm settings (automatic warming, window, interval)."""
 
     copilot: CopilotSettings = Field(default_factory=CopilotSettings)
 
@@ -2598,6 +2738,9 @@ class Settings(BaseSettings):
 
     moonshot: MoonshotSettings | None = None
     """Settings for using Moonshot models in the fast-agent application"""
+
+    tencent_eval: TencentEvalSettings | None = None
+    """Settings for using Tencent Eval models in the fast-agent application"""
 
     google: GoogleSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""

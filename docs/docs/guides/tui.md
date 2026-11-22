@@ -161,6 +161,10 @@ By default, **`fast-agent`** truncates tool inputs and outputs.
 Use `/history review` to review the latest turn in full, or `/history review <turn>` to select a
 specific turn.
 
+A turn starts with a prompt you typed. Messages delivered by herdr-core (`hc send`, child exit
+notices) continue that turn rather than starting a new one, and are shown under an `hc · …`
+heading. `/history rewind` and the `/history` turn table count turns the same way.
+
 ## Inspecting Tool Schemas
 
 Use `/tools` to list tools available to the active agent. Use `/tool <name>` (or
@@ -312,6 +316,31 @@ limits and safety stops are not automatically classified as execution errors.
 assuming a returned wait means success. The old Herdr socket protocol has no error
 state and retains its previous idle behavior; the richer status travels over OSC 7501.
 
+### What an idle session is waiting on
+
+Inside herdr-core, an idle fast-agent that will be woken by a child looks the same as a
+finished one. When a turn ends, fast-agent asks hc for this terminal's unfinished children
+and prints what it is still attached to:
+
+```text
+hc: 2 running - probe-a (t134), probe-b (t135) · will resume when they report or exit · 1 service running
+1 background process still running; nothing will resume this session when it ends
+```
+
+- **Will resume**: child agents hc still counts as working, and child programs whose exit
+  hc announces (started without `--no-notify`).
+- **Services**: children started with `--label role=service`, such as dashboards and
+  servers. They are counted, not listed, and are not expected to end.
+- **Will not resume**: fast-agent's own `run_in_background` shell processes. Nothing wakes
+  the session when they end; use `hc run --bg` for work the agent must come back to.
+
+The same summary appears in the prompt toolbar (`hc: waiting on 2: probe-a, probe-b`) and
+leads the OSC 7501 status message, so a terminal manager can show it. Outside herdr-core
+nothing is read or printed.
+
+Messages delivered by hc are shown under their own heading (`hc · t135 exited`,
+`hc · t7 review`) rather than as text typed by a person.
+
 ### Typing ahead and messages sent while working
 
 While a turn is running, fast-agent holds terminal input instead of echoing it into
@@ -328,6 +357,10 @@ stay on the normal prompt path after the turn ends. Later messages cannot overta
 these deferred inputs. Text without the active submit key remains a draft. Messages
 arriving after the last continuation boundary become the next turn; `hc wait` returning
 `reason: message` does not guarantee that all message bytes have arrived yet.
+
+hc pastes behind whatever is already on the input line. A paste that starts with
+`<hc` is submitted on its own, during a turn and at the idle prompt; the unfinished
+draft stays in the input line. hc messages are never held back as commands.
 
 `hc send` pastes text and presses Enter, so it assumes normal input mode. With
 multiline mode enabled, its message remains a draft. Multiline message content
@@ -497,6 +530,13 @@ status bar
 ```
 
 Unsupported controls are omitted.
+
+## Slash commands
+
+Use `/help` for the command list and `/` with completion to find a command.
+
+- [`/warm [minutes|off|status]`](cache_warming.md): keep the prompt cache warm
+  while idle, stop the explicit window, or inspect recent keep-warm requests.
 
 ## Prompt Shortcuts
 

@@ -104,6 +104,8 @@ def _install_runtime_mcp_callbacks(
 def _build_session_server(
     primary_instance: AgentInstance,
     created_instances: list[AgentInstance],
+    *,
+    use_client_tools: bool = False,
 ) -> AgentACPServer:
     async def create_instance() -> AgentInstance:
         assert created_instances, "Test did not supply enough instances"
@@ -118,6 +120,7 @@ def _build_session_server(
         dispose_instance=dispose_instance,
         server_name="test",
         permissions_enabled=False,
+        use_client_tools=use_client_tools,
     )
 
 
@@ -889,7 +892,7 @@ async def test_initialize_session_state_injects_terminal_runtime_via_public_shel
         agents={"main": agent},
         registry_version=0,
     )
-    server = _build_session_server(instance, [instance])
+    server = _build_session_server(instance, [instance], use_client_tools=True)
     server._connection = cast("Any", object())
     server._client_supports_terminal = True
 
@@ -931,7 +934,7 @@ async def test_initialize_session_state_skips_terminal_runtime_when_local_shell_
         agents={"main": agent},
         registry_version=0,
     )
-    server = _build_session_server(instance, [instance])
+    server = _build_session_server(instance, [instance], use_client_tools=True)
     server._connection = cast("Any", object())
     server._client_supports_terminal = True
 
@@ -957,3 +960,202 @@ async def test_initialize_session_state_skips_terminal_runtime_when_local_shell_
 
     assert session_state.terminal_runtime is None
     assert shell_agent.injected_runtime is None
+
+
+@pytest.mark.asyncio
+async def test_acp_shell_mode_defaults_to_native_tools_and_keeps_ptc_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import os
+
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.agents.mcp_agent import McpAgent
+    from fast_agent.config import ProgrammaticToolCallingSettings, Settings, ShellSettings
+    from fast_agent.context import Context
+    from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+
+    settings = Settings(
+        shell_execution=ShellSettings(write_text_file_mode="apply_patch"),
+        ptc=ProgrammaticToolCallingSettings(enabled=True),
+    )
+    context = Context(config=settings)
+    agent = McpAgent(
+        config=AgentConfig(name="main", servers=[], shell=True, cwd=tmp_path),
+        context=context,
+        connection_persistence=False,
+    )
+    async with agent:
+        instance = AgentInstance(
+            app=AgentApp({"main": agent}),
+            agents={"main": agent},
+            registry_version=0,
+        )
+        server = _build_session_server(instance, [instance])
+        server._connection = cast("Any", object())
+        server._client_supports_terminal = True
+        server._client_supports_fs_read = True
+        server._client_supports_fs_write = True
+
+        async def fake_send_available_commands_update(_session_id: str) -> None:
+            return None
+
+        async def fake_apply_session_mcp_overlay(*_args, **_kwargs) -> None:
+            return None
+
+        monkeypatch.setattr(
+            server, "_send_available_commands_update", fake_send_available_commands_update
+        )
+        monkeypatch.setattr(
+            server._session_runtime,
+            "_apply_session_mcp_overlay",
+            fake_apply_session_mcp_overlay,
+        )
+
+        initialization = await server._initialize_session_state(
+            "session-native",
+            cwd=str(tmp_path),
+            mcp_servers=[],
+        )
+        session_state = initialization.session_state
+
+        assert session_state.terminal_runtime is None
+        assert session_state.filesystem_runtime is None
+        assert agent._external_runtime is None
+        assert type(agent._filesystem_runtime) is LocalFilesystemRuntime
+
+        tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+        if os.name == "posix":
+            assert agent._ptc_environment_supported() is True
+            assert "exec_sandbox" in tool_names
+        else:
+            assert "apply_patch" in tool_names
+            assert "write_text_file" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_acp_shell_mode_native_default_preserves_write_text_file_mode_without_ptc(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.agents.mcp_agent import McpAgent
+    from fast_agent.config import ProgrammaticToolCallingSettings, Settings, ShellSettings
+    from fast_agent.context import Context
+    from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
+
+    settings = Settings(
+        shell_execution=ShellSettings(write_text_file_mode="apply_patch"),
+        ptc=ProgrammaticToolCallingSettings(enabled=False),
+    )
+    agent = McpAgent(
+        config=AgentConfig(name="main", servers=[], shell=True, cwd=tmp_path),
+        context=Context(config=settings),
+        connection_persistence=False,
+    )
+    async with agent:
+        instance = AgentInstance(
+            app=AgentApp({"main": agent}),
+            agents={"main": agent},
+            registry_version=0,
+        )
+        server = _build_session_server(instance, [instance])
+        server._connection = cast("Any", object())
+        server._client_supports_terminal = True
+        server._client_supports_fs_read = True
+        server._client_supports_fs_write = True
+
+        async def fake_send_available_commands_update(_session_id: str) -> None:
+            return None
+
+        async def fake_apply_session_mcp_overlay(*_args, **_kwargs) -> None:
+            return None
+
+        monkeypatch.setattr(
+            server, "_send_available_commands_update", fake_send_available_commands_update
+        )
+        monkeypatch.setattr(
+            server._session_runtime,
+            "_apply_session_mcp_overlay",
+            fake_apply_session_mcp_overlay,
+        )
+
+        initialization = await server._initialize_session_state(
+            "session-native-direct",
+            cwd=str(tmp_path),
+            mcp_servers=[],
+        )
+        session_state = initialization.session_state
+
+        assert session_state.terminal_runtime is None
+        assert session_state.filesystem_runtime is None
+        assert type(agent._filesystem_runtime) is LocalFilesystemRuntime
+
+        tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+        assert "apply_patch" in tool_names
+        assert "read_text_file" in tool_names
+        assert "write_text_file" not in tool_names
+
+
+@pytest.mark.asyncio
+async def test_acp_shell_mode_opt_in_client_tools_delegates_terminal_and_filesystem(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+    from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.agents.mcp_agent import McpAgent
+    from fast_agent.config import Settings, ShellSettings
+    from fast_agent.context import Context
+    from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
+
+    settings = Settings(
+        shell_execution=ShellSettings(write_text_file_mode="apply_patch"),
+    )
+    context = Context(config=settings)
+    agent = McpAgent(
+        config=AgentConfig(name="main", servers=[], shell=True, cwd=tmp_path),
+        context=context,
+        connection_persistence=False,
+    )
+    async with agent:
+        instance = AgentInstance(
+            app=AgentApp({"main": agent}),
+            agents={"main": agent},
+            registry_version=0,
+        )
+        server = _build_session_server(instance, [instance], use_client_tools=True)
+        server._connection = cast("Any", object())
+        server._client_supports_terminal = True
+        server._client_supports_fs_read = True
+        server._client_supports_fs_write = True
+
+        async def fake_send_available_commands_update(_session_id: str) -> None:
+            return None
+
+        async def fake_apply_session_mcp_overlay(*_args, **_kwargs) -> None:
+            return None
+
+        monkeypatch.setattr(
+            server, "_send_available_commands_update", fake_send_available_commands_update
+        )
+        monkeypatch.setattr(
+            server._session_runtime,
+            "_apply_session_mcp_overlay",
+            fake_apply_session_mcp_overlay,
+        )
+
+        initialization = await server._initialize_session_state(
+            "session-client-tools",
+            cwd=str(tmp_path),
+            mcp_servers=[],
+        )
+        session_state = initialization.session_state
+
+        assert isinstance(session_state.terminal_runtime, ACPTerminalRuntime)
+        assert isinstance(session_state.filesystem_runtime, ACPFilesystemRuntime)
+        assert agent._external_runtime is session_state.terminal_runtime
+        assert isinstance(agent._filesystem_runtime, CompositeFilesystemRuntime)
+        assert agent._filesystem_runtime.primary is session_state.filesystem_runtime
+        assert agent._ptc_environment_supported() is False

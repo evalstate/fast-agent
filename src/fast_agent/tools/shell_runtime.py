@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from fast_agent.config import Settings
     from fast_agent.tools.execution_environment import ShellEnvironment, ShellExecutionResult
+    from fast_agent.tools.runtime_host import FileReadAccessProvider
 
 # Import tool progress context for reporting shell execution progress
 from fast_agent.agents.tool_agent import _tool_progress_context
@@ -38,6 +39,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.tool_result_metadata import (
     update_tool_result_display_metadata,
 )
+from fast_agent.ptc.vocabulary import PTC_SHELL_FUNCTION
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_INPUT_FIELD as FREEFORM_TOOL_INPUT_FIELD
 from fast_agent.tools.durable_processes import (
     DurableProcessError,
@@ -53,6 +55,7 @@ from fast_agent.tools.execution_environment import (
     ShellRuntimeInfo,
     execute_shell,
 )
+from fast_agent.tools.filesystem_tool_definitions import READ_TEXT_FILE_TOOL_NAME
 from fast_agent.tools.invocation_context import is_programmatic_tool_call
 from fast_agent.tools.local_shell_executor import LocalShellExecutor
 from fast_agent.tools.output_truncation import (
@@ -118,6 +121,7 @@ from fast_agent.tools.shell_tool_definitions import (
     build_minimal_bash_tool,
     build_minimal_process_tool,
     build_poll_process_tool,
+    build_ptc_shell_tool,
     build_terminate_process_tool,
     parse_execute_arguments,
     parse_freeform_shell_input,
@@ -273,6 +277,8 @@ class ShellRuntime:
         foreground_auto_await_max_seconds: float | None = None,
         durable_process_root: Path | None = None,
         session_id_provider: Callable[[], str | None] | None = None,
+        host: FileReadAccessProvider | None = None,
+        canonical_ptc: bool = False,
     ) -> None:
         self._working_directory = str(working_directory) if working_directory is not None else None
         self._environment = shell_environment or LocalShellExecutor(
@@ -302,6 +308,7 @@ class ShellRuntime:
         self._minimal_shell_tool_name = minimal_shell_tool_name
         self._minimal_shell_tool_requires_description = minimal_shell_tool_requires_description
         self._extended_guidance = extended_guidance
+        self._host = host
         self._managed_processes: dict[str, ManagedShellProcess] = {}
         self._durable_process_store: DurableProcessStore | None = None
         if durable_process_root is not None and isinstance(self._environment, LocalShellExecutor):
@@ -385,6 +392,7 @@ class ShellRuntime:
             configured_profile,
             model_profile=model_tool_profile,
             model_shell_tool_name=model_shell_tool_name,
+            canonical_ptc=canonical_ptc,
         )
         process_readback_supported = (
             self._minimal_process_profile or self._grok_shell_profile or self._luna_exec_profile
@@ -467,6 +475,7 @@ class ShellRuntime:
         *,
         model_profile: ResolvedShellToolProfile | None = None,
         model_shell_tool_name: str | None = None,
+        canonical_ptc: bool = False,
     ) -> None:
         """Replace model-facing shell tools using config and model metadata.
 
@@ -474,6 +483,9 @@ class ShellRuntime:
         name. The luna_exec contract adopts it when present and otherwise keeps
         its historical ``exec`` name.
         """
+        # ptc-vocab-v0: remove profile fallback after matched rollout (direct mode stays).
+        if canonical_ptc:
+            profile, model_shell_tool_name = "luna_exec", PTC_SHELL_FUNCTION
         resolved_profile = resolve_shell_tool_profile(profile, model_profile)
         self._luna_exec_tool_name = model_shell_tool_name or LUNA_EXEC_TOOL_NAME
         self._minimal_process_profile = resolved_profile == "minimal_process"
@@ -488,8 +500,12 @@ class ShellRuntime:
             return
         shell_name = self.runtime_info().name
         if self._grok_shell_profile or self._luna_exec_profile:
-            luna_exec_tool = build_luna_exec_tool(
-                shell_name=shell_name, tool_name=self._luna_exec_tool_name
+            luna_exec_tool = (
+                build_ptc_shell_tool(shell_name=shell_name)
+                if canonical_ptc
+                else build_luna_exec_tool(
+                    shell_name=shell_name, tool_name=self._luna_exec_tool_name
+                )
             )
             shell_tool = (
                 (
@@ -1542,6 +1558,13 @@ class ShellRuntime:
     def _uses_unified_process_profile(self) -> bool:
         return self._minimal_process_profile or self._grok_shell_profile or self._luna_exec_profile
 
+    def _text_file_reader(self) -> str:
+        return (
+            self._host.file_read_access.reader
+            if self._host is not None
+            else READ_TEXT_FILE_TOOL_NAME
+        )
+
     def set_max_process_poll_seconds(self, value: int) -> None:
         """Set the effective wait ceiling; set_tool_profile rebuilds the tool schemas."""
         self._max_process_poll_seconds = value
@@ -1806,6 +1829,7 @@ class ShellRuntime:
             retained_output_max_bytes=self._retained_output_max_bytes,
             retained_output_via_process=self._retained_output_via_process,
             extended_guidance=self._extended_guidance,
+            text_file_reader=self._text_file_reader(),
         )
         display_state = self._build_display_state(
             defer_display_to_tool_result=defer_display_to_tool_result,
@@ -1857,6 +1881,7 @@ class ShellRuntime:
             retained_output_max_bytes=self._retained_output_max_bytes,
             retained_output_via_process=self._retained_output_via_process,
             extended_guidance=self._extended_guidance,
+            text_file_reader=self._text_file_reader(),
             streams=streams or ShellStreamCapture(limit=output_byte_limit),
         )
         display_state = self._build_display_state(

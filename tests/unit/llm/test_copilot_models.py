@@ -32,6 +32,8 @@ PUBLIC_IDS = {
     "gpt-5.6-luna",
     "gpt-5.6-terra",
     "gpt-5.6-sol",
+    "gpt-6.2-astra",
+    "gpt-6.2-sol",
     "gpt-6-astra",
     "gpt-6.1-sol",
     "gpt-6.1-terra",
@@ -39,6 +41,10 @@ PUBLIC_IDS = {
     "gpt-6-luna",
     "grok-4.6",
     "grok-4.7",
+    "gemini-4-neon",
+    "gemini-4-argon",
+    "gemini-4-carbon",
+    "gemini-4-hydrogen",
 }
 
 
@@ -75,6 +81,17 @@ def test_model_resolution_and_transport(model_id):
         with pytest.raises(ModelConfigError):
             ModelFactory.parse_model_string(public_id + "?transport=websocket")
     assert ModelDatabase.get_response_transports(public_id) == spec.transports
+
+
+@pytest.mark.parametrize("variant", ["astra", "sol"])
+def test_copilot_gpt62_alias_dispatches_to_responses(variant):
+    alias = f"copilot.{variant}"
+    resolved = ModelFactory.resolve_model_spec(alias)
+    assert resolved.provider is Provider.COPILOT
+    assert resolved.wire_model_name == f"gpt-6.2-{variant}"
+    assert resolved.model_config.transport == "sse"
+    assert get_copilot_model(resolved.wire_model_name).wire_api == "responses"
+    assert ModelFactory.resolve_model_spec(variant).provider is Provider.CODEX_RESPONSES
 
 
 def test_provider_scoped_metadata():

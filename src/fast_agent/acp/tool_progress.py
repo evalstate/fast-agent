@@ -15,10 +15,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from acp.contrib import ToolCallTracker
-from acp.helpers import (
-    text_block,
-    tool_content,
-)
+from acp.schema import ContentToolCallContent, TextContentBlock
 from mcp_types import ContentBlock as MCPContentBlock
 from mcp_types import TextContent
 
@@ -502,7 +499,7 @@ class ACPToolProgressManager:
                 )
                 continue
 
-            acp_content.append(tool_content(converted))
+            acp_content.append(ContentToolCallContent(content=converted))
 
         return acp_content if acp_content else None
 
@@ -701,7 +698,9 @@ class ACPToolProgressManager:
                 update_data = self._tracker.progress(
                     external_id=external_id,
                     status="failed",
-                    content=[tool_content(text_block(error))] if error else None,
+                    content=[ContentToolCallContent(content=TextContentBlock(text=error))]
+                    if error
+                    else None,
                 )
             except Exception as e:
                 logger.error(
@@ -869,7 +868,7 @@ class ACPToolProgressManager:
 
         if error:
             # Error case: convert error string to text content using SDK helper
-            content_blocks = [tool_content(text_block(error))]
+            content_blocks = [ContentToolCallContent(content=TextContentBlock(text=error))]
             raw_output = error
         elif content:
             # Success case with structured content: convert MCP content to ACP using SDK helpers

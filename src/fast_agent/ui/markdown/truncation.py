@@ -27,16 +27,20 @@ class MarkdownTruncator:
         *,
         code_word_wrap: bool = True,
         render_fences_with_syntax: bool = True,
+        escape_xml: bool = False,
     ) -> None:
         if not 0 < target_height_ratio <= 1:
             raise ValueError("target_height_ratio must be between 0 and 1")
         self.target_height_ratio = target_height_ratio
         self.code_word_wrap = code_word_wrap
         self.render_fences_with_syntax = render_fences_with_syntax
+        self.escape_xml = escape_xml
         self._buffer = StreamBuffer(target_height_ratio=target_height_ratio)
-        self._height_cache: OrderedDict[tuple[int, int, str, int, str], int] = OrderedDict()
+        self._height_cache: OrderedDict[tuple[int, int, str, bool, int, str], int] = OrderedDict()
         self._height_cache_limit = 128
-        self._truncate_cache: OrderedDict[tuple[int, int, int, str, int, str], str] = OrderedDict()
+        self._truncate_cache: OrderedDict[tuple[int, int, int, str, bool, int, str], str] = (
+            OrderedDict()
+        )
         self._truncate_cache_limit = 32
 
     def truncate(
@@ -77,7 +81,7 @@ class MarkdownTruncator:
         if width <= 0:
             return len(text.split("\n"))
         text_len, text_digest = self._fingerprint(text)
-        cache_key = (id(console), width, code_theme, text_len, text_digest)
+        cache_key = (id(console), width, code_theme, self.escape_xml, text_len, text_digest)
         cached = self._height_cache.get(cache_key)
         if cached is not None:
             self._height_cache.move_to_end(cache_key)
@@ -88,7 +92,7 @@ class MarkdownTruncator:
                 build_markdown_renderable(
                     text,
                     code_theme=code_theme,
-                    escape_xml=False,
+                    escape_xml=self.escape_xml,
                     close_incomplete_fences=True,
                     render_fences_with_syntax=self.render_fences_with_syntax,
                     code_word_wrap=self.code_word_wrap,
@@ -160,7 +164,7 @@ class MarkdownTruncator:
         terminal_width: int | None,
         terminal_height: int,
         code_theme: str,
-    ) -> tuple[int, int, int, str, int, str] | None:
+    ) -> tuple[int, int, int, str, bool, int, str] | None:
         if not console or not terminal_width:
             return None
         text_len, text_digest = self._fingerprint(text)
@@ -169,13 +173,14 @@ class MarkdownTruncator:
             terminal_width,
             terminal_height,
             code_theme,
+            self.escape_xml,
             text_len,
             text_digest,
         )
 
     def _cached_truncation(
         self,
-        cache_key: tuple[int, int, int, str, int, str] | None,
+        cache_key: tuple[int, int, int, str, bool, int, str] | None,
     ) -> str | None:
         if cache_key is None:
             return None
@@ -186,7 +191,7 @@ class MarkdownTruncator:
 
     def _store_truncation(
         self,
-        cache_key: tuple[int, int, int, str, int, str] | None,
+        cache_key: tuple[int, int, int, str, bool, int, str] | None,
         value: str,
     ) -> None:
         if cache_key is None:

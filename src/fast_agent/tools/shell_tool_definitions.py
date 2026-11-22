@@ -7,6 +7,7 @@ from typing import Any, Literal, TypeAlias, cast
 from mcp_types import Tool
 
 from fast_agent.constants import MAX_PROCESS_OUTPUT_QUERY_CHARS, MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.ptc.vocabulary import PTC_SHELL_FUNCTION
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_INPUT_FIELD as FREEFORM_TOOL_INPUT_FIELD
 from fast_agent.tools.apply_patch_tool import OPENAI_RESPONSES_CUSTOM_TOOL_META_KEY
 from fast_agent.tools.filesystem_tool_args import (
@@ -351,8 +352,7 @@ def build_minimal_process_tool(
             "ID; `status` returns immediately; `wait` defaults to "
             f"{default_wait_seconds} seconds; parallel waits on one process do not extend "
             f"it, so wait again after it returns.{completion_guidance} `stop` terminates "
-            "the process group. `read_output` reads only that process's bounded "
-            "retained output, not arbitrary files."
+            "the process group. `read_output` reads kept process output, if any, not files."
         ),
         input_schema={
             "type": "object",
@@ -509,6 +509,16 @@ def build_luna_exec_tool(*, shell_name: str, tool_name: str = LUNA_EXEC_TOOL_NAM
             "additionalProperties": False,
         },
     )
+
+
+def build_ptc_shell_tool(*, shell_name: str) -> Tool:
+    """Canonical PTC command contract, independent of direct-mode model profiles."""
+    tool = build_luna_exec_tool(shell_name=shell_name, tool_name=PTC_SHELL_FUNCTION)
+    tool.description = (
+        f"{tool.description} For longer work, omit timeout and follow the returned process ID "
+        "with process(action='wait'); use background=true for servers or services."
+    )
+    return tool
 
 
 FREEFORM_SHELL_PRAGMA = "# @shell:"

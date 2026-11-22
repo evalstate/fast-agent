@@ -147,8 +147,9 @@ def _run_in_new_loop(func: Callable[P, Awaitable[T]], *args: P.args, **kwargs: P
         with asyncio.Runner(loop_factory=create_event_loop) as loop_runner:
             return loop_runner.run(await_result())
 
+    context = contextvars.copy_context()
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-        return pool.submit(runner).result()
+        return pool.submit(lambda: context.run(runner)).result()
 
 
 async def gather_with_cancel(aws: Iterable[Awaitable[T]]) -> list[T | BaseException]:
@@ -169,14 +170,12 @@ async def gather_with_cancel(aws: Iterable[Awaitable[T]]) -> list[T | BaseExcept
             )
             cancelled = next((task for task in done if task.cancelled()), None)
             if cancelled is not None:
-                for task in pending:
-                    task.cancel()
-                await asyncio.gather(*pending, return_exceptions=True)
                 cancelled.result()
     except asyncio.CancelledError:
         for task in pending:
             task.cancel()
-        await asyncio.gather(*pending, return_exceptions=True)
+        # Retrieve failures from completed tasks too, including earlier batches.
+        await asyncio.gather(*tasks, return_exceptions=True)
         raise
 
     results: list[T | BaseException] = []

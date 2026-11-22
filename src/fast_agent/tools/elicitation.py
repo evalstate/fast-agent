@@ -132,6 +132,10 @@ def _sanitized_elicitation_schema() -> dict[str, Any]:
     return sanitized
 
 
+ELICITATION_TOOL_METADATA: dict[str, Any] = {"fast_agent": {"builtin": "elicitation"}}
+"""Marks the human input tool as runtime-owned (a PTC built-in, never behind tool search)."""
+
+
 def get_elicitation_tool() -> McpTool:
     """Build the MCP Tool schema for the elicitation-backed human input tool.
 
@@ -147,6 +151,7 @@ def get_elicitation_tool() -> McpTool:
             "You may also add an optional message shown above the form."
         ),
         input_schema=_sanitized_elicitation_schema(),
+        meta=ELICITATION_TOOL_METADATA,
     )
 
 
@@ -463,7 +468,7 @@ def get_elicitation_fastmcp_tool() -> FunctionTool:
         }
         return await run_elicitation_form(args)
 
-    tool = build_default_function_tool(elicit)
+    tool = build_default_function_tool(elicit, metadata=ELICITATION_TOOL_METADATA)
     tool.name = HUMAN_INPUT_TOOL_NAME
     tool.description = (
         "Collect structured input from a human via a simple form. Provide up to 7 fields "

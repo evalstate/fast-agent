@@ -182,10 +182,16 @@ required history on each stateless request.
 
 ## Hugging Face routes are separate
 
-Aliases such as `deepseek-hf`, `deepseek4-hf`, and `deepseek4pro-hf` use
+Aliases such as `deepseek-hf`, `deepseek41-hf` and `deepseek-v41-hf` use
 [Hugging Face Inference Providers](huggingface.md), not the native DeepSeek API.
 They use `HF_TOKEN`, provider-specific routing, and their own capability
 metadata.
+
+Since October 17, 2026, DeepSeek serves the `DeepSeek-V4.1-Flash-1017`
+checkpoint as `deepseek-flash`. `deepseek-hf` runs the same checkpoint
+(`hf.deepseek-ai/DeepSeek-V4.1-Flash-1017:novita`) via Novita on Hugging Face.
+`deepseek41-hf` and `deepseek-v41-hf` remain on the original September 10
+V4.1 Flash checkpoint.
 
 Use `deepseek` when you want the native DeepSeek Responses route. Use an `hf.`
 model string or a `deepseek-*-hf` alias when you want a Hugging Face-hosted

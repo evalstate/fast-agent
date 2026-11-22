@@ -21,10 +21,11 @@ from typing import (
     cast,
 )
 
-from acp.helpers import update_agent_message_text
 from acp.schema import (
+    AgentMessageChunk,
     AvailableCommand,
     AvailableCommandInput,
+    TextContentBlock,
     UnstructuredCommandInput,
 )
 
@@ -56,6 +57,7 @@ from fast_agent.commands.command_catalog import command_action_names
 from fast_agent.commands.context import CommandContext, StaticAgentProvider
 from fast_agent.commands.handlers import display as display_handlers
 from fast_agent.commands.handlers import model as model_handlers
+from fast_agent.commands.handlers.tools import TOOL_USAGE, tool_detail_argument
 from fast_agent.commands.protocols import ACPCommandAllowlistProvider
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
 from fast_agent.commands.renderers.history_markdown import render_history_overview_markdown
@@ -308,9 +310,9 @@ class SlashCommandHandler:
             ),
             _BuiltinSlashCommandSpec(
                 name="tools",
-                description="List available tools",
+                description="List available tools, or add PTC function definitions to a message",
                 handler=self._handle_tools,
-                input_hint="[--all|ptc|<tool-name>]",
+                input_hint="[--all|ptc|<tool-name>|add <function>...]",
             ),
             _BuiltinSlashCommandSpec(
                 name="tool",
@@ -663,9 +665,7 @@ class SlashCommandHandler:
                 settings=settings,
             )
         return CommandContext(
-            agent_provider=StaticAgentProvider(
-                cast("dict[str, object]", dict(self.instance.agents))
-            ),
+            agent_provider=StaticAgentProvider(dict(self.instance.agents)),
             current_agent_name=self.current_agent_name,
             io=ACPCommandIO(),
             settings=settings,
@@ -746,7 +746,9 @@ class SlashCommandHandler:
         if self._acp_context is None:
             return
         try:
-            await self._acp_context.send_session_update(update_agent_message_text(message))
+            await self._acp_context.send_session_update(
+                AgentMessageChunk(content=TextContentBlock(text=message))
+            )
         except Exception as exc:
             self._logger.debug(
                 "Failed to send ACP progress update",
@@ -933,8 +935,8 @@ class SlashCommandHandler:
     async def _handle_tool(self, arguments: str | None = None) -> str:
         tool_name = strip_to_none(arguments)
         if tool_name is None:
-            return "Tool name required: /tool <tool-name>"
-        return await tools_slash_handlers.handle_tools(self, tool_name)
+            return f"Tool name required: {TOOL_USAGE}"
+        return await tools_slash_handlers.handle_tools(self, tool_detail_argument(tool_name))
 
     async def _handle_environment(self, arguments: str | None = None) -> str:
         del arguments

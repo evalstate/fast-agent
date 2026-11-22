@@ -32,7 +32,7 @@ class CopilotEndpoint:
     """Secret-bearing endpoint binding shared by the broker and the protocol adapters."""
 
     model_id: str
-    wire_api: Literal["messages", "responses"]
+    wire_api: Literal["messages", "responses", "chat_completions"]
     transport: Transport
     base_url: str = field(repr=False)
     headers: Mapping[str, str] = field(repr=False)

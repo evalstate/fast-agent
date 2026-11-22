@@ -1,9 +1,11 @@
+import json
 import os
 from dataclasses import replace
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from openai import APIStatusError
+from openai import APIStatusError, AsyncOpenAI, BadRequestError
 
 from fast_agent.config import HUGGINGFACE_DEFAULT_MODEL as DEFAULT_HUGGINGFACE_MODEL
 from fast_agent.config import HuggingFaceSettings
@@ -26,11 +28,46 @@ from fast_agent.llm.provider.openai.request_images import (
     request_bytes,
 )
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.llm.reasoning_effort import EFFORT_LEVELS, ReasoningEffortSetting
 from fast_agent.llm.router_profiles import RouterRoute
 from fast_agent.types import RequestParams
 
 HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
+
+
+def _openrouter_upstream_detail(error: APIStatusError) -> str | None:
+    """Read only upstream diagnostic fields, never the full router/account envelope."""
+    if error.response.headers.get("x-inference-provider") != "openrouter":
+        return None
+    body = error.body
+    metadata = body.get("metadata") if isinstance(body, dict) else None
+    if not isinstance(metadata, dict):
+        return None
+    raw = metadata.get("raw")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        detail = raw
+    except Exception:
+        # Optional diagnostics must never replace the original fatal HTTP 400,
+        # including parser recursion or integer-conversion failures.
+        return None
+    else:
+        # OpenRouter wraps the upstream JSON in a string. Do not dump arbitrary
+        # fields: the response can contain account identifiers and request data.
+        upstream = payload.get("error", payload) if isinstance(payload, dict) else payload
+        detail = upstream.get("message") if isinstance(upstream, dict) else upstream
+        if not isinstance(detail, str):
+            return None
+    if not detail.strip():
+        return None
+    provider = metadata.get("provider_name")
+    if isinstance(provider, str) and provider.strip():
+        detail = f"{provider.strip()}: {detail.strip()}"
+    detail = " ".join(detail.split())
+    return detail if len(detail) <= 400 else f"{detail[:399]}…"
 
 
 class HuggingFaceLLM(OpenAICompatibleLLM):
@@ -42,6 +79,7 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def __init__(self, **kwargs) -> None:
         explicit_reasoning_effort = "reasoning_effort" in kwargs
+        self._reasoning_disable_warning_emitted = False
         self._hf_provider_suffix: str | None = None
         self._image_fitter = ChatRequestImageFitter()
         kwargs.pop("provider", None)
@@ -53,6 +91,34 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             # or preset supplied reasoning explicitly, use the model metadata
             # default during request shaping.
             self.set_reasoning_effort(None)
+
+    def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
+        spec = self.reasoning_effort_spec
+        if (
+            setting is not None
+            and spec is not None
+            and (setting.value == "none" or setting.value is False)
+        ):
+            if spec.kind == "toggle" or spec.allow_toggle_disable:
+                setting = ReasoningEffortSetting(kind="toggle", value=False)
+            elif spec.kind == "effort" and "none" not in (spec.allowed_efforts or []):
+                lowest = next(
+                    (
+                        effort
+                        for effort in EFFORT_LEVELS[2:]
+                        if effort in (spec.allowed_efforts or [])
+                    ),
+                    None,
+                )
+                if lowest is not None:
+                    setting = ReasoningEffortSetting(kind="effort", value=lowest)
+                    if not self._reasoning_disable_warning_emitted:
+                        self.logger.warning(
+                            f"Reasoning cannot be disabled for '{self._model_name}'; "
+                            f"using lowest supported effort '{lowest}'."
+                        )
+                        self._reasoning_disable_warning_emitted = True
+        super().set_reasoning_effort(setting)
 
     def _apply_prompt_context_window(self) -> None:
         profile = self._route_profile(self.default_request_params.model)
@@ -76,7 +142,10 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             kwargs.get("model"),
             DEFAULT_HUGGINGFACE_MODEL,
         )
-        base_model, explicit_provider = self._split_provider_suffix(requested_model)
+        if self._preserves_opaque_wire_model_name():
+            base_model, explicit_provider = requested_model, None
+        else:
+            base_model, explicit_provider = self._split_provider_suffix(requested_model)
         base_model = base_model or requested_model
         kwargs["model"] = base_model
 
@@ -133,6 +202,26 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
                 },
             )
         return replace(request, arguments=arguments), report
+
+    async def _create_openai_streaming_response(
+        self,
+        client: AsyncOpenAI,
+        request: _OpenAICompletionRequest,
+        capture_filename: Path | None,
+    ) -> _OpenAICompletionResponse:
+        try:
+            return await super()._create_openai_streaming_response(
+                client, request, capture_filename
+            )
+        except BadRequestError as error:
+            if self._uses_huggingface_router():
+                detail = _openrouter_upstream_detail(error)
+                if detail:
+                    # Fatal 400s bypass _handle_retry_failure. Keep the same SDK
+                    # exception and retry classification, but make its message useful.
+                    error.message = f"{error.message} — {detail}"
+                    error.args = (error.message,)
+            raise
 
     async def _run_openai_completion_request(
         self, request: _OpenAICompletionRequest
@@ -263,6 +352,12 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             spec=spec,
         )
 
+    def _get_model_stream_mode(self, model_name: str | None) -> Literal["openai", "manual"]:
+        profile = self._route_profile(model_name)
+        if profile and profile.stream_mode:
+            return profile.stream_mode
+        return super()._get_model_stream_mode(model_name)
+
     def _preserves_raw_reasoning_history(self, model: str) -> bool:
         profile = self._route_profile(model)
         return profile is not None and profile.preserve_raw_reasoning
@@ -297,12 +392,31 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def _route_profile(self, model: str | None) -> HuggingFaceRouteProfile | None:
         route = self._router_route(model)
-        return HUGGINGFACE_ROUTE_PROFILES.resolve(route) if route else None
+        if route is None:
+            return None
+        profile = HUGGINGFACE_ROUTE_PROFILES.resolve(route)
+        if profile is not None:
+            return profile
+        overlay = self._resolved_model_spec.overlay if self._resolved_model_spec else None
+        if overlay is not None and overlay.manifest.profile is not None:
+            profile_model = ModelDatabase.normalize_model_name(overlay.manifest.profile)
+            if profile_model:
+                return HUGGINGFACE_ROUTE_PROFILES.resolve(
+                    RouterRoute(model=profile_model, backend=route.backend)
+                )
+        return None
+
+    def _preserves_opaque_wire_model_name(self) -> bool:
+        overlay = self._resolved_model_spec.overlay if self._resolved_model_spec else None
+        return bool(overlay is not None and overlay.preserve_wire_model_name)
 
     def _router_route(self, model: str | None) -> RouterRoute | None:
         if not model:
             return None
-        base_model, explicit_provider = self._split_provider_suffix(model)
+        if self._preserves_opaque_wire_model_name():
+            base_model, explicit_provider = model, None
+        else:
+            base_model, explicit_provider = self._split_provider_suffix(model)
         normalized_model = ModelDatabase.normalize_model_name(base_model or model)
         if not normalized_model:
             return None
@@ -331,6 +445,8 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         )
 
     def _resolve_default_provider(self) -> str | None:
+        if not self._uses_huggingface_router():
+            return None
         config_provider = None
         if self.context and self.context.config and self.context.config.hf:
             config_provider = self.context.config.hf.default_provider

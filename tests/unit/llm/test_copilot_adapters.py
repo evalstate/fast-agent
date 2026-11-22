@@ -39,12 +39,18 @@ from fast_agent.llm.provider.openai.responses_websocket import (
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.mcp.prompt import Prompt
-from fast_agent.types import RequestParams
+from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.llm.stream_types import StreamChunk
+
+
+def _sdk_client_target(wire: str) -> str:
+    if wire == "messages":
+        return "fast_agent.llm.provider.copilot.messages.AsyncAnthropic"
+    return "fast_agent.llm.provider.copilot.openai_client.AsyncOpenAI"
 
 
 class FakeBroker:
@@ -214,10 +220,7 @@ async def test_parent_sse_loop_fresh_binding_and_payload(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncAnthropic(**kwargs) if wire == "messages" else AsyncOpenAI(**kwargs)
 
-    module = f"fast_agent.llm.provider.copilot.{wire}"
-    monkeypatch.setattr(
-        f"{module}.{'AsyncAnthropic' if wire == 'messages' else 'AsyncOpenAI'}", client_factory
-    )
+    monkeypatch.setattr(_sdk_client_target(wire), client_factory)
     llm = (
         CopilotMessagesLLM(context=context, model=model)
         if wire == "messages"
@@ -768,11 +771,7 @@ async def test_factory_tool_agent_round_trip(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncAnthropic(**kwargs) if wire == "messages" else AsyncOpenAI(**kwargs)
 
-    monkeypatch.setattr(
-        f"fast_agent.llm.provider.copilot.{wire}."
-        + ("AsyncAnthropic" if wire == "messages" else "AsyncOpenAI"),
-        client_factory,
-    )
+    monkeypatch.setattr(_sdk_client_target(wire), client_factory)
     model = "claude-fable-5.1" if wire == "messages" else "gpt-6-astra"
     agent = ToolAgent(AgentConfig("offline-copilot"), [echo_marker], context=context)
     model_spec = f"copilot.{model}?transport=sse" + ("&web_search=true" if web_search else "")
@@ -844,11 +843,7 @@ async def test_broker_headers_are_the_only_credentials_serialized(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncAnthropic(**kwargs) if wire == "messages" else AsyncOpenAI(**kwargs)
 
-    monkeypatch.setattr(
-        f"fast_agent.llm.provider.copilot.{wire}."
-        + ("AsyncAnthropic" if wire == "messages" else "AsyncOpenAI"),
-        client_factory,
-    )
+    monkeypatch.setattr(_sdk_client_target(wire), client_factory)
     model = "claude-sonnet-5" if wire == "messages" else "gpt-6-astra"
     headers = {"authorization": "Bearer broker-token", "x-broker-header": "trusted"}
     endpoint = CopilotEndpoint(
@@ -909,7 +904,7 @@ async def test_responses_extra_body_matches_sse_and_websocket_wire_payload(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncOpenAI(**kwargs)
 
-    monkeypatch.setattr("fast_agent.llm.provider.copilot.responses.AsyncOpenAI", client_factory)
+    monkeypatch.setattr("fast_agent.llm.provider.copilot.openai_client.AsyncOpenAI", client_factory)
     llm = CopilotResponsesLLM(context=context, model="gpt-6-astra")
     effective_input = [
         {
@@ -1319,7 +1314,9 @@ def test_factory_opus48_high_reasoning(context: Context) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"])
+@pytest.mark.parametrize(
+    "model", ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-6.2-sol"]
+)
 @pytest.mark.parametrize("copilot", [False, True], ids=["native", "copilot"])
 @pytest.mark.parametrize(
     "with_tools,policy",
@@ -1349,7 +1346,7 @@ async def test_gpt6_structured_output_wire_contract(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncOpenAI(**kwargs)
 
-    module = "copilot.responses" if copilot else "openai.responses"
+    module = "copilot.openai_client" if copilot else "openai.responses"
     monkeypatch.setattr(f"fast_agent.llm.provider.{module}.AsyncOpenAI", client_factory)
     llm = (
         CopilotResponsesLLM(context=context, model=model, transport="sse")
@@ -1374,10 +1371,18 @@ async def test_gpt6_structured_output_wire_contract(
         body = json.loads(requests[0].content)
         assert isinstance(body, dict)
         assert body["model"] == model
-        if policy == "defer":
+        # Configuration-update models keep the request-level format unchanged.
+        updates = [
+            item["text"]["format"]
+            for item in body["input"]
+            if item.get("type") == "configuration_update" and "text" in item
+        ]
+        if updates:
             assert "format" not in body.get("text", {})
+        if policy == "defer":
+            assert "format" not in body.get("text", {}) and not updates
         else:
-            output_format = body["text"]["format"]
+            output_format = updates[-1] if updates else body["text"]["format"]
             assert output_format["type"] == "json_schema"
             assert output_format["strict"] is True
             assert output_format["schema"]["properties"] == schema["properties"]
@@ -1668,10 +1673,7 @@ async def test_inline_pdf_through_parent_loop(
         kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
         return AsyncAnthropic(**kwargs) if wire == "messages" else AsyncOpenAI(**kwargs)
 
-    monkeypatch.setattr(
-        f"fast_agent.llm.provider.copilot.{wire}.{'AsyncAnthropic' if wire == 'messages' else 'AsyncOpenAI'}",
-        client_factory,
-    )
+    monkeypatch.setattr(_sdk_client_target(wire), client_factory)
     llm = (
         CopilotMessagesLLM(context=context, model="claude-sonnet-5")
         if wire == "messages"
@@ -1821,3 +1823,50 @@ async def test_messages_threshold_compaction_wire_contract(
     }
     assert "compact-2026-01-12" in betas.split(",")
     assert "compact-2026-09-04" not in betas
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("model", "turn_scoped"), [("gpt-6.2-sol", True), ("gpt-6.1-sol", False)])
+@pytest.mark.parametrize("copilot", [False, True], ids=["native", "copilot"])
+async def test_gpt62_system_prompt_leads_input_and_effort_is_appended(
+    model: str,
+    turn_scoped: bool,
+    copilot: bool,
+    broker: FakeBroker,
+    context: Context,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.llm.provider.openai.responses import ResponsesLLM
+
+    llm = (
+        CopilotResponsesLLM(context=context, model=model, instruction="System")
+        if copilot
+        else ResponsesLLM(context=context, model=model, instruction="System")
+    )
+    sent: list[dict[str, Any]] = []
+
+    async def capture(
+        input_items: list[dict[str, Any]],
+        request_params: RequestParams,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
+        await llm._prepare_responses_client(model, "sse")
+        sent.append(llm._build_response_args(input_items, request_params, tools))
+        return Prompt.assistant("ok")
+
+    monkeypatch.setattr(llm, "_responses_completion", capture)
+    try:
+        llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="low"))
+        history = [Prompt.user("One")]
+        history.append(await llm._apply_prompt_provider_specific(history))
+        llm.set_reasoning_effort(ReasoningEffortSetting(kind="effort", value="high"))
+        await llm._apply_prompt_provider_specific([*history, Prompt.user("Two")])
+        first, second = sent
+        assert ("instructions" in second) is not turn_scoped
+        if turn_scoped:
+            assert first["input"][0]["role"] == second["input"][0]["role"] == "developer"
+            # Effort changes are appended, so the request-level setting stays put.
+            assert first["reasoning"]["effort"] == second["reasoning"]["effort"] == "low"
+            assert second["input"][: len(first["input"])] == first["input"]
+    finally:
+        await llm.close()

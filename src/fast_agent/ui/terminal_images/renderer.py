@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import mimetypes
 import os
+import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib import import_module
@@ -44,6 +45,8 @@ class ImageArtifact:
     mime_type: str
     label: str
     uri: str | None = None
+    width: int | str | None = None
+    height: int | str | None = None
 
 
 @dataclass(frozen=True)
@@ -235,6 +238,8 @@ def _artifact_from_plugin_image(
         mime_type=mime_type,
         label=f"[IMAGE: {label}, {mime_type}, {len(data)} bytes]",
         uri=source,
+        width=image.width,
+        height=image.height,
     )
 
 
@@ -321,6 +326,128 @@ def _label(index: int, mime_type: str, size: int, uri: str | None) -> str:
     return f"[IMAGE {index}: {mime_type}, {size} bytes{suffix}]"
 
 
+_DEFAULT_AUTO_WIDTH_FRACTION = 0.8
+_DEFAULT_AUTO_HEIGHT_FRACTION = 0.6
+_FALLBACK_CELL_WIDTH_PX = 10.0
+_FALLBACK_CELL_HEIGHT_PX = 20.0
+
+
+def _read_image_pixel_size(data: bytes) -> tuple[int, int] | None:
+    try:
+        from PIL import Image as PILImage
+
+        with PILImage.open(BytesIO(data)) as image:
+            width, height = image.size
+    except Exception:
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _terminal_viewport_geometry() -> tuple[int, int, float, float]:
+    """Return (cols, rows, cell_width_px, cell_height_px) for the active terminal pane."""
+    fallback_size = shutil.get_terminal_size((80, 24))
+    cols = max(1, fallback_size.columns)
+    rows = max(1, fallback_size.lines)
+    cell_w = _FALLBACK_CELL_WIDTH_PX
+    cell_h = _FALLBACK_CELL_HEIGHT_PX
+
+    try:
+        from textual_image import _terminal as terminal
+
+        win_rows, win_cols, win_px_w, win_px_h = terminal.get_tiocgwinsz()
+        if win_cols > 0 and win_rows > 0:
+            cols = win_cols
+            rows = win_rows
+            if win_px_w > 0 and win_px_h > 0:
+                candidate_w = win_px_w / win_cols
+                candidate_h = win_px_h / win_rows
+                if candidate_w > 0 and candidate_h >= candidate_w:
+                    return cols, rows, candidate_w, candidate_h
+    except Exception:
+        pass
+
+    try:
+        from textual_image._terminal import get_cell_size
+
+        cell_size = get_cell_size()
+        if cell_size.width > 0 and cell_size.height >= cell_size.width:
+            cell_w = float(cell_size.width)
+            cell_h = float(cell_size.height)
+    except Exception:
+        pass
+
+    return cols, rows, cell_w, cell_h
+
+
+def _resolve_size_bound(
+    spec: int | str | None,
+    limit: int,
+    *,
+    auto_fraction: float,
+) -> int:
+    if isinstance(spec, int):
+        return max(1, min(spec, limit))
+    if isinstance(spec, str):
+        stripped = spec.strip()
+        if stripped.endswith("%"):
+            try:
+                pct = int(stripped[:-1])
+                return max(1, min(round(limit * pct / 100), limit))
+            except ValueError:
+                pass
+    return max(1, round(limit * auto_fraction))
+
+
+def _resolve_render_dimensions(
+    artifact: ImageArtifact,
+    settings: TerminalImageSettings,
+) -> tuple[int | str | None, int | str | None]:
+    """Compute aspect-ratio-aware terminal cell dimensions without upscaling past 1:1."""
+    width_spec = artifact.width if artifact.width is not None else settings.width
+    height_spec = artifact.height if artifact.height is not None else settings.height
+
+    if isinstance(width_spec, int) and isinstance(height_spec, int):
+        return width_spec, height_spec
+
+    pixel_size = _read_image_pixel_size(artifact.data)
+    if pixel_size is None:
+        return width_spec, height_spec
+
+    img_w, img_h = pixel_size
+    cols, rows, cell_w, cell_h = _terminal_viewport_geometry()
+
+    settings_max_cols = _resolve_size_bound(
+        settings.width, cols, auto_fraction=_DEFAULT_AUTO_WIDTH_FRACTION
+    )
+    settings_max_rows = _resolve_size_bound(
+        settings.height, rows, auto_fraction=_DEFAULT_AUTO_HEIGHT_FRACTION
+    )
+
+    max_cols = settings_max_cols
+    if artifact.width is not None:
+        max_cols = min(
+            max_cols,
+            _resolve_size_bound(artifact.width, cols, auto_fraction=_DEFAULT_AUTO_WIDTH_FRACTION),
+        )
+
+    max_rows = settings_max_rows
+    if artifact.height is not None:
+        max_rows = min(
+            max_rows,
+            _resolve_size_bound(artifact.height, rows, auto_fraction=_DEFAULT_AUTO_HEIGHT_FRACTION),
+        )
+
+    max_px_w = max_cols * cell_w
+    max_px_h = max_rows * cell_h
+    scale = min(1.0, max_px_w / img_w, max_px_h / img_h)
+
+    target_cols = max(1, min(max_cols, round((img_w * scale) / cell_w)))
+    target_rows = max(1, min(max_rows, round((img_h * scale) / cell_h)))
+    return target_cols, target_rows
+
+
 def _render_artifact(
     artifact: ImageArtifact,
     settings: TerminalImageSettings,
@@ -329,10 +456,11 @@ def _render_artifact(
     if image_cls is None:
         return None
 
+    width, height = _resolve_render_dimensions(artifact, settings)
     try:
         return cast(
             "RenderableType",
-            image_cls(BytesIO(artifact.data), width=settings.width, height=settings.height),
+            image_cls(BytesIO(artifact.data), width=width, height=height),
         )
     except Exception:
         logger.debug(

@@ -312,3 +312,93 @@ def test_render_content_blocks_summarizes_images_without_base64_payload() -> Non
 
     assert "[IMAGE: image/png," in rendered
     assert image.data not in rendered
+
+
+def _png_bytes_of_size(width: int, height: int) -> bytes:
+    from PIL import Image as PILImage
+
+    buf = BytesIO()
+    PILImage.new("RGBA", (width, height), (0, 0, 0, 255)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_aspect_ratio_fit_does_not_upscale_portrait_images(monkeypatch) -> None:
+    monkeypatch.setattr(
+        terminal_image_renderer,
+        "_terminal_viewport_geometry",
+        lambda: (180, 50, 9.0, 19.0),
+    )
+    settings = TerminalImageSettings(width="80%", height="auto")
+    portrait = terminal_image_renderer.ImageArtifact(
+        data=_png_bytes_of_size(196, 398),
+        mime_type="image/png",
+        label="State (test)",
+    )
+
+    cols, rows = terminal_image_renderer._resolve_render_dimensions(portrait, settings)
+    assert cols == 22
+    assert rows == 21
+
+
+def test_aspect_ratio_fit_clamps_tall_and_wide_images_to_viewport(monkeypatch) -> None:
+    monkeypatch.setattr(
+        terminal_image_renderer,
+        "_terminal_viewport_geometry",
+        lambda: (180, 50, 9.0, 19.0),
+    )
+    settings = TerminalImageSettings(width="80%", height="auto")
+
+    tall = terminal_image_renderer.ImageArtifact(
+        data=_png_bytes_of_size(400, 1600),
+        mime_type="image/png",
+        label="Tall",
+    )
+    tall_cols, tall_rows = terminal_image_renderer._resolve_render_dimensions(tall, settings)
+    assert tall_rows == 30  # 60% of 50 rows
+    assert tall_cols == 16
+
+    wide = terminal_image_renderer.ImageArtifact(
+        data=_png_bytes_of_size(1800, 400),
+        mime_type="image/png",
+        label="Wide",
+    )
+    wide_cols, wide_rows = terminal_image_renderer._resolve_render_dimensions(wide, settings)
+    assert wide_cols == 144  # 80% of 180 cols
+    assert wide_rows == 15
+
+
+def test_plugin_image_width_and_height_hints_are_honored_and_clamped(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        terminal_image_renderer,
+        "_terminal_viewport_geometry",
+        lambda: (180, 50, 9.0, 19.0),
+    )
+    img_path = tmp_path / "wide.png"
+    img_path.write_bytes(_png_bytes_of_size(1800, 400))
+
+    captured: list[tuple[int | str | None, int | str | None]] = []
+
+    class FakeImage:
+        def __init__(self, _stream, *, width=None, height=None) -> None:
+            captured.append((width, height))
+
+    monkeypatch.setattr(
+        terminal_image_renderer,
+        "_resolve_textual_image_class",
+        lambda _backend: FakeImage,
+    )
+
+    settings = TerminalImageSettings(enabled=True, backend="kitty", width="80%", height="auto")
+    # Plugin suggests a narrower width (50 cells) -> honored
+    render_plugin_command_images_for_settings(
+        settings,
+        [PluginCommandActionImage(source=str(img_path), width=50)],
+    )
+    assert captured[-1] == (50, 5)
+
+    # Plugin suggests 100% width -> clamped to user settings (80% = 144 cells)
+    render_plugin_command_images_for_settings(
+        settings,
+        [PluginCommandActionImage(source=str(img_path), width="100%")],
+    )
+    assert captured[-1] == (144, 15)

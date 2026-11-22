@@ -273,6 +273,16 @@ def _curated_runs(
                 "basis": repriced["basis"],
                 **{k: repriced[k] for k in ("source", "note", "trials")},
             }
+        elif curation.get("costFrom") == "scored":
+            cost["total"] = round(raw["cost"]["scored_total_usd_exact"], 2)
+            cost["basis"] = "recorded model cost for scored trials"
+            cost["lowerBound"] = cost["coverage"] < raw["slots"]
+            cost["withSuperseded"] = {
+                "total": cost["recorded"],
+                "costed": raw["cost"]["excluded_trials_with_cost"],
+                "trials": len(raw["excluded_trials"]),
+                "lowerBound": raw["cost"].get("lower_bound", False),
+            }
         elif curation.get("costFrom") == "published":
             cost["total"] = round(published, 2)
             cost["basis"] = "published leaderboard total"
@@ -418,6 +428,96 @@ def _safety_allowance(runs: list[dict[str, Any]], bench: dict[str, Any]) -> dict
         "errorTypes": cfg["errorTypes"],
         "references": refs,
     }
+
+
+def _rescore_run(
+    base: dict[str, Any],
+    raw: dict[str, Any],
+    index: dict[str, Any],
+    bench: dict[str, Any],
+) -> dict[str, Any]:
+    # Keep model usage, jobs, and agent evidence. Only the verifier outcomes change.
+    original = base["id"]
+    tasks = bench["tasks"]
+    old_review = raw.get("review") or {}
+    decisions = {
+        item["trial"]: (kind, item)
+        for kind in ("cleared", "disqualified")
+        for item in old_review.get(kind, [])
+    }
+    for item in index.get("decisions", []):
+        decisions[item["trial"]] = (item["decision"], item)
+    rewards = {t["source_trial"]: t for t in index["trials"].values()}
+    ordered = [t["name"] for task in tasks for t in raw["trials"][task]]
+    if len(ordered) != len(set(ordered)) or set(ordered) != set(rewards):
+        raise ValueError(f"{original}: rescore trial set does not match the source run")
+    flagged = (base.get("scan") or {}).get("cells", "-" * len(ordered))
+    old_safety = set((base.get("safety") or {}).get("refused", []))
+    kept: dict[str, list[dict[str, Any]]] = {"cleared": [], "disqualified": []}
+    cells: list[str] = []
+    safety = []
+    for i, name in enumerate(ordered):
+        row = rewards[name]
+        if (row["reward"] or 0) >= 1:
+            if name in decisions:
+                kind, note = decisions[name]
+                kept[kind].append(note)
+                cells.append("x" if kind == "disqualified" else "1")
+            else:
+                if flagged[i].lower() in ("h", "c"):
+                    raise ValueError(f"{original}: flag on rescore pass requires review: {name}")
+                cells.append("1")
+        else:
+            if i in old_safety:
+                safety.append(i)
+            cells.append("e" if i in old_safety or row["reward"] is None else "0")
+    cell_string = "".join(cells)
+    recorded = cell_string.count("1") + cell_string.count("x")
+    if recorded != index["passes"]:
+        raise ValueError(f"{original}: rescore pass count does not reconcile")
+    review = {
+        "note": "Integrity decisions concern the original agent traces. Verifiers did not rerun the agent.",
+        "coverage": "Scan counts and excerpts describe the original execution and its 4.0 rewards.",
+        "recorded_passes": recorded,
+        "recorded_score": round(100 * recorded / len(cells), 2),
+        **kept,
+    }
+    return {
+        **base,
+        "id": original + "-tb41",
+        "benchmark": bench["id"],
+        "cells": cell_string,
+        **_summary(cell_string, bench["attempts"]),
+        "disqualified": len(kept["disqualified"]),
+        "review": _review({"review": review}),
+        "safety": {"refused": safety} if safety else None,
+        "rescore": {
+            "sourceRun": original,
+            "sourcePasses": base["passes"],
+            "sourceRecordedPasses": index["passes_before"],
+            "evidence": index["evidence_url"],
+            "noCollectedArtifact": sum(
+                t["status"] == "no_collected_artifact" for t in rewards.values()
+            ),
+            "taskWorkerTimeouts": sum(
+                t["status"] == "task_worker_timeout" for t in rewards.values()
+            ),
+        },
+    }
+
+
+def _rescore_runs(bench: dict[str, Any], source_runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    base_dir = DATA_DIR / bench["rescoreFrom"]
+    indices = DATA_DIR / bench["dir"] / "rescores"
+    rows = []
+    for base in source_runs:
+        if base["tier"] != "ours":
+            continue
+        run_id = base["id"]
+        raw = _load(base_dir / "runs" / f"{run_id}.json")
+        index = _load(indices / f"{run_id}.json")
+        rows.append(_rescore_run(base, raw, index, bench))
+    return rows
 
 
 def _subset_runs(catalog: dict[str, Any], bench: dict[str, Any]) -> list[dict[str, Any]]:
@@ -630,6 +730,13 @@ def build() -> dict[str, Any]:
     runs: list[dict[str, Any]] = []
     for bench in measured:
         runs += _subset_runs(catalog, bench) if "subset" in bench else _tb21_runs(catalog, bench)
+    for bench in measured:
+        if source := bench.pop("rescoreFrom", None):
+            source_bench = next(b for b in measured if b["dir"] == source)
+            runs += _rescore_runs(
+                {**bench, "rescoreFrom": source},
+                [r for r in runs if r["benchmark"] == source_bench["id"]],
+            )
     runs += _samples(catalog, runs, benches)
 
     for bench in measured:

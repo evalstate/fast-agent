@@ -10,6 +10,8 @@ from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.openai.codex_oauth import parse_chatgpt_account_id
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider.openai.responses_cache import is_tool_continuation
+from fast_agent.llm.provider.openai.responses_content import developer_message_item
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
     ResponsesWebSocketError,
@@ -22,16 +24,27 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import guess_mime_type
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    import httpx2
     from mcp import Tool
 
     from fast_agent.llm.request_params import RequestParams
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.tools.web_search import SearchResponse
 
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 CODEX_RESPONSES_LITE_HEADER = "x-openai-internal-codex-responses-lite"
 CODEX_RESPONSES_LITE_WS_METADATA_KEY = "ws_request_header_x_openai_internal_codex_responses_lite"
 CODEX_ROUTING_HINT_HEADER = "x-codex-routing-hint"
-CODEX_PROTOCOL_VERSION = "0.153.0"
+# ChatGPT derives cache affinity from the session-id header, not prompt_cache_key; the
+# Codex CLI sends its cache key there, with thread-id and x-client-request-id alongside.
+CODEX_SESSION_HEADERS = ("session-id", "thread-id", "x-client-request-id")
+# Sticky-routing token from the first response of a turn, replayed for the rest of that
+# turn (tool continuations and retries) and never into the next turn.
+CODEX_TURN_STATE_HEADER = "x-codex-turn-state"
+# GPT-6.2 catalog entries require client >= 0.166.0; matches normalized Codex 0.171.0-alpha.12.
+CODEX_PROTOCOL_VERSION = "0.171.0"
 
 
 class CodexResponsesLLM(ResponsesLLM):
@@ -47,9 +60,49 @@ class CodexResponsesLLM(ResponsesLLM):
         # Responses Lite is opt-in (`?lite=on`); the standard contract keeps hosted
         # tools and parallel tool calls.
         self._responses_lite: bool = kwargs.pop("lite", False)
+        self._turn_state: str | None = None
         super().__init__(provider=provider, **kwargs)
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
         self._validate_codex_max_tokens(self.default_request_params)
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        if not is_tool_continuation(multipart_messages[-1]):
+            self._turn_state = None
+        return await super()._apply_prompt_provider_specific(
+            multipart_messages, request_params, tools, is_template
+        )
+
+    def _observe_response_headers(self, headers: Mapping[str, str]) -> None:
+        if self._turn_state is None:
+            self._turn_state = header_value(headers, CODEX_TURN_STATE_HEADER)
+
+    async def _observe_http_response(self, response: httpx2.Response) -> None:
+        self._observe_response_headers(response.headers)
+
+    def _response_sse_stream(
+        self,
+        *,
+        client: AsyncOpenAI,
+        arguments: dict[str, Any],
+        timeout_seconds: float | None = None,
+    ):
+        if self._turn_state is not None:
+            arguments = {
+                **arguments,
+                "extra_headers": merge_headers_case_insensitive(
+                    arguments.get("extra_headers"),
+                    {CODEX_TURN_STATE_HEADER: self._turn_state},
+                ),
+            }
+        return super()._response_sse_stream(
+            client=client, arguments=arguments, timeout_seconds=timeout_seconds
+        )
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         params = super()._initialize_default_params(kwargs)
@@ -193,7 +246,9 @@ class CodexResponsesLLM(ResponsesLLM):
             return AsyncOpenAI(
                 api_key=token,
                 base_url=self._base_url(),
-                http_client=DefaultAioHttpClient(),
+                http_client=DefaultAioHttpClient(
+                    event_hooks={"response": [self._observe_http_response]}
+                ),
                 default_headers=default_headers,
             )
         except AuthenticationError as e:
@@ -211,12 +266,18 @@ class CodexResponsesLLM(ResponsesLLM):
         return StatefulContinuationResponsesWsPlanner()
 
     def _prepare_websocket_arguments(self, arguments: dict[str, Any]) -> None:
+        # WebSockets carry per-request headers as client metadata; connection headers
+        # stay stable so the socket is reused across turns.
+        metadata: dict[str, str] = {}
         model = arguments.get("model")
-        if not isinstance(model, str) or not self._uses_codex_responses_lite(model):
-            return
-        client_metadata = arguments.setdefault("client_metadata", {})
-        if isinstance(client_metadata, dict):
-            client_metadata[CODEX_RESPONSES_LITE_WS_METADATA_KEY] = "true"
+        if isinstance(model, str) and self._uses_codex_responses_lite(model):
+            metadata[CODEX_RESPONSES_LITE_WS_METADATA_KEY] = "true"
+        if self._turn_state is not None:
+            metadata[CODEX_TURN_STATE_HEADER] = self._turn_state
+        if metadata:
+            client_metadata = arguments.setdefault("client_metadata", {})
+            if isinstance(client_metadata, dict):
+                client_metadata.update(metadata)
 
     async def _normalize_input_file_part(
         self,
@@ -334,6 +395,8 @@ class CodexResponsesLLM(ResponsesLLM):
         if args.get("service_tier") == "priority":
             routing_hint = f"{routing_hint};tier=priority"
         generated_headers = {CODEX_ROUTING_HINT_HEADER: routing_hint}
+        if isinstance(cache_key := args.get("prompt_cache_key"), str):
+            generated_headers.update(dict.fromkeys(CODEX_SESSION_HEADERS, cache_key))
         if self._uses_codex_responses_lite(model):
             generated_headers[CODEX_RESPONSES_LITE_HEADER] = "true"
             lite_input: list[dict[str, Any]] = [
@@ -344,13 +407,7 @@ class CodexResponsesLLM(ResponsesLLM):
                 }
             ]
             if instructions := args.pop("instructions", None):
-                lite_input.append(
-                    {
-                        "type": "message",
-                        "role": "developer",
-                        "content": [{"type": "input_text", "text": instructions}],
-                    }
-                )
+                lite_input.append(developer_message_item(instructions))
             lite_input.extend(args["input"])
             args["input"] = lite_input
             args["parallel_tool_calls"] = False

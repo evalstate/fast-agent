@@ -1,7 +1,9 @@
 import asyncio
+import contextvars
 import threading
 
 import pytest
+from opentelemetry import trace
 
 from fast_agent.utils.async_utils import run_sync
 
@@ -52,3 +54,22 @@ async def test_run_sync_accepts_future_returned_by_callable() -> None:
         return future
 
     assert run_sync(ready_future) == 7
+
+
+@pytest.mark.asyncio
+async def test_run_sync_preserves_caller_context_without_leaking_changes() -> None:
+    request_id = contextvars.ContextVar("request_id", default="unset")
+    token = request_id.set("caller-request")
+    parent_context = trace.SpanContext(trace_id=123, span_id=456, is_remote=False)
+
+    async def operation() -> tuple[str, trace.SpanContext]:
+        inherited = request_id.get()
+        request_id.set("worker-request")
+        return inherited, trace.get_current_span().get_span_context()
+
+    try:
+        with trace.use_span(trace.NonRecordingSpan(parent_context)):
+            assert run_sync(operation) == ("caller-request", parent_context)
+        assert request_id.get() == "caller-request"
+    finally:
+        request_id.reset(token)

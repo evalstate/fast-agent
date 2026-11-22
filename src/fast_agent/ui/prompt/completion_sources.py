@@ -524,6 +524,24 @@ def _history_command_completions(
     return _subcommand_completions(partial, subcommands)
 
 
+def _warm_command_completions(
+    completer: "AgentCompleter",
+    text: str,
+    text_lower: str,
+) -> list[Completion] | None:
+    del completer
+    if not text_lower.startswith("/warm "):
+        return None
+
+    return _subcommand_completions(
+        text[len("/warm ") :],
+        {
+            "off": "Stop warming at the idle prompt",
+            "status": "Show settings and recent keep-warm requests",
+        },
+    )
+
+
 def _compact_command_completions(
     completer: "AgentCompleter",
     text: str,
@@ -1409,15 +1427,26 @@ def _tools_command_completions(
         return None
 
     partial = text[len(prefix) :].lstrip()
+    words = partial.split(" ")
+    if prefix == "/tools " and len(words) > 1 and words[0].casefold() == "add":
+        # /tools add <function>...: complete each name, skipping those already typed.
+        typed, last = set(words[1:-1]), words[-1]
+        return [
+            Completion(entry.text, start_position=-len(last), display_meta=entry.display_meta)
+            for entry in completer._tool_mention_entries()
+            if entry.text not in typed and starts_with_casefold(entry.text, last)
+        ]
     if any(char.isspace() for char in partial):
         return []
 
     entries = completer._run_async_completion(completer._list_tool_completion_entries) or []
-    candidates = (
-        entries
-        if prefix == "/tool "
-        else [("--all", "List every tool, including PTC function signatures"), *entries]
-    )
+    if prefix == "/tools ":
+        actions = [("--all", "List every tool, including PTC function signatures")]
+        if completer._tool_mention_entries():
+            actions.append(("add", "Add ^tool: definitions of PTC functions to your message"))
+            actions.append(("select", "Browse PTC functions and pick definitions to add"))
+        entries = [*actions, *entries]
+    candidates = entries
     return [
         Completion(
             name,
@@ -1483,6 +1512,7 @@ def command_completions(
         _tools_command_completions,
         _history_command_completions,
         _compact_command_completions,
+        _warm_command_completions,
         _prompt_command_completions,
         _attach_command_completions,
         _session_command_completions,

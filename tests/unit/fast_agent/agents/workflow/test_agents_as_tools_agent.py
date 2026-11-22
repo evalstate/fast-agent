@@ -284,7 +284,7 @@ class HookedChildAgent(LlmAgent):
 
     def _hook_runner(self) -> ToolRunner:
         """Narrow this lightweight test stub at the hook boundary."""
-        return self  # ty: ignore[invalid-return-type]
+        return self  # ty: ignore[invalid-explicit-return]
 
     async def generate(
         self,

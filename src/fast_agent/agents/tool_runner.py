@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractAsyncContextManager, AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
@@ -156,13 +156,18 @@ class ToolRunner:
         messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
+        refresh_tools: bool = False,
         hooks: ToolRunnerHooks | None = None,
     ) -> None:
+        """``refresh_tools`` lists the agent's tools again before each follow-up LLM call;
+        it is implied when ``tools`` is None. Tools a caller supplies are otherwise kept."""
         self._agent = agent
         self._delta_messages: list[PromptMessageExtended] = list(messages)
         self._turn_messages: list[PromptMessageExtended] = list(messages)
         self._request_params = request_params
         self._tools = tools
+        # A slash command or tool may connect or disconnect tool sources mid-turn.
+        self._refresh_tools = refresh_tools or tools is None
         self._hooks = hooks or ToolRunnerHooks()
 
         self._iteration = 0
@@ -643,6 +648,31 @@ class ToolRunner:
             channels=channels,
         )
 
+    def _cache_kept_warm(
+        self, tool_request: PromptMessageExtended
+    ) -> AbstractAsyncContextManager[None]:
+        """Keep the prompt cache warm while the turn waits on subagents or slow tools."""
+        from fast_agent.agents.llm_agent import LlmAgent
+        from fast_agent.ui.message_display_helpers import tool_use_requests_process_poll
+
+        agent = self._agent
+        # Managed-process polls return to the model before the cache lapses, and
+        # an agent that keeps no history has no conversation to re-send.
+        if (
+            not isinstance(agent, LlmAgent)
+            or not agent.config.use_history
+            or tool_use_requests_process_poll(tool_request)
+        ):
+            return nullcontext()
+        return agent.cache_warmer.keep_warm(
+            "tools",
+            automatic=True,
+            mid_turn=True,
+            request_params=self._request_params,
+            tools=self._tools,
+            report=agent.show_cache_warm_status,
+        )
+
     async def generate_tool_call_response(self) -> PromptMessageExtended | None:
         if self._pending_tool_request is None:
             return None
@@ -658,9 +688,10 @@ class ToolRunner:
                 finally:
                     self._flush_deferred_hook_status_messages(_HOOK_STATUS_BUCKET_BEFORE_TOOL_CALL)
             hook_phase = "run_tools"
-            tool_message = await self._agent.run_tools(
-                self._pending_tool_request, request_params=self._request_params
-            )
+            async with self._cache_kept_warm(self._pending_tool_request):
+                tool_message = await self._agent.run_tools(
+                    self._pending_tool_request, request_params=self._request_params
+                )
         except Exception as exc:
             tool_calls = self._pending_tool_request.tool_calls or {}
             tool_call_ids = list(tool_calls.keys())
@@ -802,6 +833,7 @@ class ToolRunner:
             self._delta_messages.append(assistant_message)
             self._delta_messages.append(finalizer)
         self._tools = []
+        self._refresh_tools = False
 
     def _consume_staged_terminal_response(self) -> PromptMessageExtended | None:
         staged = self._staged_terminal_response
@@ -927,7 +959,7 @@ class ToolRunner:
         return False
 
     async def _ensure_tools_ready(self) -> None:
-        if self._tools is None:
+        if self._tools is None or (self._refresh_tools and self._iteration > 0):
             self._tools = (await self._agent.list_tools()).tools
 
     async def _ensure_tool_response_staged(self) -> None:

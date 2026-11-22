@@ -11,9 +11,10 @@ from typing import TYPE_CHECKING
 from fast_agent.commands.summary_utils import json_object
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING, FAST_AGENT_USAGE
 from fast_agent.history.tool_activities import message_tool_call_count, message_tool_error_count
-from fast_agent.history.turns import is_user_prompt, user_turn_starts
+from fast_agent.history.turns import is_hc_prompt, is_user_prompt, typed_turn_starts
 from fast_agent.llm.usage_tracking import UsageReport
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.ptc.context_blocks import user_authored_text
 from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.numeric import nonnegative_number_or_none
 from fast_agent.utils.text import collapse_whitespace
@@ -286,8 +287,12 @@ def extract_message_response_ms(message: "PromptMessageExtended") -> float | Non
 def collect_user_turns(
     messages: list["PromptMessageExtended"],
 ) -> list[HistoryTurn]:
-    """Group history into user turns; messages before the first prompt are not a turn."""
-    bounds = [*user_turn_starts(messages), len(messages)]
+    """Group history into the turns a person started.
+
+    Messages before the first prompt are not a turn. Turns herdr-core started
+    belong to the typed turn before them.
+    """
+    bounds = [*typed_turn_starts(messages), len(messages)]
     return [
         HistoryTurn(start_index=start, messages=messages[start:end])
         for start, end in pairwise(bounds)
@@ -301,10 +306,11 @@ def _summarize_turn_messages(
     assistant_parts: list[str] = []
 
     for message in turn:
-        text = message.all_text()
+        text = user_authored_text(message.content)
         if is_user_prompt(message):
             normalized = collapse_whitespace(text)
-            if normalized:
+            # A turn is previewed by what the person asked, unless hc opened it.
+            if normalized and (not is_hc_prompt(message) or message is turn[0]):
                 user_parts.append(normalized)
         elif message.role == "assistant":
             normalized = collapse_whitespace(text)
@@ -534,7 +540,7 @@ def build_history_overview(
         recent_messages.extend(
             HistoryMessageSnippet(
                 role=str(message.role),
-                snippet=_preview_text(message.all_text()),
+                snippet=_preview_text(user_authored_text(message.content)),
             )
             for message in messages[-recent_count:]
         )

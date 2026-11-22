@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from mcp_types import ListToolsResult
 
     from fast_agent.mcp.mcp_aggregator import MCPToolCatalog, NamespacedTool
@@ -40,6 +42,7 @@ def build_mcp_tool_route(
     catalog: MCPToolCatalog,
     local_tool_exists: bool,
     is_filesystem_runtime_tool: bool,
+    tool_matches_filter: Callable[[str], bool] | None = None,
 ) -> McpToolRoute:
     namespaced_tool = catalog.namespaced_tool(requested_name)
     candidate = (
@@ -47,12 +50,18 @@ def build_mcp_tool_route(
         if namespaced_tool is not None or local_tool_exists
         else catalog.first_tool_named(requested_name)
     )
+    if (
+        candidate is not None
+        and tool_matches_filter is not None
+        and not tool_matches_filter(candidate.namespaced_tool_name)
+    ):
+        candidate = None
     return McpToolRoute(
         requested_name=requested_name,
         namespaced_tool=namespaced_tool,
         candidate_namespaced_tool=candidate,
         # Model-visible filesystem tools may collide with discovered MCP tools;
-        # planning intentionally gives the remote tool the explicit route.
+        # planning gives an allowed remote tool the explicit route.
         route_to_namespaced_candidate=(
             namespaced_tool is None and candidate is not None and is_filesystem_runtime_tool
         ),

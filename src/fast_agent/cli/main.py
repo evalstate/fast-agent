@@ -22,7 +22,11 @@ from typer._click.formatting import HelpFormatter
 from typer.core import TyperCommand
 
 from fast_agent.cli.command_support import ensure_context_object
-from fast_agent.cli.constants import normalize_convenience_flag_args, normalize_resume_flag_args
+from fast_agent.cli.constants import (
+    normalize_convenience_flag_args,
+    normalize_model_flag_args,
+    normalize_resume_flag_args,
+)
 from fast_agent.cli.display import print_section_header
 from fast_agent.cli.home_helpers import resolve_workspace_and_home_options
 from fast_agent.cli.prompt_argument_hint import PromptArgumentHintGroup
@@ -37,6 +41,7 @@ from fast_agent.ui.console import console as shared_console
 
 LAZY_SUBCOMMANDS: dict[str, str] = {
     "go": "fast_agent.cli.commands.go:app",
+    "local": "fast_agent.cli.commands.go:local_app",
     "serve": "fast_agent.cli.commands.serve:app",
     "acp": "fast_agent.cli.commands.acp:app",
     "scaffold": "fast_agent.cli.commands.setup:app",
@@ -66,6 +71,7 @@ LAZY_SUBCOMMAND_HELP: dict[str, str] = {
     "demo": "Demo commands for UI features.",
     "export": "Export persisted session traces.",
     "go": "Run an interactive agent directly from the command line without creating an agent.py file",
+    "local": "Connect directly to a running local llama.cpp server (shorthand for 'go --local')",
     "model": "Interactive model reference setup.",
     "plugins": "Manage command plugins (list/add/remove/update).",
     "quickstart": "Create fast-agent quickstarts",
@@ -103,8 +109,18 @@ class LazyGroup(PromptArgumentHintGroup):
 
     def parse_args(self, ctx: Context, args: list[str]) -> list[str]:
         normalize_convenience_flag_args(args)
-        if _first_root_command(args) == "go":
+        first_command = _first_root_command(args)
+        if first_command == "local":
+            local_index = args.index("local")
+            args[local_index : local_index + 1] = ["go", "--local"]
+            first_command = "go"
+        elif first_command not in self.lazy_subcommands and "--local" in args:
+            local_flag_index = args.index("--local")
+            args.insert(local_flag_index, "go")
+            first_command = "go"
+        if first_command == "go":
             normalize_resume_flag_args(args)
+            normalize_model_flag_args(args)
         return super().parse_args(ctx, args)
 
     def list_commands(self, ctx: Context) -> list[str]:

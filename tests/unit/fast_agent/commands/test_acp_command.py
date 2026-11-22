@@ -185,3 +185,103 @@ def test_acp_entrypoint_falls_back_when_rich_error_rendering_fails(
 
     assert exc_info.value.code == 1
     assert "Error: No such command" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("flag_value", "expected"),
+    [
+        (None, None),
+        (True, True),
+        (False, False),
+    ],
+)
+def test_acp_command_builds_request_with_acp_client_tools(
+    flag_value: bool | None,
+    expected: bool | None,
+) -> None:
+    ctx = typer.Context(TyperCommand("acp"))
+    request = acp_command._build_run_request(
+        ctx=ctx,
+        name="fast-agent-acp",
+        instruction=None,
+        config_path=None,
+        servers=None,
+        agent_cards=None,
+        card_tools=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        model=None,
+        home=None,
+        no_home=False,
+        skills_dir=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        description=None,
+        host="127.0.0.1",
+        port=8010,
+        shell=True,
+        acp_client_tools=flag_value,
+        no_permissions=False,
+        resume=None,
+        reload=False,
+        watch=False,
+    )
+
+    assert request.acp_client_tools is expected
+
+
+@pytest.mark.asyncio
+async def test_run_acp_server_resolves_use_client_tools_from_config_and_cli_override() -> None:
+    from types import SimpleNamespace
+    from typing import Any, cast
+
+    from fast_agent.config import ACPSettings, Settings
+    from fast_agent.core.server_runtime import ServerRuntimeContext, run_acp_server
+
+    captured: list[bool] = []
+
+    class _FakeACPServer:
+        def __init__(self, *, use_client_tools: bool = False, **_kwargs: Any) -> None:
+            captured.append(use_client_tools)
+
+        async def run_async(self) -> None:
+            return None
+
+    def _make_context(*, config_value: bool, arg_value: bool | None) -> ServerRuntimeContext:
+        callbacks = SimpleNamespace(
+            create_instance=None,
+            dispose_instance=None,
+            load_card_source=None,
+            attach_agent_tools_source=None,
+            detach_agent_tools_source=None,
+            dump_agent_card=None,
+            reload_source=None,
+        )
+        return cast(
+            "ServerRuntimeContext",
+            SimpleNamespace(
+                acp_server_factory=lambda: _FakeACPServer,
+                args=SimpleNamespace(
+                    server_name="test-acp",
+                    instance_scope="connection",
+                    permissions_enabled=False,
+                    use_client_tools=arg_value,
+                ),
+                config=Settings(acp=ACPSettings(use_client_tools=config_value)),
+                app_name="test-app",
+                skills_directory_override=None,
+                state=SimpleNamespace(primary_instance=object()),
+                callbacks=callbacks,
+            ),
+        )
+
+    assert Settings().acp.use_client_tools is False
+
+    await run_acp_server(_make_context(config_value=False, arg_value=None))
+    await run_acp_server(_make_context(config_value=True, arg_value=None))
+    await run_acp_server(_make_context(config_value=False, arg_value=True))
+    await run_acp_server(_make_context(config_value=True, arg_value=False))
+
+    assert captured == [False, True, True, False]

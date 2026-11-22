@@ -173,26 +173,25 @@ async def test_model_default_falls_back_in_unsupported_environments(
 
     from acp import AgentSideConnection
 
-    from fast_agent.acp.acp_context import ACPContext
     from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
     from fast_agent.core.exceptions import AgentConfigError
 
     connection = Mock(spec=AgentSideConnection)
-    acp = ACPContext(connection=connection, session_id="ptc")
-    acp.set_terminal_runtime(ACPTerminalRuntime(connection, "ptc", "test"))
+    terminal = ACPTerminalRuntime(connection, "ptc", "test")
     agent = McpAgent(
         AgentConfig("ptc-acp", model=model, servers=[], skills=[]),
         context=Context(
             config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=configured)),
-            acp=acp,
             server_registry=ServerRegistry(),
         ),
     )
     try:
+        # ACP session start binds the client terminal; PTC is decided again there.
         if outcome == "error":
             with pytest.raises(AgentConfigError, match="local POSIX"):
-                await agent.list_tools()
+                agent.set_external_runtime(terminal)
         else:
+            agent.set_external_runtime(terminal)
             tools = {tool.name for tool in (await agent.list_tools()).tools}
             assert PTC_TOOL_NAME not in tools
             assert PTC_BATCHING_INSTRUCTION not in agent.instruction
@@ -206,19 +205,17 @@ async def test_rejected_ptc_model_switch_keeps_previous_model() -> None:
 
     from acp import AgentSideConnection
 
-    from fast_agent.acp.acp_context import ACPContext
     from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
     from fast_agent.core.exceptions import AgentConfigError
 
     connection = Mock(spec=AgentSideConnection)
-    acp = ACPContext(connection=connection, session_id="ptc")
-    acp.set_terminal_runtime(ACPTerminalRuntime(connection, "ptc", "test"))
     agent = McpAgent(
         AgentConfig("ptc-acp-switch", model="passthrough?ptc=off", servers=[], skills=[]),
-        context=Context(config=Settings(), acp=acp, server_registry=ServerRegistry()),
+        context=Context(config=Settings(), server_registry=ServerRegistry()),
     )
     try:
         await agent.attach_llm(ModelFactory.create_factory("passthrough?ptc=off"))
+        agent.set_external_runtime(ACPTerminalRuntime(connection, "ptc", "test"))
         previous_llm = agent.llm
         with pytest.raises(AgentConfigError, match="local POSIX"):
             await agent.set_model("glm53flash?ptc=on")

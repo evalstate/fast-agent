@@ -15,6 +15,9 @@ from pathlib import Path
 
 import pytest
 
+from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.provider_types import Provider
+
 
 def _ensure_hf_inference_acp_on_path() -> None:
     repo_root = Path(__file__).resolve().parents[3]
@@ -27,11 +30,11 @@ async def test_wizard_model_selection_uses_curated_ids() -> None:
     pytest.importorskip("ruamel.yaml")
     _ensure_hf_inference_acp_on_path()
 
-    from hf_inference_acp.wizard.model_catalog import (  # ty: ignore[unresolved-import]
+    from hf_inference_acp.wizard.model_catalog import (  # ty: ignore[import-not-found]
         CURATED_MODELS,
     )
-    from hf_inference_acp.wizard.stages import WizardStage  # ty: ignore[unresolved-import]
-    from hf_inference_acp.wizard.wizard_llm import WizardSetupLLM  # ty: ignore[unresolved-import]
+    from hf_inference_acp.wizard.stages import WizardStage  # ty: ignore[import-not-found]
+    from hf_inference_acp.wizard.wizard_llm import WizardSetupLLM  # ty: ignore[import-not-found]
 
     llm = WizardSetupLLM()
     llm._state.first_message = False  # skip welcome
@@ -49,10 +52,20 @@ def test_wizard_curated_models_include_qwen35_and_kimi25_profiles() -> None:
     pytest.importorskip("ruamel.yaml")
     _ensure_hf_inference_acp_on_path()
 
-    import hf_inference_acp.wizard.model_catalog as model_catalog  # ty: ignore[unresolved-import]
+    import hf_inference_acp.wizard.model_catalog as model_catalog  # ty: ignore[import-not-found]
 
     ids = {entry.id for entry in model_catalog.CURATED_MODELS}
     assert "kimi25" in ids
     assert "kimi25instant" in ids
     assert "qwen35" in ids
     assert "qwen35instruct" in ids
+
+
+def test_wizard_curated_models_resolve_to_hf_models() -> None:
+    pytest.importorskip("ruamel.yaml")
+    _ensure_hf_inference_acp_on_path()
+
+    import hf_inference_acp.wizard.model_catalog as model_catalog  # ty: ignore[import-not-found]
+
+    for entry in model_catalog.CURATED_MODELS:
+        assert ModelFactory.resolve_model_spec(entry.id).provider == Provider.HUGGINGFACE, entry.id

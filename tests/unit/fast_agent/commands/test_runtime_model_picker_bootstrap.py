@@ -71,6 +71,7 @@ def _make_request(
     agent_cards: list[str] | None = None,
     card_tools: list[str] | None = None,
     resume: str | None = None,
+    force_model_picker: bool = False,
 ) -> AgentRunRequest:
     return AgentRunRequest(
         name="test",
@@ -103,6 +104,7 @@ def _make_request(
         permissions_enabled=True,
         reload=False,
         watch=False,
+        force_model_picker=force_model_picker,
     )
 
 
@@ -517,6 +519,62 @@ async def test_interactive_startup_uses_explicit_system_default_without_picker(
         config_module._settings = old_settings
 
     assert request.model is None
+
+
+@pytest.mark.asyncio
+async def test_force_model_picker_overrides_fast_agent_model_env(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent import config as config_module
+
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text("default_model: claude-sonnet-4-5\n", encoding="utf-8")
+    request = _make_request(config_path=str(config_path), force_model_picker=True)
+
+    async def fake_select_model_from_picker(*args, **kwargs):
+        del args, kwargs
+        return "copilot.gemini-4-neon"
+
+    old_settings = config_module._settings
+    monkeypatch.setenv("FAST_AGENT_MODEL", "haiku")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setattr(
+        "fast_agent.cli.runtime.agent_setup._select_model_from_picker",
+        fake_select_model_from_picker,
+    )
+    try:
+        config_module._settings = None
+        assert await _select_startup_model_if_needed(request) == "model picker"
+    finally:
+        config_module._settings = old_settings
+
+    assert request.model == "copilot.gemini-4-neon"
+
+
+@pytest.mark.asyncio
+async def test_force_model_picker_errors_without_tty(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent import config as config_module
+    from fast_agent.core.exceptions import AgentConfigError
+
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text("default_model: claude-sonnet-4-5\n", encoding="utf-8")
+    request = _make_request(config_path=str(config_path), force_model_picker=True)
+
+    old_settings = config_module._settings
+    monkeypatch.setenv("FAST_AGENT_MODEL", "haiku")
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: False)
+    try:
+        config_module._settings = None
+        with pytest.raises(AgentConfigError, match="Interactive model picker requires a terminal"):
+            await _select_startup_model_if_needed(request)
+    finally:
+        config_module._settings = old_settings
 
 
 @pytest.mark.asyncio

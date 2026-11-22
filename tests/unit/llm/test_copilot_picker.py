@@ -6,7 +6,6 @@ import pytest
 from fast_agent.cli.runtime import copilot_activation as activation
 from fast_agent.config import CopilotSettings
 from fast_agent.core.exceptions import ProviderKeyError
-from fast_agent.llm.provider.copilot.models import COPILOT_MODELS
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import (
     build_snapshot,
@@ -19,7 +18,28 @@ from fast_agent.ui.model_picker_common import (
 def test_picker_contract(source):
     snapshot = build_snapshot(config_payload={})
     options = model_options_for_provider(snapshot, Provider.COPILOT, source=source)
-    assert [option.spec for option in options] == [f"copilot.{key}" for key in COPILOT_MODELS]
+    specs = [option.spec for option in options]
+    assert {
+        "copilot.claude-fable-5.1",
+        "copilot.claude-opus-4-8",
+        "copilot.claude-opus-5",
+        "copilot.claude-sonnet-5",
+        "copilot.claude-haiku-4.5",
+        "copilot.claude-fable-5",
+        "copilot.gpt-6-sol",
+        "copilot.gpt-5.6-sol",
+        "copilot.gpt-5.6-terra",
+        "copilot.gpt-5.6-luna",
+    }.isdisjoint(specs)
+    last_claude_or_gpt = max(
+        i for i, spec in enumerate(specs) if spec.startswith(("copilot.claude-", "copilot.gpt-"))
+    )
+    assert specs[last_claude_or_gpt + 1 : last_claude_or_gpt + 5] == [
+        "copilot.gemini-4-neon",
+        "copilot.gemini-4-argon",
+        "copilot.gemini-4-hydrogen",
+        "copilot.gemini-4-carbon",
+    ]
     assert all(option.activation_action is not None for option in options)
     summary = provider_credential_summary(Provider.COPILOT, {})
     assert not summary.active

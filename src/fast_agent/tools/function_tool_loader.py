@@ -7,15 +7,32 @@ Supports both direct callables and string specs like "module.py:function_name".
 
 import inspect
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
-from typing import Any, Protocol, TypeAlias, cast, runtime_checkable
+from types import NoneType, UnionType
+from typing import (
+    Any,
+    Final,
+    Protocol,
+    TypeAlias,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    runtime_checkable,
+)
 
 from fastmcp.tools import FunctionTool, ToolResult
 
 from fast_agent.agents.agent_types import ScopedFunctionToolConfig
+from fast_agent.constants import FAST_AGENT_PTC_VALUE
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.tools.function_tool_config import FunctionToolSpec
+from fast_agent.tools.invocation_context import (
+    get_local_tool_invocation_context,
+    is_programmatic_tool_call,
+)
 from fast_agent.tools.python_file_loader import (
     PythonCallableLoadMessages,
     load_callable_from_file_spec,
@@ -42,21 +59,119 @@ def _set_signature(wrapper: Callable[..., Any], source: Callable[..., Any]) -> N
     signature_wrapper.__signature__ = inspect.signature(source)
 
 
-def _as_default_tool_result(raw: Any) -> ToolResult:
+_NOT_JSON: Final = object()
+
+
+def _json_value(value: object) -> object:
+    """``value`` as plain JSON data, with int/float/str subclasses such as enums reduced to
+    their base type; ``_NOT_JSON`` for anything else."""
+    match value:
+        case None | bool():
+            return value
+        case int():
+            return int(value)
+        case float():
+            return float(value)
+        case str():
+            return str.__str__(value)
+        case list():
+            items = [_json_value(item) for item in value]
+            return _NOT_JSON if any(item is _NOT_JSON for item in items) else items
+        case dict() if all(isinstance(key, str) for key in value):
+            entries = {str.__str__(key): _json_value(item) for key, item in value.items()}
+            return _NOT_JSON if any(item is _NOT_JSON for item in entries.values()) else entries
+    return _NOT_JSON
+
+
+def _program_value_meta(raw: Any) -> dict[str, Any] | None:
+    """Give a programmatic (PTC) call the raw return, so sandbox code gets ``137``, not ``"137"``.
+
+    A ``str`` return keeps the text path, where JSON text is parsed for sandbox code.
+    """
+    invocation = get_local_tool_invocation_context()
+    if (
+        isinstance(raw, str)
+        or invocation is None
+        or not is_programmatic_tool_call(invocation.tool_use_id)
+    ):
+        return None
+    try:
+        value = _json_value(raw)
+    except RecursionError:  # a cyclic container; the text path reports it as before
+        return None
+    return None if value is _NOT_JSON else {FAST_AGENT_PTC_VALUE: value}
+
+
+_SCALAR_SCHEMAS: Final = (
+    (bool, "boolean"),
+    (int, "integer"),
+    (float, "number"),
+    (NoneType, "null"),
+    (None, "null"),
+)
+
+
+def _program_value_schema(annotation: object, *, top: bool = True) -> dict[str, Any] | None:
+    """JSON schema of the value sandbox code receives for a return ``annotation``, or None
+    (``Any``) unless every such value passes through ``_program_value_meta`` as itself.
+
+    Recognised: bool, int, float, None, ``list[T]``, ``dict[str, T]`` and unions of those, with
+    ``str`` allowed below the top level; a top-level ``str`` is parsed when it holds JSON.
+    Anything else, including ``Annotated`` (serializers change the schema, not the value) and
+    unparameterised ``List``/``Dict``, is None. The schema is built here, not taken from
+    pydantic, so it describes the raw value.
+    """
+    for scalar, schema_type in _SCALAR_SCHEMAS:
+        if annotation is scalar:
+            return {"type": schema_type}
+    if annotation is str:
+        return None if top else {"type": "string"}
+    origin, args = get_origin(annotation), get_args(annotation)
+    if origin is Union or origin is UnionType:
+        members = [_program_value_schema(arg, top=top) for arg in args]
+        return None if None in members else {"anyOf": members}
+    if origin is list and len(args) == 1:
+        items = _program_value_schema(args[0], top=False)
+        return None if items is None else {"type": "array", "items": items}
+    if origin is dict and len(args) == 2 and args[0] is str:
+        values = _program_value_schema(args[1], top=False)
+        return None if values is None else {"type": "object", "additionalProperties": values}
+    return None
+
+
+@dataclass(slots=True)
+class _ProgramValuePolicy:
+    """Whether calls hand PTC code their raw return; set once the return type is classified,
+    so only tools with a narrowed stub change what PTC code receives."""
+
+    attach: bool = False
+
+
+def _as_default_tool_result(raw: Any, policy: _ProgramValuePolicy) -> ToolResult:
     if isinstance(raw, ToolResult):
         return raw
     if raw is None:
         return ToolResult(content=[])
-    return ToolResult(content=raw)
+    return ToolResult(content=raw, meta=_program_value_meta(raw) if policy.attach else None)
 
 
-def _wrap_default_tool_result(fn: Callable[..., Any]) -> Callable[..., Any]:
+class DefaultFunctionTool(FunctionTool):
+    """A function tool with fast-agent's text-only result policy."""
+
+    program_returns: dict[str, Any] | None = None
+    """JSON schema of the value programmatic (PTC) calls receive, when the return annotation
+    guarantees it (see ``_program_value_schema``); None means ``Any``."""
+
+
+def _wrap_default_tool_result(
+    fn: Callable[..., Any], policy: _ProgramValuePolicy
+) -> Callable[..., Any]:
     if inspect.iscoroutinefunction(fn):
 
         @wraps(fn)
         async def async_wrapped(*args: Any, **kwargs: Any) -> ToolResult:
             raw = await fn(*args, **kwargs)
-            return _as_default_tool_result(raw)
+            return _as_default_tool_result(raw, policy)
 
         _set_signature(async_wrapped, fn)
         return async_wrapped
@@ -68,10 +183,10 @@ def _wrap_default_tool_result(fn: Callable[..., Any]) -> Callable[..., Any]:
 
             async def await_and_wrap() -> ToolResult:
                 awaited = await raw
-                return _as_default_tool_result(awaited)
+                return _as_default_tool_result(awaited, policy)
 
             return await_and_wrap()
-        return _as_default_tool_result(raw)
+        return _as_default_tool_result(raw, policy)
 
     _set_signature(sync_wrapped, fn)
     return sync_wrapped
@@ -83,7 +198,7 @@ def build_default_function_tool(
     name: str | None = None,
     description: str | None = None,
     metadata: dict[str, Any] | None = None,
-) -> FunctionTool:
+) -> DefaultFunctionTool:
     """
     Build a FastMCP FunctionTool with fast-agent's text-only-by-default policy.
 
@@ -91,12 +206,17 @@ def build_default_function_tool(
     preserves normal content rendering while suppressing implicit structured output.
     Explicit ``ToolResult`` returns pass through unchanged.
     """
-    tool = FunctionTool.from_function(
-        _wrap_default_tool_result(fn),
+    policy = _ProgramValuePolicy()
+    wrapped = _wrap_default_tool_result(fn, policy)
+    tool = DefaultFunctionTool.from_function(
+        wrapped,
         name=name,
         description=description,
         output_schema=None,
     )
+    assert isinstance(tool, DefaultFunctionTool)  # from_function builds ``cls``
+    tool.program_returns = _program_value_schema(tool.return_type)
+    policy.attach = tool.program_returns is not None
     if metadata:
         current_meta = dict(tool.meta or {})
         current_meta.update(metadata)

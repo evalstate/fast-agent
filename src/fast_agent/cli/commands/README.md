@@ -117,7 +117,7 @@ fast-agent serve [OPTIONS]
 - `--transport [http|stdio|acp|a2a]`: Transport protocol to expose (default: http)
 - `--host TEXT`: Host address when using HTTP transport (default: 127.0.0.1)
 - `--port INTEGER`: Port when using HTTP transport (default: 8000)
-- `--shell`, `-x`: Enable a local shell runtime and expose the execute tool
+- `--shell`, `-x`: Enable a local shell runtime and expose shell tools (canonical `shell` under PTC)
 - `--description`, `-d TEXT`: Description used for each send tool (supports `{agent}` placeholder)
 - `--tool-name-template TEXT`: Template for exposed agent tool names (supports `{agent}` placeholder)
 - `--instance-scope [shared|connection|request]`: Control how clients receive isolated agent instances (default: shared; ACP is always connection-scoped)

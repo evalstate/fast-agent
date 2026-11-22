@@ -130,6 +130,11 @@ fast-agent export latest --privacy-filter --download-privacy-filter
 
 ## PTC tool-call metadata in ATIF
 
+Canonical PTC results carry `fast-agent-ptc-vocabulary: 1` (`0` for the temporary
+per-model profile comparison arm); ATIF observations copy this as `ptc_vocabulary`.
+Each nested record also includes `function`, the Python name used by the model.
+Old records without these additive fields remain readable.
+
 For programmatic tool calling (PTC), the parent `exec_sandbox` call still contains
 the source program. Its observation's `extra` also carries the intercepted nested
 tool calls from result metadata (`fast-agent-ptc-calls`):

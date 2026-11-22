@@ -6,11 +6,15 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from openai import AsyncOpenAI, DefaultAsyncHttpxClient
-
+from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.prompt_cache import (
+    OPENAI_MINIMUM_CACHE_TTL_SECONDS,
+    uses_openai_minimum_cache_ttl,
+)
 from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.images import CopilotImageUploads
 from fast_agent.llm.provider.copilot.models import get_copilot_model
+from fast_agent.llm.provider.copilot.openai_client import create_openai_client
 from fast_agent.llm.provider.copilot.policy import (
     apply_policy,
     reject_files,
@@ -24,6 +28,7 @@ from fast_agent.llm.provider.openai.responses import (
     _ResponsesWsAttemptState,
     _ResponsesWsContext,
 )
+from fast_agent.llm.provider.openai.responses_cache import COPILOT_UPDATE_MODELS
 from fast_agent.llm.provider.openai.responses_raw_stream import open_raw_responses_stream
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
@@ -36,9 +41,12 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import guess_mime_type
 
 if TYPE_CHECKING:
+    from mcp import Tool
+    from openai import AsyncOpenAI
+
     from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
     from fast_agent.llm.provider.copilot.models import CopilotModelSpec
-    from fast_agent.types import RequestParams
+    from fast_agent.types import PromptMessageExtended, RequestParams
 
 
 class CopilotResponsesLLM(ResponsesLLM):
@@ -69,6 +77,32 @@ class CopilotResponsesLLM(ResponsesLLM):
     def _copilot_spec(self) -> CopilotModelSpec:
         return get_copilot_model(self.default_request_params.model or "")
 
+    # Copilot generates despite `generate: false` and `prompt_cache_options.prewarm`.
+    # It takes every request whole and reports exact cache reads, so the generic
+    # keep-warm message works here, including while tool calls are running.
+    @property
+    def cache_retention_seconds(self) -> int | None:
+        model = self.default_request_params.model
+        if model and uses_openai_minimum_cache_ttl(model):
+            return OPENAI_MINIMUM_CACHE_TTL_SECONDS
+        return None
+
+    @property
+    def warm_cache_reports_cache_use(self) -> bool:
+        return True
+
+    @property
+    def warms_cache_mid_turn(self) -> bool:
+        return True
+
+    async def _warm_cache_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+    ) -> None:
+        await FastAgentLLM._warm_cache_request(self, messages, request_params, tools)
+
     def _default_transport_setting(self) -> ResponsesTransport:
         return "websocket" if "websocket" in self._copilot_spec.transports else "sse"
 
@@ -84,6 +118,9 @@ class CopilotResponsesLLM(ResponsesLLM):
 
     def _replays_native_compaction(self) -> bool:
         return self._copilot_spec.supports_native_compaction
+
+    def _manages_responses_cache(self, model: object) -> bool:
+        return model in COPILOT_UPDATE_MODELS
 
     def _resends_astra_effort_after_checkpoint(self) -> bool:
         return True
@@ -114,29 +151,7 @@ class CopilotResponsesLLM(ResponsesLLM):
         return dict(self._copilot_endpoint.get().headers)
 
     def _responses_client(self) -> AsyncOpenAI:
-        endpoint = self._copilot_endpoint.get()
-        # Match the SDK's spelling so its default User-Agent is replaced, not
-        # sent alongside the native fast-agent identity under another casing.
-        headers = {
-            "User-Agent" if name.lower() == "user-agent" else name: value
-            for name, value in endpoint.headers.items()
-        }
-        client = AsyncOpenAI(
-            api_key="",
-            base_url=endpoint.base_url,
-            default_headers=headers,
-            max_retries=0,
-            organization="",
-            project="",
-            admin_api_key="",
-            # The broker validates credentials, including header-only bearer auth.
-            _enforce_credentials=False,
-            http_client=DefaultAsyncHttpxClient(trust_env=False, follow_redirects=False),
-        )
-        # The SDK merges OPENAI_CUSTOM_HEADERS during construction; only broker
-        # headers belong on this client, without changing the process environment.
-        client._custom_headers = headers
-        return client
+        return create_openai_client(self._copilot_endpoint.get())
 
     def _response_sse_stream(
         self,

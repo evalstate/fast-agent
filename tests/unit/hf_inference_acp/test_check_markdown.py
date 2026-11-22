@@ -13,7 +13,7 @@ def _ensure_hf_inference_acp_on_path() -> None:
 def test_render_setup_check_markdown_is_consistent_with_command_markdown() -> None:
     _ensure_hf_inference_acp_on_path()
 
-    from hf_inference_acp.agents import (  # ty: ignore[unresolved-import]
+    from hf_inference_acp.agents import (  # ty: ignore[import-not-found]
         _render_setup_check_markdown,
     )
 
@@ -40,7 +40,7 @@ def test_render_setup_check_markdown_is_consistent_with_command_markdown() -> No
 def test_render_setup_check_markdown_handles_missing_dependencies_and_token() -> None:
     _ensure_hf_inference_acp_on_path()
 
-    from hf_inference_acp.agents import (  # ty: ignore[unresolved-import]
+    from hf_inference_acp.agents import (  # ty: ignore[import-not-found]
         _render_setup_check_markdown,
     )
 

@@ -27,6 +27,7 @@ class Provider(Enum):
     DEEPSEEK = ("deepseek", "DeepSeek")
     ZAI = ("zai", "Z.ai")
     MOONSHOT = ("moonshot", "Moonshot")
+    TENCENT_EVAL = ("tencent-eval", "Tencent Eval")
     FAST_AGENT = ("fast-agent", "fast-agent-internal")
     GENERIC = ("generic", "Generic")
     GOOGLE_OAI = ("googleoai", "GoogleOAI")  # For Google through OpenAI libraries

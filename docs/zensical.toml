@@ -49,6 +49,7 @@ nav = [
     "guides/structured-outputs.md",
     { "Privacy Filter" = "guides/privacy_filter.md" },
     { "Compaction" = "guides/compaction.md" },
+    { "Prompt-cache warming" = "guides/cache_warming.md" },
     { "Responses prompt caching" = "guides/responses-caching.md" },
   ] },
   { "Agents" = [
@@ -78,6 +79,7 @@ nav = [
       { "DeepSeek" = "models/providers/deepseek.md" },
       { "Moonshot" = "models/providers/moonshot.md" },
       { "Z.ai" = "models/providers/zai.md" },
+      { "Tencent Eval" = "models/providers/tencent-eval.md" },
       { "Hugging Face" = "models/providers/huggingface.md" },
       { "Google" = "models/providers/google.md" },
       { "llama.cpp" = "models/providers/llamacpp.md" },
@@ -89,7 +91,8 @@ nav = [
     { "Model Overlays" = "models/model_overlays.md" },
     { "Models Reference" = "models/models_reference.md" },
     { "Internal Models" = "models/internal_models.md" },
-    ]}
+    ]},
+    { "Integration Reports" = "models/integration/index.md" },
   ] },
   { "ACP" = [
     {"Agent Client Protocol"  = [

@@ -54,7 +54,7 @@ def create_messages_with_resources(
     """
     Create a list of messages from content sections, with resources properly handled.
 
-    This implementation produces one message for each content section's text,
+    This implementation produces one message for each content section's non-empty text,
     followed by separate messages for each resource (with the same role type
     as the section they belong to).
 
@@ -73,7 +73,8 @@ def create_messages_with_resources(
         role = cast_message_role(section.role)
 
         # Add the text message
-        messages.append(create_content_message(section.text, role))
+        if section.text:
+            messages.append(create_content_message(section.text, role))
 
         # Add resource messages with the same role type as the section
         for resource_path in section.resources:

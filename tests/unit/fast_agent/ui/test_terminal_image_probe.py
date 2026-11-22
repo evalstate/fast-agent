@@ -51,6 +51,8 @@ def install_replies(monkeypatch: pytest.MonkeyPatch, replies: Replies) -> None:
         [(0.001, CELL + DA + KITTY)],
         [(0.001, CELL + DA), (0.10, KITTY[:8]), (0.15, KITTY[8:])],
         [(0.001, KITTY + DA), (0.002, CELL)],
+        [(0.001, CELL + DA), (0.002, KITTY), (0.004, KITTY)],
+        [(0.001, CELL + DA), (0.002, KITTY), (0.06, KITTY[:8]), (0.10, KITTY[8:])],
     ],
 )
 def test_probe_detects_kitty_in_either_reply_order(monkeypatch, arrivals) -> None:
@@ -100,8 +102,32 @@ def test_negative_kitty_reply_is_consumed_without_grace_wait(monkeypatch) -> Non
     with probe._capture_replies(2) as response:
         pass
     assert "ENOTSUP" in response.sequence
-    assert replies.now == 0.002
+    assert replies.now < probe._REPLY_GRACE_SECONDS
     assert not replies.arrivals
+
+
+def test_probe_suspends_turn_input_while_reading_terminal_replies(monkeypatch) -> None:
+    from contextlib import contextmanager
+
+    events: list[str] = []
+
+    @contextmanager
+    def fake_suspend():
+        events.append("suspend_enter")
+        try:
+            yield
+        finally:
+            events.append("suspend_exit")
+
+    replies = Replies([(0.001, CELL + DA), (0.002, KITTY), (0.003, KITTY)])
+    install_replies(monkeypatch, replies)
+    monkeypatch.setattr(probe, "suspend_turn_input", fake_suspend)
+    try:
+        probe.prepare_terminal_image_probe()
+        assert events == ["suspend_enter", "suspend_exit"]
+        assert not replies.arrivals
+    finally:
+        monkeypatch.delattr(probe.terminal.probe_terminal, "_result", raising=False)
 
 
 def test_probe_restores_library_on_error(monkeypatch) -> None:

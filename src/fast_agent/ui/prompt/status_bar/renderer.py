@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, cast
 
 from prompt_toolkit.formatted_text import HTML
 
+from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.commands.model_capabilities import (
     resolve_model_info,
@@ -30,10 +31,15 @@ from fast_agent.core.agent_capabilities import (
     agent_capability_mode_supported,
     resolve_agent_capability_mode,
 )
+from fast_agent.core.cache_warmer import CacheWarmer
+from fast_agent.core.cache_warmer import format_status_summary as format_warm_summary
+from fast_agent.core.cache_warmer import status_level as warm_status_level
 from fast_agent.history.turns import total_user_turns
+from fast_agent.integrations.hc_children import current_hc_attachments, format_status_summary
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
+from fast_agent.ptc.mentions import ToolMentionNamesProvider, tool_mention_token
 from fast_agent.ui import notification_tracker
 from fast_agent.ui.context_usage_display import (
     ContextUsageAccumulator,
@@ -223,6 +229,7 @@ def render_input_toolbar(
         if resolved_agent_state.llm is not None
         else None,
         cwd=shell_state.working_dir,
+        agent=resolved_agent_state.state.agent,
         cache=cache,
     )
     middle = _build_middle_segment(
@@ -230,7 +237,11 @@ def render_input_toolbar(
         shortcut_text,
         attachment_summary=attachment_summary.summary,
     )
-    notification_segment = _build_notification_segment()
+    notification_segment = (
+        _build_hc_segment()
+        + _build_warm_segment(agent_provider, agent_name)
+        + _build_notification_segment()
+    )
     copy_notice_segment = _build_copy_notice_segment(
         copy_notice,
         copy_notice_until,
@@ -273,15 +284,20 @@ def _resolve_attachment_summary(
     provider: Provider | None,
     cwd: Path | None,
     cache: ToolbarRenderCache | None,
+    agent: object | None = None,
 ) -> ResolvedAttachmentSummary:
     if not _should_resolve_attachment_summary(current_input_text):
         return ResolvedAttachmentSummary(summary=None, skipped=True)
 
+    tool_names = (
+        _tool_mention_names(agent) if tool_mention_token("") in current_input_text else None
+    )
     cache_key = _build_attachment_summary_cache_key(
         current_input_text=current_input_text,
         model_name=model_name,
         provider=provider,
         cwd=cwd,
+        tool_names=tool_names,
     )
     if cache is not None and cache.attachment_summary_key == cache_key:
         return ResolvedAttachmentSummary(summary=cache.attachment_summary, cache_hit=True)
@@ -291,11 +307,16 @@ def _resolve_attachment_summary(
         model_name=model_name,
         provider=provider,
         cwd=cwd,
+        tool_names=tool_names,
     )
     if cache is not None:
         cache.attachment_summary_key = cache_key
         cache.attachment_summary = attachment_summary
     return ResolvedAttachmentSummary(summary=attachment_summary)
+
+
+def _tool_mention_names(agent: object | None) -> frozenset[str] | None:
+    return agent.ptc_mention_names if isinstance(agent, ToolMentionNamesProvider) else None
 
 
 def _build_attachment_summary_cache_key(
@@ -304,12 +325,14 @@ def _build_attachment_summary_cache_key(
     model_name: str | None,
     provider: Provider | None,
     cwd: Path | None,
+    tool_names: frozenset[str] | None = None,
 ) -> tuple[object, ...]:
     return (
         current_input_text,
         model_name,
         provider,
         cwd,
+        tool_names,
         _attachment_resource_cache_snapshot(current_input_text, cwd=cwd),
     )
 
@@ -356,7 +379,9 @@ def _snapshot_local_attachment_path(path: Path) -> AttachmentResourceSnapshot:
 
 
 def _should_resolve_attachment_summary(current_input_text: str) -> bool:
-    return "^file:" in current_input_text or "^url:" in current_input_text
+    return any(
+        prefix in current_input_text for prefix in ("^file:", "^url:", tool_mention_token(""))
+    )
 
 
 def _resolve_toolbar_mode(multiline_mode: bool) -> ToolbarMode:
@@ -497,6 +522,17 @@ def _resolve_current_agent(
         return cast("AgentProtocol", agent_provider._agent(agent_name))
     except Exception:
         return None
+
+
+def resolve_cache_warmer(agent_provider: "AgentApp | None", agent_name: str) -> CacheWarmer | None:
+    """The cache warmer of the named agent, when it talks to a model."""
+    agent = _resolve_current_agent(agent_provider, agent_name)
+    return agent.cache_warmer if isinstance(agent, LlmDecorator) else None
+
+
+def active_process_count(agent_provider: "AgentApp | None", agent_name: str) -> int:
+    """Managed background processes still running for the named agent."""
+    return _active_process_count_for_agent(_resolve_current_agent(agent_provider, agent_name))
 
 
 def _active_process_count_for_agent(agent: object) -> int:
@@ -754,6 +790,30 @@ def _build_middle_segment(
     if shortcut_text:
         middle_segments.append(shortcut_text)
     return " | ".join(middle_segments)
+
+
+def _build_hc_segment() -> str:
+    """Children that will wake this session, and services it still owns."""
+    summary = format_status_summary(current_hc_attachments(), 0)
+    if summary is None:
+        return ""
+    return f" | {_toolbar_style_segment(f'hc: {summary}', foreground='ansiyellow')}"
+
+
+_WARM_COLOURS = {"ok": "ansigreen", "warning": "ansiyellow", "error": "ansired"}
+
+
+def _build_warm_segment(agent_provider: "AgentApp | None", agent_name: str) -> str:
+    """Keep-warm progress, or how long the agent's prompt cache is expected to last."""
+    warmer = resolve_cache_warmer(agent_provider, agent_name)
+    if warmer is None:
+        return ""
+    status = warmer.status()
+    summary = format_warm_summary(status)
+    if summary is None:
+        return ""
+    colour = _WARM_COLOURS[warm_status_level(status)]
+    return f" | {_toolbar_style_segment(summary, foreground=colour)}"
 
 
 def _build_notification_segment() -> str:

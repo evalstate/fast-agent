@@ -8,12 +8,13 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
 from fast_agent.io.path_uri import file_uri_to_path
+from fast_agent.ptc.mentions import TOOL_MENTION_PATTERN
 from fast_agent.utils.text import starts_with_casefold, strip_casefold
 
 FILE_MENTION_SERVER = "file"
 URL_MENTION_SERVER = "url"
 _ATTACHMENT_TOKEN_RE = re.compile(r"(?P<prefix>^|\s)(?P<token>\^(?:file|url):[^\s]+)")
-_ATTACHMENT_BODY_RE = r"\^(?:file|url):[^\s]+"
+_ATTACHMENT_BODY_RE = rf"(?:\^(?:file|url):[^\s]+|{TOOL_MENTION_PATTERN})"
 
 
 def normalize_local_attachment_reference(
@@ -87,7 +88,7 @@ def build_remote_attachment_token(url: str) -> str:
 
 
 def strip_local_attachment_tokens(text: str) -> str:
-    """Remove inline attachment tokens while preserving other text."""
+    """Remove inline attachment and ``^tool:`` tokens while preserving other text."""
     stripped = re.sub(
         rf"(^|\n)[ \t]*{_ATTACHMENT_BODY_RE}[ \t]*(?:\n|$)",
         lambda match: match.group(1),

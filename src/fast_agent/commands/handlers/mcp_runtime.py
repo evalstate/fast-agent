@@ -29,9 +29,12 @@ from fast_agent.mcp.failures import (
     render_mcp_failure,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+from fast_agent.ptc.search import SEARCH_FUNCTION_NAME
 from fast_agent.skills.source_resolver import mcp_registry_source
+from fast_agent.tools.tool_surface import ToolSurfaceProvider
 from fast_agent.utils.commandline import join_commandline
 from fast_agent.utils.count_display import format_count_parts
+from fast_agent.utils.markdown import markdown_code_span
 from fast_agent.utils.numeric import nonnegative_int_or_none
 from fast_agent.utils.text import strip_to_none
 
@@ -288,6 +291,35 @@ def _mcp_attach_counts(result: MCPAttachResult) -> _McpAttachCounts:
     )
 
 
+async def _add_tool_search_hint(
+    outcome: CommandOutcome,
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    result: MCPAttachResult,
+) -> None:
+    """Point at ``search_tools`` when the attached server's functions are deferred behind it."""
+    agent = ctx.agent_provider._agent(agent_name)
+    if not isinstance(agent, ToolSurfaceProvider):
+        return
+    surface = await agent.tool_surface()
+    ptc = surface.programmatic
+    # Functions are only deferred while tool search is active.
+    if ptc is None or not any(
+        tool.source == result.server_name for tool in surface.programmatic_functions(deferred=True)
+    ):
+        return
+    call = markdown_code_span(f"await {SEARCH_FUNCTION_NAME}(server={result.server_name!r})")
+    outcome.add_message(
+        f"Tool search is available in {markdown_code_span(ptc.tool_name)}. "
+        f"Browse this server's tools with {call}.",
+        channel="info",
+        right_info="mcp",
+        agent_name=agent_name,
+        render_markdown=True,
+    )
+
+
 async def handle_mcp_list(*, manager: McpRuntimeManager, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
     attached = await manager.list_attached_mcp_servers(agent_name)
@@ -317,7 +349,7 @@ async def handle_mcp_list(*, manager: McpRuntimeManager, agent_name: str) -> Com
 
 
 async def handle_mcp_attach(
-    ctx,
+    ctx: CommandContext,
     *,
     manager: McpRuntimeManager,
     agent_name: str,
@@ -371,6 +403,7 @@ async def handle_mcp_attach(
         right_info="mcp",
         agent_name=agent_name,
     )
+    await _add_tool_search_hint(outcome, ctx, agent_name=agent_name, result=result)
     if result.skills_total is not None and result.skills_total > 0:
         browse_command = _skills_browse_command(server_name)
         outcome.add_message(
@@ -516,10 +549,10 @@ def _connect_success_message(
 
 async def _add_connect_success_messages(
     outcome: CommandOutcome,
+    ctx: CommandContext,
     *,
     result: MCPAttachResult,
     parsed: ParsedMcpConnectRequest,
-    counts: _McpAttachCounts,
     mode: _McpConnectRuntimeMode,
     server_name: str,
     configured: bool,
@@ -565,8 +598,10 @@ async def _add_connect_success_messages(
             "mcp_connect_details": message_text,
         },
     )
+    counts = _mcp_attach_counts(result)
     summary = _format_refreshed_summary(counts) if reconnected else _format_added_summary(counts)
     outcome.add_message(summary, right_info="mcp", agent_name=agent_name)
+    await _add_tool_search_hint(outcome, ctx, agent_name=agent_name, result=result)
     if result.skills_total is not None and result.skills_total > 0:
         browse_command = _skills_browse_command(server_name)
         outcome.add_message(
@@ -678,12 +713,11 @@ async def handle_mcp_connect(
         )
         return outcome
 
-    counts = _mcp_attach_counts(result)
     await _add_connect_success_messages(
         outcome,
+        ctx,
         result=result,
         parsed=parsed,
-        counts=counts,
         mode=plan.mode,
         server_name=plan.server_name,
         configured=plan.configured,
@@ -760,13 +794,12 @@ async def handle_mcp_disconnect(
 
 
 async def handle_mcp_reconnect(
-    ctx,
+    ctx: CommandContext,
     *,
     manager: McpRuntimeManager,
     agent_name: str,
     server_name: str,
 ) -> CommandOutcome:
-    del ctx
     outcome = CommandOutcome()
 
     try:
@@ -828,6 +861,8 @@ async def handle_mcp_reconnect(
         right_info="mcp",
         agent_name=agent_name,
     )
+
+    await _add_tool_search_hint(outcome, ctx, agent_name=agent_name, result=result)
 
     for warning in result.warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)

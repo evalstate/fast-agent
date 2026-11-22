@@ -854,11 +854,11 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
     def _refresh_prompt_context_skills(self, context: dict[str, str]) -> None:
         """Keep shared prompt skills aligned with the active run environment."""
         from fast_agent.skills.registry import format_skills_for_prompt
-        from fast_agent.tools.filesystem_tool_definitions import READ_TEXT_FILE_TOOL_NAME
+        from fast_agent.tools.file_read_access import TOOL_FILE_READS
 
         context["agentSkills"] = format_skills_for_prompt(
             self._default_skill_manifests,
-            read_tool_name=READ_TEXT_FILE_TOOL_NAME,
+            read_access=TOOL_FILE_READS,
         )
 
     def _environment_skill_directories(self) -> list[str] | None:

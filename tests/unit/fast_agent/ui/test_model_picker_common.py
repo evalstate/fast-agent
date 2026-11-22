@@ -119,8 +119,8 @@ def test_curated_scope_hides_non_current_catalog_entries(tmp_path: Path) -> None
     curated_tokens = {option.preset_token for option in curated_options}
     all_tokens = {option.preset_token for option in all_options}
 
-    assert "glm47" not in curated_tokens
-    assert "glm47" in all_tokens
+    assert "glm5" not in curated_tokens
+    assert "glm5" in all_tokens
 
 
 def test_huggingface_provider_is_active_when_hub_token_is_present(
@@ -151,14 +151,23 @@ def test_huggingface_provider_is_inactive_without_hub_login_or_token(
 
 
 @pytest.mark.parametrize(
-    ("model", "default"),
-    [("astra", "high"), ("codexplan", "high"), ("gpt-6-astra", "medium")],
+    ("model", "model_name", "default"),
+    [
+        ("astra", "gpt-6.2-astra", "high"),
+        ("codexplan", "gpt-6.2-astra", "high"),
+        ("gpt-6.2-astra", "gpt-6.2-astra", "medium"),
+        ("astra6", "gpt-6-astra", "high"),
+        ("gpt-6-astra", "gpt-6-astra", "medium"),
+        ("sol", "gpt-6.2-sol", "high"),
+        ("gpt-6.2-sol", "gpt-6.2-sol", "medium"),
+        ("sol61", "gpt-6.1-sol", "high"),
+    ],
 )
-def test_astra_picker_default_reasoning_by_route(model: str, default: str) -> None:
+def test_astra_picker_default_reasoning_by_route(model: str, model_name: str, default: str) -> None:
     # Codex Responses defaults Astra to high effort; the Responses route keeps medium.
     capabilities = model_capabilities(model)
 
-    assert capabilities.model_name == "gpt-6-astra"
+    assert capabilities.model_name == model_name
     assert capabilities.default_reasoning == f"effort={default}"
     assert "low" in capabilities.reasoning_values
 
@@ -519,7 +528,6 @@ def test_huggingface_picker_supersedes_glm52_with_glm53_routes() -> None:
         ("glm53flash", "hf.zai-org/GLM-5.3-Flash:zai-org"),
         ("glm52", "hf.zai-org/GLM-5.2:zai-org"),
         ("GLM 5.2 (zai-org)", "hf.zai-org/GLM-5.2:zai-org"),
-        ("GLM 5.2 (fireworks-ai)", "hf.zai-org/GLM-5.2:fireworks-ai"),
         ("GLM 5.2 (deepinfra)", "hf.zai-org/GLM-5.2:deepinfra"),
         ("zaiglm", "zai.glm-5.3"),
         ("zaiglm52", "zai.glm-5.2"),

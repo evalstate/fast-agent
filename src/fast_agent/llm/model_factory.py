@@ -31,6 +31,7 @@ from fast_agent.llm.structured_output_mode import (
 )
 from fast_agent.llm.task_budget import parse_task_budget_tokens, validate_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbosityLevel, parse_text_verbosity
+from fast_agent.ptc.vocabulary import PtcFunctionNames
 from fast_agent.types import RequestParams, StructuredToolPolicy
 from fast_agent.utils.action_normalization import parse_boolean_alias
 from fast_agent.utils.count_display import plural_label
@@ -106,6 +107,7 @@ _SINGLE_VALUE_MODEL_QUERY_KEYS = (
     "streaming_timeout",
     "lite",
     "ptc",
+    "ptc_names",
     "compaction",
     "compact_at",
 )
@@ -151,6 +153,10 @@ _PROVIDER_CLASS_PATHS: dict[Provider, tuple[str, str]] = {
     ),
     Provider.ZAI: ("fast_agent.llm.provider.openai.llm_zai", "ZaiLLM"),
     Provider.MOONSHOT: ("fast_agent.llm.provider.openai.llm_moonshot", "MoonshotLLM"),
+    Provider.TENCENT_EVAL: (
+        "fast_agent.llm.provider.openai.llm_tencent_eval",
+        "TencentEvalLLM",
+    ),
     Provider.GENERIC: ("fast_agent.llm.provider.openai.llm_generic", "GenericLLM"),
     Provider.GOOGLE_OAI: ("fast_agent.llm.provider.openai.llm_google_oai", "GoogleOaiLLM"),
     Provider.GOOGLE: ("fast_agent.llm.provider.google.llm_google_native", "GoogleNativeLLM"),
@@ -205,6 +211,8 @@ class ModelConfig(BaseModel):
     long_context: bool = False
     lite: bool | None = None
     ptc: bool | None = None
+    # ptc-vocab-v0: temporary route-level matched comparison override.
+    ptc_names: PtcFunctionNames | None = None
     compaction: CompactionMode | None = None
     compact_at: CompactAt | None = None
     transport: TransportSetting | None = None
@@ -238,6 +246,8 @@ class ModelQueryOverrides:
     long_context: bool | None = None
     lite: bool | None = None
     ptc: bool | None = None
+    # ptc-vocab-v0: temporary route-level matched comparison override.
+    ptc_names: PtcFunctionNames | None = None
     compaction: CompactionMode | None = None
     compact_at: CompactAt | None = None
     transport: TransportSetting | None = None
@@ -277,6 +287,7 @@ class ModelQueryOverrides:
             long_context=coalesce(self.long_context, defaults.long_context),
             lite=coalesce(self.lite, defaults.lite),
             ptc=coalesce(self.ptc, defaults.ptc),
+            ptc_names=coalesce(self.ptc_names, defaults.ptc_names),
             compaction=coalesce(self.compaction, defaults.compaction),
             compact_at=coalesce(self.compact_at, defaults.compact_at),
             transport=coalesce(self.transport, defaults.transport),
@@ -335,6 +346,7 @@ class ParsedModelSpec:
             long_context=self.query_overrides.long_context or False,
             lite=self.query_overrides.lite,
             ptc=self.query_overrides.ptc,
+            ptc_names=self.query_overrides.ptc_names,
             compaction=self.query_overrides.compaction,
             compact_at=self.query_overrides.compact_at,
             transport=self.query_overrides.transport,
@@ -607,6 +619,20 @@ def _parse_context_query(query_params: ModelQueryPairs, model_spec: str) -> bool
     return None
 
 
+# ptc-vocab-v0: remove the temporary route selector after matched rollout.
+def _parse_ptc_names_query(
+    query_params: ModelQueryPairs, model_spec: str
+) -> PtcFunctionNames | None:
+    if not _has_query_key(query_params, "ptc_names"):
+        return None
+    value = strip_casefold(_collect_query_values(query_params, ("ptc_names",))[-1])
+    if value in {"canonical", "profile"}:
+        return value
+    raise ModelConfigError(
+        f"Invalid ptc_names query value: '{value}' in '{model_spec}'. Use 'canonical' or 'profile'."
+    )
+
+
 def _parse_ptc_query(query_params: ModelQueryPairs, model_spec: str) -> bool | None:
     if _has_query_key(query_params, "ptc"):
         raw_value = _collect_query_values(query_params, ("ptc",))[-1]
@@ -711,6 +737,7 @@ def _parse_query_overrides(
         long_context=_parse_context_query(query_params, model_spec),
         lite=_parse_lite_query(query_params, model_spec),
         ptc=_parse_ptc_query(query_params, model_spec),
+        ptc_names=_parse_ptc_names_query(query_params, model_spec),
         compaction=_parse_compaction_query(query_params, model_spec),
         compact_at=_parse_compact_at_query(query_params, model_spec),
         transport=_parse_transport_query(query_params, model_spec),
@@ -808,6 +835,14 @@ def _expand_model_preset(
             expanded_spec,
         ),
     )
+
+
+def resolve_model_query_overrides(model_string: str) -> ModelQueryOverrides:
+    """Read harness query policy before provider binding, including preset defaults."""
+    model_spec, explicit = _split_model_spec_and_query(model_string)
+    model_spec, _ = _split_model_suffix(model_spec)
+    preset = _expand_model_preset(model_spec, ModelFactory.get_runtime_presets())
+    return explicit.with_defaults(preset.query_defaults)
 
 
 def _reject_deprecated_reasoning_suffix(model_spec: str) -> None:
@@ -1202,10 +1237,61 @@ class ModelFactory:
 
         if selected_overlay is not None:
             source: Literal["overlay", "preset", "direct"] = "overlay"
-            parsed = cls.parse_model_spec(
-                model_string,
-                presets={selected_overlay.name: selected_overlay.compiled_model_spec},
-            )
+            if selected_overlay.preserve_wire_model_name:
+                _, explicit_overrides = _split_model_spec_and_query(model_string)
+                _, default_overrides = _split_model_spec_and_query(
+                    selected_overlay.compiled_placeholder_spec()
+                )
+                merged_overrides = explicit_overrides.with_defaults(default_overrides)
+                provider = selected_overlay.provider
+                model_name = selected_overlay.model_name
+                profile_model = selected_overlay.manifest.profile
+                reasoning_effort = merged_overrides.reasoning_effort
+                if merged_overrides.instant is not None:
+                    if reasoning_effort is not None:
+                        raise ModelConfigError(
+                            f"Multiple reasoning settings provided for '{selected_overlay.name}'."
+                        )
+                    instant_candidates = {
+                        strip_casefold(model_name),
+                        strip_casefold(model_name.rsplit(":", 1)[0]),
+                    }
+                    if profile_model:
+                        instant_candidates.add(strip_casefold(profile_model))
+                    if not (instant_candidates & {"moonshotai/kimi-k2.5", "moonshotai/kimi-k2.6"}):
+                        raise ModelConfigError(
+                            "Instant mode is only supported for moonshotai/kimi-k2.5 "
+                            f"and moonshotai/kimi-k2.6, got '{model_name}'."
+                        )
+                    reasoning_effort = ReasoningEffortSetting(
+                        kind="toggle",
+                        value=not merged_overrides.instant,
+                    )
+                validation_model = profile_model or model_name
+                _validate_transport_constraints(
+                    provider, validation_model, merged_overrides.transport
+                )
+                _validate_service_tier_constraints(
+                    provider, validation_model, merged_overrides.service_tier
+                )
+                _validate_lite_constraints(provider, validation_model, merged_overrides.lite)
+                _validate_compaction_constraints(
+                    provider, validation_model, merged_overrides.compaction
+                )
+                _validate_max_tokens_constraints(provider, merged_overrides.max_tokens)
+                parsed = ParsedModelSpec(
+                    raw_input=model_string,
+                    expanded_input=selected_overlay.compiled_model_spec,
+                    provider=provider,
+                    model_name=model_name,
+                    reasoning_effort=reasoning_effort,
+                    query_overrides=merged_overrides,
+                )
+            else:
+                parsed = cls.parse_model_spec(
+                    model_string,
+                    presets={selected_overlay.name: selected_overlay.compiled_model_spec},
+                )
         else:
             if presets is None:
                 presets = cls.get_runtime_presets()
@@ -1229,10 +1315,13 @@ class ModelFactory:
                 provider=parsed.provider,
                 model_name=parsed.model_name,
             )
-        wire_model_name = ModelDatabase.resolve_wire_model_name(
-            provider=parsed.provider,
-            model_name=parsed.model_name,
-        )
+        if selected_overlay is not None and selected_overlay.preserve_wire_model_name:
+            wire_model_name = parsed.model_name
+        else:
+            wire_model_name = ModelDatabase.resolve_wire_model_name(
+                provider=parsed.provider,
+                model_name=parsed.model_name,
+            )
 
         return ResolvedModelSpec(
             raw_input=model_string,
@@ -1259,15 +1348,25 @@ class ModelFactory:
         Returns:
             A callable that takes an agent parameter and returns an LLM instance
         """
-        resolved_model = cls.resolve_model_spec(model_string, presets=presets)
+        return cls.create_factory_for_resolved_model(
+            cls.resolve_model_spec(model_string, presets=presets)
+        )
+
+    @classmethod
+    def create_factory_for_resolved_model(
+        cls, resolved_model: ResolvedModelSpec
+    ) -> LLMFactoryProtocol:
+        """Build an attachment factory using an already validated model selection."""
         config = resolved_model.model_config
 
         if config.provider == Provider.COPILOT:
             spec = get_copilot_model(config.model_name)
             module_name = f"fast_agent.llm.provider.copilot.{spec.wire_api}"
-            class_name = (
-                "CopilotMessagesLLM" if spec.wire_api == "messages" else "CopilotResponsesLLM"
-            )
+            class_name = {
+                "messages": "CopilotMessagesLLM",
+                "responses": "CopilotResponsesLLM",
+                "chat_completions": "CopilotChatCompletionsLLM",
+            }[spec.wire_api]
             try:
                 llm_class = vars(import_module(module_name))[class_name]
             except Exception as exc:

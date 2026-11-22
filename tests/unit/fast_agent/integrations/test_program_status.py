@@ -530,6 +530,29 @@ def test_queued_input_count_leads_the_status_message(terminal: TtyStream) -> Non
     assert reports(terminal)[-1]["msg"] == "35% - test-model · $0.0123"
 
 
+def test_attached_children_are_named_in_the_idle_status_message(terminal: TtyStream) -> None:
+    herdr_lifecycle.report_prompt_mark("A")
+    metadata()
+    herdr_lifecycle.report_session_attached("waiting on 1: probe")
+    assert reports(terminal)[-1]["state"] == "idle"
+    assert reports(terminal)[-1]["msg"] == "waiting on 1: probe · 35% - test-model · $0.0123"
+    herdr_lifecycle.report_session_attached(None)
+    assert reports(terminal)[-1]["msg"] == "35% - test-model · $0.0123"
+
+
+def test_cache_warming_is_named_in_the_idle_status_message(terminal: TtyStream) -> None:
+    herdr_lifecycle.report_prompt_mark("A")
+    metadata()
+    herdr_lifecycle.report_session_attached("waiting on 1: probe")
+    herdr_lifecycle.report_session_warm("warm ✓ 2/2 99%")
+    assert (
+        reports(terminal)[-1]["msg"]
+        == "waiting on 1: probe · warm ✓ 2/2 99% · 35% - test-model · $0.0123"
+    )
+    herdr_lifecycle.report_session_warm(None)
+    assert reports(terminal)[-1]["msg"] == "waiting on 1: probe · 35% - test-model · $0.0123"
+
+
 def test_queued_handoff_does_not_report_idle_between_turns(terminal: TtyStream) -> None:
     herdr_lifecycle.report_prompt_mark("A")
     herdr_lifecycle.report_prompt_mark("C")

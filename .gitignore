@@ -235,3 +235,4 @@ examples/experimental/mcp_sessions/demo/mcp-cookie.json
 
 # Local social card design previews (absolute file:// paths)
 docs/social_cards/previews/
+inf.token

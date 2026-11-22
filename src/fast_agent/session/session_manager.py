@@ -22,8 +22,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from fast_agent.constants import DEFAULT_HOME_DIR
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.paths import resolve_home_paths
+from fast_agent.ptc.context_blocks import user_authored_text
 from fast_agent.session.locking import (
     SessionBusyError,
     SessionLockStore,
@@ -172,8 +172,7 @@ def _first_user_preview(messages: list["PromptMessageExtended"], limit: int = 24
             continue
         if message.is_template or message.tool_results:
             continue
-        text = message.all_text() or message.first_text() or ""
-        text = " ".join(text.split())
+        text = " ".join(user_authored_text(message.content).split())
         if not text:
             continue
         return text[:limit]
@@ -186,7 +185,7 @@ def normalize_user_prompt(value: object, limit: int = LAST_USER_PROMPT_LIMIT) ->
     else:
         content = getattr(value, "content", None)
         blocks = content if isinstance(content, list) else [content] if content is not None else []
-        text = "\n".join(part for block in blocks if (part := get_text(block)) is not None)
+        text = user_authored_text(blocks)
     normalized = " ".join(text.split())
     return normalized[:limit] if normalized else None
 
@@ -207,18 +206,18 @@ def _last_user_prompt(
 
 def get_session_history_window() -> int:
     """Return the configured session history window size."""
-    try:
-        from fast_agent.config import get_settings
+    from fast_agent.config import DEFAULT_SESSION_HISTORY_WINDOW, get_settings
 
+    try:
         settings = get_settings()
         value = settings.session_history_window
         if isinstance(value, bool):
-            return 20
+            return DEFAULT_SESSION_HISTORY_WINDOW
         if isinstance(value, int):
             return value
         return int(value)
     except Exception:
-        return 20
+        return DEFAULT_SESSION_HISTORY_WINDOW
 
 
 def apply_session_window(

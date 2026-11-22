@@ -17,6 +17,7 @@ from fast_agent.history.compaction import SUMMARY_NOTICE
 from fast_agent.history.tool_activities import remote_tool_activities
 from fast_agent.llm.compaction_support import read_compaction_metadata
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.ptc.context_blocks import user_authored_content
 from fast_agent.ui.history_display_models import HistoryDisplayRow, ToolResultSummary
 from fast_agent.utils.count_display import format_bytes
 from fast_agent.utils.text import collapse_whitespace, strip_casefold
@@ -197,10 +198,14 @@ def _message_role(message: "PromptMessageExtended") -> str:
 
 
 def _message_text_summary(message: "PromptMessageExtended") -> _TextSummary:
-    try:
-        text = message.first_text() or ""
-    except Exception:  # pragma: no cover - defensive
-        text = ""
+    text = next(
+        (
+            block_text
+            for block in user_authored_content(message.content, as_typed=message.role == "user")
+            if (block_text := get_text(block)) is not None
+        ),
+        "<no text>",
+    )
     normalized = collapse_whitespace(text)
     chars = len(normalized)
     return _TextSummary(

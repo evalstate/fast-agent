@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import base64
 import os
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.io.path_uri import local_file_url_path
 from fast_agent.llm.provider.openai.openresponses_streaming import OpenResponsesStreamingMixin
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_raw_stream import open_raw_responses_stream
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, usage_from_responses_compatible
+from fast_agent.mcp.mime_utils import guess_mime_type
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
@@ -88,6 +91,8 @@ class OpenResponsesLLM(OpenResponsesStreamingMixin, ResponsesLLM):
         return base_url
 
     def _responses_client(self) -> AsyncOpenAI:
+        if self._uses_explicit_no_auth():
+            return super()._responses_client()
         api_key = self._api_key()
         if api_key:
             return super()._responses_client()
@@ -125,6 +130,32 @@ class OpenResponsesLLM(OpenResponsesStreamingMixin, ResponsesLLM):
 
         if moved or extra_body:
             arguments["extra_body"] = extra_body
+
+    async def _normalize_input_image_part(
+        self,
+        client: AsyncOpenAI,
+        part: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        """Inline local file:// images as data URIs rather than calling /v1/files.
+
+        OpenResponses backends such as llama.cpp accept data: image URLs on
+        /v1/responses but do not implement OpenAI's /v1/files upload API.
+        """
+        del client
+        image_url = part.get("image_url")
+        if not isinstance(image_url, str):
+            return part, False
+
+        local_path = local_file_url_path(image_url)
+        if local_path is None:
+            return part, False
+
+        data_bytes = local_path.read_bytes()
+        mime_type = guess_mime_type(local_path.name) or "application/octet-stream"
+        encoded = base64.b64encode(data_bytes).decode("ascii")
+        new_part = dict(part)
+        new_part["image_url"] = f"data:{mime_type};base64,{encoded}"
+        return new_part, False
 
     def _response_sse_stream(
         self,

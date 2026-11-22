@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
 from mcp_types import CallToolRequest, ContentBlock, EmbeddedResource
 
@@ -13,6 +13,7 @@ from fast_agent.constants import (
     OPENAI_COMPACTION_TRIGGER,
     OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
+    OPENAI_TOOL_CALL_METADATA,
 )
 from fast_agent.core.exceptions import ProviderCheckpointError
 from fast_agent.llm.compaction_support import CompactionStrategy, read_compaction_metadata
@@ -33,9 +34,7 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_text_content,
 )
 from fast_agent.mcp.mime_utils import is_image_mime_type, is_text_mime_type
-from fast_agent.tools.apply_patch_tool import (
-    extract_apply_patch_input,
-)
+from fast_agent.tools.apply_patch_tool import APPLY_PATCH_INPUT_FIELD
 from fast_agent.types.assistant_message_phase import coerce_assistant_message_phase
 
 if TYPE_CHECKING:
@@ -44,6 +43,21 @@ if TYPE_CHECKING:
     from fast_agent.core.logging.logger import Logger
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.types.assistant_message_phase import AssistantMessagePhase
+
+
+class _ToolCallProvenance(TypedDict):
+    type: Literal["function_call", "custom_tool_call"]
+    call_id: str
+    id: NotRequired[str]
+
+
+def developer_message_item(text: str) -> dict[str, Any]:
+    """A ``developer`` input message, the stable home for the system prompt."""
+    return {
+        "type": "message",
+        "role": "developer",
+        "content": [{"type": "input_text", "text": text}],
+    }
 
 
 class ResponsesContentMixin:
@@ -163,7 +177,11 @@ class ResponsesContentMixin:
                 items.append(message_item)
 
         if msg.tool_calls:
-            items.extend(self._convert_tool_calls(msg.tool_calls))
+            items.extend(
+                self._convert_tool_calls(
+                    msg.tool_calls, replay_metadata=channels.get(OPENAI_TOOL_CALL_METADATA, ())
+                )
+            )
 
         return items
 
@@ -534,14 +552,44 @@ class ResponsesContentMixin:
 
         return parts
 
-    def _convert_tool_calls(self, tool_calls: dict[str, CallToolRequest]) -> list[dict[str, Any]]:
+    def _tool_call_provenance(
+        self, blocks: Iterable[ContentBlock]
+    ) -> dict[str, _ToolCallProvenance]:
+        provenance: dict[str, _ToolCallProvenance] = {}
+        for payload in self._json_channel_payloads(
+            blocks, malformed_log_message="Skipping malformed OpenAI tool call metadata"
+        ):
+            tool_use_id = first_nonempty_string(payload.get("tool_use_id"))
+            call_id = first_nonempty_string(payload.get("call_id"))
+            item_type = payload.get("type")
+            if not tool_use_id or not call_id:
+                continue
+            if item_type not in ("function_call", "custom_tool_call"):
+                continue
+            item: _ToolCallProvenance = {"type": item_type, "call_id": call_id}
+            item_id = first_nonempty_string(payload.get("id"))
+            if item_id is not None:
+                item["id"] = item_id
+            provenance[tool_use_id] = item
+        return provenance
+
+    def _convert_tool_calls(
+        self,
+        tool_calls: dict[str, CallToolRequest],
+        *,
+        replay_metadata: Iterable[ContentBlock] = (),
+    ) -> list[dict[str, Any]]:
+        provenance = self._tool_call_provenance(replay_metadata)
         items: list[dict[str, Any]] = []
         for index, (tool_use_id, request) in enumerate(tool_calls.items()):
             resolved_tool_use_id = tool_use_id or f"tool_{index}"
-            params = getattr(request, "params", None)
-            name = getattr(params, "name", None) or "tool"
-            arguments = getattr(params, "arguments", None) or {}
+            name = request.params.name
+            arguments = request.params.arguments or {}
             fc_id, call_id = self._normalize_tool_ids(resolved_tool_use_id)
+            metadata = provenance.get(resolved_tool_use_id)
+            if metadata is not None:
+                fc_id = metadata.get("id", fc_id)
+                call_id = metadata["call_id"]
             self._tool_call_id_map[resolved_tool_use_id] = call_id
             self._tool_name_map[resolved_tool_use_id] = name
             tool_kind = self._resolve_tool_call_kind(
@@ -549,6 +597,8 @@ class ResponsesContentMixin:
                 fc_id=fc_id,
                 call_id=call_id,
             )
+            if metadata is not None:
+                tool_kind = "custom" if metadata["type"] == "custom_tool_call" else "function"
             self._record_tool_call_kind(
                 tool_use_id=resolved_tool_use_id,
                 fc_id=fc_id,
@@ -556,15 +606,18 @@ class ResponsesContentMixin:
                 kind=tool_kind,
             )
             if tool_kind == "custom":
-                patch_input = extract_apply_patch_input(arguments)
-                items.append(
-                    {
-                        "type": "custom_tool_call",
-                        "call_id": call_id,
-                        "name": name,
-                        "input": patch_input or "",
-                    }
-                )
+                # Custom inputs are opaque text, not necessarily apply_patch syntax.
+                # Preserve whitespace and indentation exactly as received.
+                custom_input = arguments.get(APPLY_PATCH_INPUT_FIELD)
+                item: dict[str, Any] = {
+                    "type": "custom_tool_call",
+                    "call_id": call_id,
+                    "name": name,
+                    "input": custom_input if isinstance(custom_input, str) else "",
+                }
+                if metadata is not None and "id" in metadata:
+                    item["id"] = metadata["id"]
+                items.append(item)
                 continue
 
             items.append(

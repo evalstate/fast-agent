@@ -9,11 +9,11 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
-from acp.helpers import text_block, tool_content
 from acp.schema import (
     ContentToolCallContent,
     FileEditToolCallContent,
     TerminalToolCallContent,
+    TextContentBlock,
     ToolCallProgress,
     ToolCallStart,
 )
@@ -605,7 +605,11 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
                 content: (
                     list[ContentToolCallContent | FileEditToolCallContent | TerminalToolCallContent]
                     | None
-                ) = [tool_content(text_block(message))] if message else None
+                ) = (
+                    [ContentToolCallContent(content=TextContentBlock(text=message))]
+                    if message
+                    else None
+                )
                 await self.acp.send_session_update(
                     ToolCallProgress(
                         tool_call_id=tool_call_id,

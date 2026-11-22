@@ -415,16 +415,6 @@ def test_kimi_alias_matches_current_promoted_kimi_defaults() -> None:
     )
 
 
-def test_kimi27code_alias_sets_thinking_sampling_defaults() -> None:
-    config = ModelFactory.parse_model_string("kimi27code")
-
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "moonshotai/Kimi-K2.7-Code:fireworks-ai"
-    assert config.temperature == 1.0
-    assert config.top_p == 0.95
-    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
-
-
 def test_kimithink_alias_maps_to_current_kimi_defaults() -> None:
     assert ModelFactory.parse_model_string("kimithink") == ModelFactory.parse_model_string("kimi")
 
@@ -468,28 +458,24 @@ def test_kimi26instant_alias_sets_instant_sampling_defaults() -> None:
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
 
 
-def test_minimax25_alias_sets_sampling_defaults() -> None:
-    config = ModelFactory.parse_model_string("minimax25")
-
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "MiniMaxAI/MiniMax-M2.5:fireworks-ai"
-    assert config.temperature == 1.0
-    assert config.top_p == 0.95
-    assert config.top_k == 40
-
-
 def test_model_query_transport_websocket_alias():
     config = ModelFactory.parse_model_string("codexplan?transport=ws")
     assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-6-astra"
+    assert config.model_name == "gpt-6.2-astra"
     assert config.transport == "websocket"
 
 
-def test_codexplan_resolves_validated_process_poll_folding() -> None:
-    resolved = ModelFactory.resolve_model_spec("codexplan")
+@pytest.mark.parametrize(
+    ("model", "folding"),
+    [("codexplan", False), ("astra", False), ("sol", False), ("astra6", True), ("sol61", True)],
+)
+def test_codex_aliases_preserve_model_specific_process_poll_folding(
+    model: str, folding: bool
+) -> None:
+    resolved = ModelFactory.resolve_model_spec(model)
 
     assert resolved.model_params is not None
-    assert resolved.model_params.managed_process_poll_folding is True
+    assert resolved.model_params.managed_process_poll_folding is folding
 
 
 @pytest.mark.parametrize("provider", ["responses", "codexresponses"])
@@ -1042,6 +1028,21 @@ def test_glimmer_alias_uses_together_with_recommended_sampling() -> None:
     assert config.top_k == 64
 
 
+@pytest.mark.parametrize(
+    ("alias", "model_name"),
+    (
+        ("inkling", "thinkingmachines/Inkling-2-Small:deepinfra"),
+        ("Inkling 2 Small (together)", "thinkingmachines/Inkling-2-Small:together"),
+    ),
+)
+def test_inkling_aliases_pin_backend_without_sampling_defaults(alias: str, model_name: str) -> None:
+    config = ModelFactory.parse_model_string(alias)
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == model_name
+    assert config.temperature is None
+
+
 def test_builtin_glm_alias_uses_glm_53_default() -> None:
     config = ModelFactory.parse_model_string("glm")
     assert config.provider == Provider.HUGGINGFACE
@@ -1119,6 +1120,16 @@ def test_legacy_native_deepseek_models_are_rejected(legacy_model: str):
         ModelFactory.parse_model_string(legacy_model)
 
 
+def test_deepseek_hf_alias_resolves_to_novita_1017() -> None:
+    resolved = ModelFactory.resolve_model_spec("deepseek-hf")
+
+    assert resolved.provider == Provider.HUGGINGFACE
+    assert resolved.wire_model_name == "deepseek-ai/DeepSeek-V4.1-Flash-1017:novita"
+    assert resolved.max_output_tokens == 393_216
+    assert resolved.context_window == 1_048_576
+    assert resolved.resolve_ptc_enabled() is False
+
+
 def test_hf_routed_gpt_oss_alias_resolves_model_metadata():
     resolved = ModelFactory.resolve_model_spec("gpt-oss")
 
@@ -1127,11 +1138,11 @@ def test_hf_routed_gpt_oss_alias_resolves_model_metadata():
     assert resolved.max_output_tokens == 32766
 
 
-def test_gemma4_alias_resolves_to_hf_cerebras_vision_model():
-    resolved = ModelFactory.resolve_model_spec("gemma4")
+def test_gemma4_model_id_resolves_to_hf_vision_model_without_alias():
+    resolved = ModelFactory.resolve_model_spec("hf.google/gemma-4-31B-it")
 
     assert resolved.provider == Provider.HUGGINGFACE
-    assert resolved.wire_model_name == "google/gemma-4-31B-it:cerebras"
+    assert resolved.wire_model_name == "google/gemma-4-31B-it"
     assert resolved.context_window == 131_000
     assert resolved.max_output_tokens == 40_000
 
@@ -1403,7 +1414,7 @@ def test_hf_sampling_overrides_route_non_openai_fields_to_extra_body() -> None:
     assert extra_body["top_k"] == 20
     assert extra_body["min_p"] == 0.0
     assert extra_body["repetition_penalty"] == 1.0
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+    assert "chat_template_kwargs" not in extra_body
 
 
 @pytest.mark.parametrize("field", ("reasoning_api", "reasoning_field"))
@@ -1431,7 +1442,7 @@ def test_hf_omits_empty_tools_for_router_compatibility() -> None:
     assert "tool_choice" not in args
 
 
-def test_hf_qwen36_instruct_alias_disables_thinking_via_chat_template_kwargs() -> None:
+def test_hf_qwen36_instruct_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("qwen36instruct")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1446,10 +1457,11 @@ def test_hf_qwen36_instruct_alias_disables_thinking_via_chat_template_kwargs() -
 
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert args["reasoning_effort"] == "none"
+    assert "chat_template_kwargs" not in extra_body
 
 
-def test_hf_qwen35_instruct_alias_disables_thinking_via_chat_template_kwargs() -> None:
+def test_hf_qwen35_instruct_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("qwen35instruct")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1464,7 +1476,8 @@ def test_hf_qwen35_instruct_alias_disables_thinking_via_chat_template_kwargs() -
 
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert args["reasoning_effort"] == "none"
+    assert "chat_template_kwargs" not in extra_body
 
 
 def test_hf_kimi25_alias_does_not_emit_thinking_override_for_thinking_mode() -> None:
@@ -1490,7 +1503,7 @@ def test_hf_kimi25_alias_does_not_emit_thinking_override_for_thinking_mode() -> 
         assert extra_body is None
 
 
-def test_hf_kimi25instant_alias_disables_thinking_via_extra_body() -> None:
+def test_hf_kimi25instant_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("kimi25instant")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1506,9 +1519,8 @@ def test_hf_kimi25instant_alias_disables_thinking_via_extra_body() -> None:
     assert args["temperature"] == 0.6
     assert args["top_p"] == 0.95
 
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["thinking"] == {"type": "disabled"}
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
 
 
 def test_hf_kimi26_alias_does_not_emit_thinking_override_for_thinking_mode() -> None:
@@ -1534,7 +1546,7 @@ def test_hf_kimi26_alias_does_not_emit_thinking_override_for_thinking_mode() -> 
         assert extra_body is None
 
 
-def test_hf_kimi26instant_alias_disables_thinking_via_chat_template_kwargs() -> None:
+def test_hf_kimi26instant_alias_disables_thinking_via_reasoning_effort() -> None:
     factory = ModelFactory.create_factory("kimi26instant")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -1550,9 +1562,8 @@ def test_hf_kimi26instant_alias_disables_thinking_via_chat_template_kwargs() -> 
     assert args["temperature"] == 0.6
     assert args["top_p"] == 0.95
 
-    extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"thinking": False}
+    assert args["reasoning_effort"] == "none"
+    assert "extra_body" not in args
 
 
 @pytest.mark.parametrize(
@@ -1570,7 +1581,7 @@ def test_astra_long_context_query(query: str, expected: bool) -> None:
     config = ModelFactory.parse_model_string(f"astra?{query}")
     assert config.long_context is expected
     assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-6-astra"
+    assert config.model_name == "gpt-6.2-astra"
 
 
 @pytest.mark.parametrize("value", ["", "maybe", "2", "1m", "null"])
@@ -1613,6 +1624,10 @@ def test_long_context_false_overrides_preset(default: str) -> None:
         ("codexresponses.gpt-6.1-terra", "high"),
         ("responses.gpt-6.1-terra", "medium"),
         ("luna", "high"),
+        ("codexresponses.gpt-6.2-astra", "high"),
+        ("codexresponses.gpt-6.2-sol", "high"),
+        ("responses.gpt-6.2-astra", "medium"),
+        ("responses.gpt-6.2-sol", "medium"),
         ("codexresponses.gpt-6-astra", "high"),
         ("codexresponses.gpt-6.1-sol", "high"),
         ("codexresponses.gpt-6-luna", "high"),
@@ -1697,9 +1712,13 @@ def test_gpt_6_sol_luna_reasoning_default_and_none(model: str, query: str, expec
     [
         # Sol/Luna share Astra's contract (asserted in test_model_database).
         ("astra", 872_000, 272_000),
+        ("gpt-6.2-astra", 1_050_000, 272_000),
+        ("astra6", 872_000, 272_000),
         ("gpt-6-astra", 1_050_000, 272_000),
         # Codex serves GPT-6.1 Sol with a 500k base window; other routes keep 272k.
         ("sol", 872_000, 500_000),
+        ("gpt-6.2-sol", 1_050_000, 272_000),
+        ("sol61", 872_000, 500_000),
         ("gpt-6.1-sol", 1_050_000, 272_000),
         ("terra", 872_000, 272_000),
         ("gpt-6.1-terra", 1_050_000, 272_000),
@@ -1723,6 +1742,55 @@ def test_astra_long_context_real_llm(model: str, window: int, base: int, query: 
     assert resolved_info is not None
     assert resolved_info.context_window == expected
     assert ("Context window", str(expected), False) in _iter_model_identity_lines(llm)
+
+
+@pytest.mark.parametrize(
+    ("alias", "explicit"),
+    [
+        ("gpt62astra", "responses.gpt-6.2-astra?reasoning=medium"),
+        ("gpt62sol", "responses.gpt-6.2-sol?reasoning=medium"),
+        ("astra", "codexresponses.gpt-6.2-astra?reasoning=high"),
+        ("sol", "codexresponses.gpt-6.2-sol?reasoning=high"),
+        ("codexplan", "codexresponses.gpt-6.2-astra?reasoning=high"),
+        ("astra6", "codexresponses.gpt-6-astra?reasoning=high"),
+        ("sol61", "codexresponses.gpt-6.1-sol?reasoning=high"),
+        ("gpt6astra", "responses.gpt-6-astra?reasoning=medium"),
+        ("gpt61sol", "responses.gpt-6.1-sol?reasoning=medium"),
+    ],
+)
+def test_gpt_62_and_predecessor_alias_resolution(alias: str, explicit: str) -> None:
+    assert ModelFactory.parse_model_string(alias) == ModelFactory.parse_model_string(explicit)
+
+
+@pytest.mark.parametrize("model", ["gpt-6.2-astra", "gpt-6.2-sol"])
+@pytest.mark.parametrize(
+    ("provider", "default"), [("responses", "medium"), ("codexresponses", "high")]
+)
+@pytest.mark.parametrize(
+    "effort", ["none", "off", "minimal", "low", "medium", "high", "xhigh", "max"]
+)
+def test_gpt_62_requests_use_supported_reasoning(
+    model: str, provider: str, default: str, effort: str
+) -> None:
+    agent = LlmAgent(AgentConfig(name="test"), context=Context(config=Settings()))
+    llm = ModelFactory.create_factory(f"{provider}.{model}?reasoning={effort}")(
+        agent, context=agent.context
+    )
+
+    assert isinstance(llm, ResponsesLLM)
+    args = llm._build_response_args(
+        [], RequestParams(model=llm.model_name, system_prompt="instructions"), None
+    )
+    expected = default if effort in {"none", "off"} else "low" if effort == "minimal" else effort
+    assert args["model"] == model
+    assert args["reasoning"]["effort"] == expected
+
+
+@pytest.mark.parametrize("model", ["gpt-6.2-astra", "gpt-6.2-sol"])
+@pytest.mark.parametrize("provider", ["responses", "codexresponses"])
+def test_gpt_62_rejects_delegation_only_ultra_effort(model: str, provider: str) -> None:
+    with pytest.raises(ModelConfigError, match="Invalid reasoning query value"):
+        ModelFactory.parse_model_string(f"{provider}.{model}?reasoning=ultra")
 
 
 def test_long_context_preserves_explicit_context_window_override() -> None:
@@ -1755,7 +1823,10 @@ def test_codex_responses_lite_is_opt_in_from_model_string(model: str, lite: bool
     )
 
     assert args["parallel_tool_calls"] is not lite
-    assert ("instructions" in args) is not lite
+    # The system prompt is sent once: top-level, or as a developer message (Lite, GPT-6.2).
+    developer = [item for item in args["input"] if item.get("role") == "developer"]
+    assert ("instructions" in args) is not bool(developer)
+    assert bool(developer) or not lite
     assert llm.standalone_web_search_enabled() is False  # web search is off by default
     from fast_agent.commands.model_details import _iter_model_identity_lines
 
@@ -1994,3 +2065,50 @@ def test_compact_at_query_reaches_the_llm() -> None:
     llm = ModelFactory.create_factory("sol?compact_at=150k")(LlmAgent(AgentConfig(name="test")))
 
     assert llm.compact_at_override == CompactAt(tokens=150_000)
+
+
+def test_beam_alias_pins_together_without_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("beam")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "reflection/Beam-1.0-501B-A23B:together"
+    assert config.temperature is None
+    assert config.reasoning_effort is None
+
+
+@pytest.mark.parametrize("mode", ["canonical", "profile"])
+def test_temporary_ptc_names_query(mode: str) -> None:
+    resolved = ModelFactory.resolve_model_spec(f"passthrough?ptc=on&ptc_names={mode}")
+    assert resolved.model_config.ptc_names == mode
+    assert resolved.model_config.ptc is True
+
+
+@pytest.mark.parametrize("value", ["", "wrong", "true"])
+def test_invalid_ptc_names_query(value: str) -> None:
+    with pytest.raises(ModelConfigError, match="ptc_names"):
+        ModelFactory.parse_model_string(f"passthrough?ptc_names={value}")
+
+
+def test_ptc_names_query_inherits_preset_and_does_not_enable_ptc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.llm.model_factory import resolve_model_query_overrides
+
+    monkeypatch.setattr(
+        ModelFactory, "MODEL_PRESETS", {"test_names": "passthrough?ptc_names=profile"}
+    )
+    inherited = ModelFactory.parse_model_string("test_names")
+    assert inherited.ptc_names == "profile" and inherited.ptc is None
+    assert resolve_model_query_overrides("test_names").ptc_names == "profile"
+    explicit = "test_names?ptc_names=canonical"
+    assert ModelFactory.parse_model_string(explicit).ptc_names == "canonical"
+    assert resolve_model_query_overrides(explicit).ptc_names == "canonical"
+    resolved = ModelFactory.resolve_model_spec("passthrough?ptc_names=canonical")
+    assert not resolved.resolve_ptc_enabled()
+
+
+def test_ptc_names_query_uses_last_value_like_ptc_query() -> None:
+    config = ModelFactory.parse_model_string(
+        "passthrough?ptc_names=canonical&ptc_names=profile&ptc=off&ptc=on"
+    )
+    assert config.ptc_names == "profile" and config.ptc is True

@@ -6,14 +6,15 @@ from copy import deepcopy
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from acp.helpers import update_agent_message_text
 from acp.schema import (
     AcpMcpServer,
+    AgentMessageChunk,
     HttpMcpServer,
     McpServerStdio,
     SessionMode,
     SessionModeState,
     SseMcpServer,
+    TextContentBlock,
 )
 
 from fast_agent.acp.acp_context import ACPContext, ClientInfo
@@ -48,6 +49,7 @@ from fast_agent.context import Context
 from fast_agent.core.instruction_refresh import (
     McpInstructionCapable,
     build_instruction,
+    lists_server_tools,
     resolve_instruction_skill_manifests,
 )
 from fast_agent.core.instruction_utils import (
@@ -60,6 +62,7 @@ from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, LlmCapablePro
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
 from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.tools.file_read_access import SKILL_READER_FILE_READS, FileReadAccess
 from fast_agent.types import RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
@@ -107,6 +110,7 @@ class SessionRuntimeHost(Protocol):
     _protocol_version: int | None
     primary_agent_name: str | None
     _permissions_enabled: bool
+    _use_client_tools: bool
 
     def _resolve_primary_agent_name(self, instance: AgentInstance) -> str | None: ...
 
@@ -553,17 +557,19 @@ class ACPServerSessionRuntime:
             return None
 
         aggregator = None
+        tool_filters = None
         skill_manifests = None
-        skill_read_tool_name = "read_skill"
+        skill_read_access: FileReadAccess = SKILL_READER_FILE_READS
         effective_context = dict(context)
         if isinstance(agent, McpInstructionCapable):
             configured_agent = cast("ConfiguredMcpInstructionCapable", agent)
             aggregator = agent.aggregator
+            tool_filters = configured_agent.config.tools
             skill_manifests = resolve_instruction_skill_manifests(
                 configured_agent,
                 configured_agent.skill_manifests,
             )
-            skill_read_tool_name = configured_agent.skill_read_tool_name
+            skill_read_access = configured_agent.skill_read_access
             if agent.instruction_context:
                 effective_context = dict(agent.instruction_context)
 
@@ -577,10 +583,12 @@ class ACPServerSessionRuntime:
         return await build_instruction(
             template,
             aggregator=aggregator,
+            tool_filters=tool_filters,
             skill_manifests=skill_manifests,
-            skill_read_tool_name=skill_read_tool_name,
+            skill_read_access=skill_read_access,
             context=effective_context,
             source=agent.name if isinstance(agent, AgentProtocol) else None,
+            include_tool_names=lists_server_tools(agent),
         )
 
     async def replace_instance_for_session(
@@ -1055,7 +1063,8 @@ class ACPServerSessionRuntime:
     ) -> None:
         session_state = initialization.session_state
         if (
-            not self._host._connection
+            not self._host._use_client_tools
+            or not self._host._connection
             or not self._host._client_supports_terminal
             or session_state.terminal_runtime is not None
         ):
@@ -1106,7 +1115,8 @@ class ACPServerSessionRuntime:
     ) -> None:
         session_state = initialization.session_state
         if (
-            not self._host._connection
+            not self._host._use_client_tools
+            or not self._host._connection
             or not (self._host._client_supports_fs_read or self._host._client_supports_fs_write)
             or session_state.filesystem_runtime is not None
         ):
@@ -1287,7 +1297,7 @@ class ACPServerSessionRuntime:
         if not status_line_meta:
             return
         try:
-            message_chunk = update_agent_message_text("")
+            message_chunk = AgentMessageChunk(content=TextContentBlock(text=""))
             await self._host._connection.session_update(
                 session_id=session_id,
                 update=message_chunk,

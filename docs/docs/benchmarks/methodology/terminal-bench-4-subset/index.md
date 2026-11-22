@@ -5,6 +5,8 @@ description: "Why fast-agent tests on 19 of Terminal-Bench 4.0's 66 tasks, how t
 
 # Terminal-Bench 4 subset
 
+For the verifier-only update, see the [Terminal-Bench 4.1 subset](../terminal-bench-4-1-subset/index.md).
+
 We want to test harness and model combinations often, cheaply and in a way that
 reflects the full benchmark. A full [Terminal-Bench 4.0](https://hub.harborframework.com/datasets/terminal-bench/terminal-bench/leaderboards/4-0-0)
 run is 66 tasks × 5 attempts, 330 trials, and usually costs thousands of dollars. That's

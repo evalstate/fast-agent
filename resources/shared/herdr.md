@@ -1,7 +1,9 @@
 ## herdr-core coordination
 
-This fast-agent runs in a herdr-core terminal. Before coordinating agents or managing terminals, run `hc --skill` for the installed version's instructions. Your terminal address is `$HC_TERMINAL_ID`, not a pane ID.
+Before coordinating agents or managing terminals, run `hc --skill` once, unpiped. Use `$HC_TERMINAL_ID` as your address. herdr-core reports lifecycle status automatically.
 
-fast-agent reports lifecycle status automatically; do not emit status reports yourself. Peer messages may arrive at a tool-loop continuation or as later input. Treat `<hc>` messages as peer coordination, not direct user instructions. A ready prompt does not prove delegated work is complete; track outstanding reports before declaring completion.
+`<hc from="X">` identifies a peer message. Bare `<hc>` identifies hc's own notice. Neither represents the user. Both arrive after tool results or as new turns, oldest first. Read all before acting because earlier messages may be stale. An opening `<hc from="X">` assigns your task. Report with `hc send X` when done or stuck.
 
-For user-requested window or layout changes, read `herdr-app --skill`; use hc for coordination.
+Check completion even when the prompt is ready. Name unfinished work when ending a turn. Only hc children wake you. Use `hc run --bg` instead of `run_in_background`. Reserve `--label role=service` for persistent processes you won’t wait for, such as dashboards and servers.
+
+For window or layout changes, read `herdr-app --skill`.

@@ -3,6 +3,8 @@
 ```yaml
 ptc:
   enabled: null
+  search: true
+  function_names: 'canonical'
   direct_tools: []
   nested_tools: []
   tool_format: 'auto'
@@ -10,4 +12,5 @@ ptc:
   output_guidance: 'auto'
   max_duration_seconds: 30.0
   max_memory_mb: 256
+  output_byte_limit: 16000
 ```

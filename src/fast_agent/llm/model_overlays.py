@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlencode
@@ -67,6 +67,57 @@ def _prefixed_model_spec(provider: Provider, model_name: str) -> str:
 
 def _existing_model_params(provider: Provider, model_name: str) -> ModelParameters | None:
     return ModelDatabase.get_model_params(model_name, provider=provider)
+
+
+def _profile_model_params(profile: str, *, provider: Provider) -> ModelParameters | None:
+    """Resolve an overlay `profile:` directly from static ModelDatabase entries.
+
+    Never delegates to ModelFactory or overlay registry loading, preventing recursion
+    while validating on-disk overlay manifests.
+    """
+    raw = strip_to_none(profile)
+    if raw is None:
+        return None
+    spec_without_query = raw.partition("?")[0].strip()
+    if not spec_without_query:
+        return None
+
+    direct_candidates = [spec_without_query]
+    if ":" in spec_without_query:
+        base_direct = _strip_hf_provider_suffix(spec_without_query)
+        if base_direct != spec_without_query:
+            direct_candidates.append(base_direct)
+
+    for candidate in direct_candidates:
+        params = ModelDatabase.get_static_model_params(candidate, provider=provider)
+        if params is not None:
+            return params
+        params = ModelDatabase.get_static_model_params(candidate)
+        if params is not None:
+            return params
+
+    prefix_provider, bare_model = _split_provider_prefix(spec_without_query)
+    if prefix_provider is None:
+        return None
+
+    stripped_candidates = [bare_model]
+    if ":" in bare_model:
+        base_without_route = _strip_hf_provider_suffix(bare_model)
+        if base_without_route != bare_model:
+            stripped_candidates.append(base_without_route)
+
+    for candidate in stripped_candidates:
+        params = ModelDatabase.get_static_model_params(candidate, provider=prefix_provider)
+        if params is not None:
+            return params
+        if prefix_provider != provider:
+            params = ModelDatabase.get_static_model_params(candidate, provider=provider)
+            if params is not None:
+                return params
+        params = ModelDatabase.get_static_model_params(candidate)
+        if params is not None:
+            return params
+    return None
 
 
 class ModelOverlayConnection(BaseModel):
@@ -291,6 +342,7 @@ class ModelOverlayManifest(BaseModel):
     name: str
     provider: Provider
     model: str
+    profile: str | None = None
     connection: ModelOverlayConnection = Field(default_factory=ModelOverlayConnection)
     defaults: ModelOverlayDefaults = Field(
         default_factory=ModelOverlayDefaults,
@@ -302,10 +354,24 @@ class ModelOverlayManifest(BaseModel):
     )
     picker: ModelOverlayPicker = Field(default_factory=ModelOverlayPicker)
 
+    @field_validator("profile", mode="before")
+    @classmethod
+    def _normalize_profile(cls, value: object) -> object:
+        if isinstance(value, str):
+            return strip_to_none(value)
+        return value
+
     @model_validator(mode="after")
     def _validate_provider_connection_options(self) -> "ModelOverlayManifest":
         if self.connection.reasoning_field is not None and self.provider is not Provider.GENERIC:
             raise ValueError("connection.reasoning_field is supported only for provider 'generic'")
+        if (
+            self.profile is not None
+            and _profile_model_params(self.profile, provider=self.provider) is None
+        ):
+            raise ValueError(
+                f"Unknown model overlay profile {self.profile!r}: not found in ModelDatabase"
+            )
         return self
 
 
@@ -316,6 +382,10 @@ class LoadedModelOverlay:
     manifest: ModelOverlayManifest
     manifest_path: Path
     secret_entry: ModelOverlaySecretEntry | None = None
+    override_model_parameters: ModelParameters | None = None
+    override_api_key: str | None = field(default=None, repr=False)
+    preserve_wire_model_name: bool = False
+    isolate_origin_headers: bool = False
 
     @property
     def name(self) -> str:
@@ -357,6 +427,14 @@ class LoadedModelOverlay:
             return model_spec
         return f"{model_spec}?{urlencode(query)}"
 
+    def compiled_placeholder_spec(self, placeholder: str = "__opaque_wire_model__") -> str:
+        """Compile provider + default query params without exposing the raw wire ID to spec parsing."""
+        model_spec = f"{self.provider.value}.{placeholder}"
+        query = self.manifest.defaults.to_query_pairs()
+        if not query:
+            return model_spec
+        return f"{model_spec}?{urlencode(query)}"
+
     def resolved_default_headers(self) -> dict[str, str] | None:
         headers = dict(self.manifest.connection.default_headers)
         if self.secret_entry and self.secret_entry.default_headers:
@@ -364,6 +442,8 @@ class LoadedModelOverlay:
         return headers or None
 
     def resolved_api_key(self) -> str | None:
+        if self.override_api_key is not None:
+            return self.override_api_key
         auth_mode = self.manifest.connection.auth_mode()
         if auth_mode == "none":
             return ""
@@ -411,7 +491,25 @@ class LoadedModelOverlay:
         return kwargs
 
     def build_model_parameters(self) -> ModelParameters | None:
-        existing = _existing_model_params(self.provider, self.model_name)
+        if self.override_model_parameters is not None:
+            return self.override_model_parameters
+
+        existing = (
+            _profile_model_params(self.manifest.profile, provider=self.provider)
+            if self.manifest.profile is not None
+            else None
+        )
+        if existing is None:
+            existing = _existing_model_params(self.provider, self.model_name)
+        if existing is None and self.provider == Provider.OPENRESPONSES:
+            from fast_agent.llm.llamacpp_discovery import match_llamacpp_model_database_entry
+
+            matched = match_llamacpp_model_database_entry(
+                self.model_name,
+                model_alias=self.manifest.picker.label,
+            )
+            if matched is not None:
+                existing = matched[1]
         context_window, max_output_tokens = self._resolved_model_limits(existing)
 
         if context_window is None or max_output_tokens is None:
@@ -461,6 +559,8 @@ class LoadedModelOverlay:
             max_output_tokens = self.manifest.defaults.max_tokens
         if max_output_tokens is None and existing is not None:
             max_output_tokens = existing.max_output_tokens
+            if context_window is not None:
+                max_output_tokens = min(max_output_tokens, context_window)
 
         return context_window, max_output_tokens
 
@@ -874,12 +974,25 @@ def _settings_home_override(
     return base_path, home
 
 
+_EPHEMERAL_MODEL_OVERLAYS: dict[str, LoadedModelOverlay] = {}
+
+
+def register_ephemeral_model_overlay(overlay: LoadedModelOverlay) -> None:
+    """Register an in-memory runtime overlay (e.g. for `fast-agent --local`)."""
+    _EPHEMERAL_MODEL_OVERLAYS[overlay.name] = overlay
+
+
+def clear_ephemeral_model_overlays() -> None:
+    """Clear all in-memory runtime overlays."""
+    _EPHEMERAL_MODEL_OVERLAYS.clear()
+
+
 def load_model_overlay_registry(
     *,
     start_path: Path | None = None,
     home: str | Path | None = None,
 ) -> ModelOverlayRegistry:
-    """Load static model overlays from the active home."""
+    """Load static model overlays from the active home plus any ephemeral overlays."""
 
     paths = resolve_model_overlay_paths(start_path=start_path, home=home)
     secret_entries = _load_secret_entries(paths.secrets_path)
@@ -900,6 +1013,9 @@ def load_model_overlay_registry(
                     path=str(path),
                 )
             loaded[overlay.name] = overlay
+
+    for name, overlay in _EPHEMERAL_MODEL_OVERLAYS.items():
+        loaded[name] = overlay
 
     return ModelOverlayRegistry(
         overlays=tuple(loaded.values()),

@@ -9,8 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from acp.exceptions import RequestError
-from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation
+from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation, TextContentBlock
 from acp.stdio import spawn_agent_process
 from jsonschema.validators import validator_for
 
@@ -128,7 +127,7 @@ async def run_smoke(args: argparse.Namespace) -> int:
             normal_start = len(client.notifications)
             normal_response = await connection.prompt(
                 session_id=session_id,
-                prompt=[text_block(args.normal_prompt)],
+                prompt=[TextContentBlock(text=args.normal_prompt)],
             )
             await _wait_for_agent_message_chunk(client, session_id, start_index=normal_start)
             normal_text = "".join(_message_chunks(client, session_id, start_index=normal_start))
@@ -146,7 +145,7 @@ async def run_smoke(args: argparse.Namespace) -> int:
             structured_start = len(client.notifications)
             structured_response = await connection.prompt(
                 session_id=session_id,
-                prompt=[text_block(args.structured_prompt)],
+                prompt=[TextContentBlock(text=args.structured_prompt)],
                 **structured_meta,
             )
             await _wait_for_agent_message_chunk(

@@ -37,7 +37,10 @@ from fast_agent.llm.provider.copilot.responses import CopilotResponsesLLM
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 from fast_agent.llm.provider.openai.compaction_replay import capture_compaction_replay
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
-from fast_agent.llm.provider.openai.responses_cache import prepare_cached_input
+from fast_agent.llm.provider.openai.responses_cache import (
+    prepare_cached_input,
+    prepare_cached_request,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -638,3 +641,59 @@ async def test_captured_checkpoint_records_the_producing_route() -> None:
     [block] = channels[OPENAI_COMPACTION_ITEMS]
     assert isinstance(block, TextContent)
     assert json.loads(block.text)["origin"] == "copilot"
+
+
+@pytest.mark.parametrize("model", ["gpt-6.2-astra", "gpt-6.2-sol"])
+@pytest.mark.parametrize("provider", [Provider.RESPONSES, Provider.CODEX_RESPONSES])
+def test_gpt62_cached_request_restates_effort_after_checkpoint(
+    model: str, provider: Provider
+) -> None:
+    settings = Settings(
+        responses=OpenAISettings(api_key="test", native_compaction=True),
+        codexresponses=CodexResponsesSettings(native_compaction=True),
+    )
+    context = Context(config=settings)
+    llm = (
+        CodexResponsesLLM(context=context, model=model)
+        if provider == Provider.CODEX_RESPONSES
+        else ResponsesLLM(context=context, model=model)
+    )
+    items, state, params = prepare_cached_request(
+        [_checkpoint_with_item(provider.value), _user("Continue")],
+        RequestParams(model=model),
+        key="key",
+        default_effort="high",
+        convert=llm._convert_message_to_items,
+    )
+    assert [item["type"] for item in items] == [
+        "compaction",
+        "configuration_update",
+        "message",
+    ]
+    assert items[1]["reasoning"] == {"effort": "high"}
+    assert state.model == model
+    assert state.effort == "high"
+    assert params.metadata and params.metadata["reasoning"]["effort"] == "high"
+
+
+def test_gpt62_cached_request_restates_format_after_checkpoint() -> None:
+    llm = ResponsesLLM(
+        context=Context(config=Settings(responses=OpenAISettings(api_key="test"))),
+        model="gpt-6.2-sol",
+    )
+    text_format = {"type": "json_schema", "name": "count", "schema": {"type": "object"}}
+    items, state, params = prepare_cached_request(
+        [_checkpoint_with_item("responses"), _user("Continue")],
+        RequestParams(model="gpt-6.2-sol", response_format=text_format),
+        key="key",
+        default_effort="high",
+        convert=llm._convert_message_to_items,
+        text_format=text_format,
+    )
+    assert items[1] == {
+        "type": "configuration_update",
+        "reasoning": {"effort": "high"},
+        "text": {"format": text_format},
+    }
+    assert state.text_format == text_format
+    assert params.response_format is None

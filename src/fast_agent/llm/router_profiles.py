@@ -16,11 +16,15 @@ class RouterRoute:
 
 @dataclass(frozen=True, slots=True)
 class RouterProfileRule(Generic[ProfileT]):
-    """Ordered route rule; ``backends=None`` matches every backend."""
+    """Ordered route rule; ``backends=None`` matches every backend.
+
+    Include ``None`` in ``backends`` to match routes with no selected backend
+    (the router chooses), without matching explicit backends.
+    """
 
     model: str
     profile: ProfileT
-    backends: frozenset[str] | None = None
+    backends: frozenset[str | None] | None = None
 
     def matches(self, route: RouterRoute) -> bool:
         return self.model == route.model and (
@@ -36,7 +40,7 @@ class RouterProfileRegistry(Generic[ProfileT]):
 
     def __post_init__(self) -> None:
         wildcard_models: set[str] = set()
-        covered_backends: dict[str, set[str]] = {}
+        covered_backends: dict[str, set[str | None]] = {}
         for rule in self.rules:
             if rule.model in wildcard_models:
                 raise ValueError(
@@ -49,7 +53,9 @@ class RouterProfileRegistry(Generic[ProfileT]):
             covered = covered_backends.setdefault(rule.model, set())
             overlap = covered.intersection(rule.backends)
             if overlap:
-                duplicate = ", ".join(sorted(overlap))
+                duplicate = ", ".join(
+                    sorted("<unpinned>" if backend is None else backend for backend in overlap)
+                )
                 raise ValueError(
                     f"Router profile rule for '{rule.model}' duplicates backends: {duplicate}"
                 )

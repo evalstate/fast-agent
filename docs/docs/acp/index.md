@@ -131,28 +131,34 @@ Documentation in Progress.
 
 ## Shell and File Access
 
-**`fast-agent`** adds the read and write tools from the Client to enable "follow-along" functionality.
+By default, **`fast-agent`** keeps its native built-in tools in ACP mode — when shell mode is
+enabled with `-x` / `--shell`, commands, filesystem reads/edits (`edit_file`/`apply_patch`), and
+programmatic tool calling (PTC) run natively in `fast-agent` rather than delegating to ACP
+client-advertised `fs` or `terminal` capabilities.
 
-When shell mode is enabled with `-x` / `--shell`, fast-agent will normally use the ACP client's
-terminal capability if the client advertises one. If you want commands to run in the fast-agent
-process instead, use:
+If you want to opt into ACP client filesystem and terminal delegation (for example, editor
+"follow-along" file access and client terminal tabs), pass `--acp-client-tools`:
 
 ```bash
-fast-agent-acp -x --prefer-local-shell
+fast-agent-acp -x --acp-client-tools
 ```
 
 The same option is available when using the generic server command:
 
 ```bash
-fast-agent serve --transport acp -x --prefer-local-shell
+fast-agent serve --transport acp -x --acp-client-tools
 ```
 
-You can also make this the default in `fast-agent.yaml`:
+You can also enable this in `fast-agent.yaml` (and override it per run with `--no-acp-client-tools`):
 
 ```yaml
-shell_execution:
-  prefer_local_shell: true
+acp:
+  use_client_tools: true
 ```
+
+When `--acp-client-tools` is enabled alongside `-x`, you can still keep `fast-agent`'s local shell
+runtime instead of delegating to the ACP client's terminal capability by passing
+`--prefer-local-shell` (or setting `shell_execution.prefer_local_shell: true`).
 
 ## Permissions
 

@@ -42,6 +42,7 @@ from fast_agent.mcp.url_elicitation_required import (
 )
 from fast_agent.ptc import PTC_TOOL_NAME, ProgrammaticToolRuntime
 from fast_agent.ptc.runtime import _ExecutionStats, _NestedCalls
+from fast_agent.ptc.stubs import _MAX_RETURNS_CHARS, build_functions
 from fast_agent.ptc.values import MediaStore
 from fast_agent.tools.invocation_context import is_programmatic_tool_call, outer_tool_call_id
 from fast_agent.tools.local_shell_executor import LocalEnvironment
@@ -128,6 +129,7 @@ def test_model_sees_code_tool_plus_direct_tools_only() -> None:
     [
         ("shell", True),
         ("runtime__Shell", True),
+        ("run_command", True),
         ("exec", True),
         ("process", False),
         ("read_text_file", False),
@@ -158,6 +160,13 @@ def test_cpython_guidance_requires_a_shell_command_tool(
         else []
     )
 
+    if expect_hint:
+        tool = programmatic_shell_tool(available[0])
+        assert tool.meta is not None
+        tool.meta["fast_agent"]["ptc"]["expose"] = (
+            exposure if exposure != "configured_direct" else "nested"
+        )
+        available = [tool]
     tools = runtime.model_tools(available, tool_format=tool_format)
     surface = runtime.surface(tools)
 
@@ -201,6 +210,37 @@ async def test_settle_helper_and_tool_are_both_callable(type_check: bool) -> Non
         assert not result.is_error, _text(result)
         assert dispatch.calls == [("settle", {"invoice_id": "123"})]
         assert json.loads(_text(result).split("Result:\n", 1)[1])["tool"] == "settle"
+    finally:
+        await runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("type_check", [True, False])
+async def test_removed_function_is_explained_with_or_without_type_checking(
+    type_check: bool,
+) -> None:
+    """Removed functions raise at the call site, so a script can recover in place."""
+    runtime = ProgrammaticToolRuntime(
+        ProgrammaticToolCallingSettings(enabled=True, type_check=type_check)
+    )
+    kept = Tool(name="kept", input_schema={"type": "object"})
+    runtime.model_tools([kept, Tool(name="gone", input_schema={"type": "object"})])
+    runtime.model_tools([kept])
+    programmatic = runtime.surface([]).programmatic
+    assert programmatic is not None and programmatic.retired == {"gone"}
+    try:
+        result = await runtime.execute({"code": "await gone()"}, RecordingDispatcher())
+        assert result.is_error
+        assert "RuntimeError: `gone` is no longer available" in _text(result)
+        dispatch = RecordingDispatcher()
+        recovered = await runtime.execute(
+            {"code": "try:\n    await gone(old_arg=42)\nexcept RuntimeError:\n    await kept()"},
+            dispatch,
+        )
+        assert not recovered.is_error, _text(recovered)
+        assert dispatch.calls == [("kept", {})]
+        runtime.reset_conversation()
+        assert runtime.catalog.retired == frozenset()
     finally:
         await runtime.close()
 
@@ -472,7 +512,7 @@ def test_instructions_call_sandbox_callables_functions_not_tools() -> None:
         },
     )
 
-    code_tool, *_ = runtime.model_tools([TOOLS[0], bash])
+    code_tool, *_ = runtime.model_tools([TOOLS[0], programmatic_shell_tool(bash)])
     instructions = (code_tool.description or "").split("Available functions:")[0]
     mentions = [line for line in instructions.splitlines() if re.search(r"\btools?\b", line, re.I)]
 
@@ -992,6 +1032,190 @@ def test_return_shape_documents_fields_compactly() -> None:
     assert "JSON schema" not in description
 
 
+_RANGE = {
+    "type": "object",
+    "properties": {"gte": {"type": "string"}, "lte": {"type": "string"}},
+    "additionalProperties": False,
+}
+_OBJECT_ARGUMENTS = {
+    "type": "object",
+    "properties": {
+        "created": _RANGE,
+        "filters": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"from": {"type": "string"}, "window": _RANGE},
+                "required": ["from"],
+            },
+        },
+        "labels": {
+            "type": "object",
+            "properties": {"team": {"type": "string"}},
+            "additionalProperties": True,
+        },
+    },
+}
+
+
+@pytest.mark.asyncio
+async def test_closed_object_arguments_show_their_keys_and_reject_unknown_ones(runtime) -> None:
+    runtime.model_tools([Tool(name="find", input_schema=_OBJECT_ARGUMENTS)])
+    dispatch = RecordingDispatcher()
+
+    description = runtime.tool().description or ""
+    unknown = await runtime.execute({"code": "await find(created={'from': '2026'})"}, dispatch)
+    nested = await runtime.execute(
+        {"code": "await find(filters=[{'from': 'a', 'window': {'after': 'x'}}])"}, dispatch
+    )
+    missing = await runtime.execute({"code": "await find(filters=[{'window': {}}])"}, dispatch)
+    valid = await runtime.execute(
+        {
+            "code": "await find(created={'gte': '2026'}, "
+            "filters=[{'from': 'a', 'window': {'lte': 'b'}}], labels={'any': 1})"
+        },
+        dispatch,
+    )
+
+    assert "created: {gte?: str, lte?: str} = ..." in description
+    assert "filters: list[{from: str, window?: {gte?: str, lte?: str}}] = ..." in description
+    assert "labels: dict[str, Any] = ..." in description
+    for rejected in (unknown, nested, missing):
+        assert rejected.is_error and "NOT executed" in _text(rejected)
+    assert "Hint: `created` of `find` takes {gte?: str, lte?: str}." in _text(unknown)
+    assert "Hint: `filters[].window` of `find` takes {gte?: str, lte?: str}." in _text(nested)
+    assert not valid.is_error, _text(valid)
+    assert dispatch.calls == [
+        (
+            "find",
+            {
+                "created": {"gte": "2026"},
+                "filters": [{"from": "a", "window": {"lte": "b"}}],
+                "labels": {"any": 1},
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_typed_arguments_built_outside_the_call_get_a_hint(runtime) -> None:
+    runtime.model_tools([*TOOLS, Tool(name="find", input_schema=_OBJECT_ARGUMENTS)])
+    dispatch = RecordingDispatcher()
+    code = "created = {'gte': '2026'}\nawait find(created=created)"
+
+    result = await runtime.execute({"code": code}, dispatch)
+    annotated = await runtime.execute(
+        {"code": "from typing import Any\n" + re.sub(r"^(\w+) =", r"\1: Any =", code)}, dispatch
+    )
+
+    assert result.is_error and "NOT executed" in _text(result)
+    assert "Hint: write Literal and dict arguments inline in the call" in _text(result)
+    # The hint's way out: a variable annotated `Any` is accepted.
+    assert not annotated.is_error, _text(annotated)
+    assert len(dispatch.calls) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "code",
+    [
+        "statuses = ['open']\nfor status in statuses:\n    await orders__get_orders(customer_id='c', status=status)",
+        "kwargs = {'customer_id': 'c', 'status': 'open'}\nawait orders__get_orders(**kwargs)",
+        "kwargs = {'created': {'gte': '2026'}, 'filters': []}\nawait find(**kwargs)",
+    ],
+)
+async def test_arguments_the_checker_cannot_type_still_run(runtime, code) -> None:
+    """Widened Literal strings and ``**dict`` values are left to the tool to validate."""
+    runtime.model_tools([*TOOLS, Tool(name="find", input_schema=_OBJECT_ARGUMENTS)])
+    dispatch = RecordingDispatcher()
+
+    result = await runtime.execute({"code": code}, dispatch)
+
+    assert not result.is_error, _text(result)
+    assert len(dispatch.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_unknowable_argument_types_do_not_hide_real_errors(runtime) -> None:
+    dispatch = RecordingDispatcher()
+
+    result = await runtime.execute(
+        {"code": "kwargs = {'status': 'open'}\nawait orders__get_orders(**kwargs, customer=1)"},
+        dispatch,
+    )
+
+    assert result.is_error and "NOT executed" in _text(result)
+    assert dispatch.calls == []
+
+
+def _member_schema(*, handle_note: str, profile_fields: int) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string", "description": handle_note},
+            "orgs": {
+                "type": "array",
+                "description": "Organizations the member belongs to (first 100).",
+                "items": {"type": "object", "properties": {"name": {"type": "string"}}},
+            },
+            "profile": {
+                "type": "object",
+                "properties": {f"attr_{n}": {"type": "string"} for n in range(profile_fields)},
+            },
+        },
+        "required": ["id"],
+    }
+
+
+def test_return_shapes_keep_nested_descriptions_and_degrade_at_field_boundaries() -> None:
+    # Fixtures scale with the safety net so every degradation level is exercised.
+    over = _MAX_RETURNS_CHARS // 10
+    long_note = "Member handle. " + "Background detail. " * over
+    schemas = {
+        "small": _member_schema(handle_note="Member handle.", profile_fields=1),
+        "verbose": _member_schema(handle_note=long_note, profile_fields=1),
+        "deep": _member_schema(handle_note=long_note, profile_fields=over),
+        "flat": {
+            "type": "object",
+            "properties": {f"f_{n}": {"type": "string"} for n in range(over)},
+        },
+    }
+    tools = [
+        Tool(
+            name=name,
+            input_schema={"type": "object"},
+            output_schema={
+                "type": "object",
+                "properties": {"members": {"type": "array", "items": schema}},
+            }
+            if name != "flat"
+            else schema,
+        )
+        for name, schema in schemas.items()
+    ]
+
+    functions = build_functions(tools)
+    shapes = {name: functions[name].returns_shape or "" for name in schemas}
+
+    assert shapes["small"] == (
+        "{\n"
+        "    members?: list[{\n"
+        "        id: str,  # Member handle.\n"
+        "        orgs?: list[{name?: str}],  # Organizations the member belongs to (first 100).\n"
+        "        profile?: {attr_0?: str},\n"
+        "    }],\n"
+        "}"
+    )
+    # Over budget, nested descriptions with a number (usually a limit) are kept longest...
+    assert "# Organizations the member belongs to (first 100)." in shapes["verbose"]
+    assert "Background detail" not in shapes["verbose"]
+    # ...then the deepest objects collapse, keeping the fields around them...
+    assert "{members?: list[{id: str, orgs?: list[{...}], profile?: {...}}]}" == shapes["deep"]
+    # ...and a shape that still cannot fit is cut after a whole field.
+    assert re.search(r", f_\d+\?: str, …$", shapes["flat"])
+    assert all(len(shape) <= _MAX_RETURNS_CHARS for shape in shapes.values())
+
+
 def test_tools_declare_their_exposure_and_program_return_type() -> None:
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
     control = Tool(
@@ -1214,10 +1438,10 @@ async def test_shell_from_code_returns_streams_and_exit_code_instead_of_raising(
         model_tools = {tool.name for tool in (await agent.list_tools()).tools}
         runtime = agent._programmatic_tool_runtime()
         assert runtime is not None
-        shell = next(name for name, f in runtime.functions.items() if f.tool_name == "exec")
+        shell = next(name for name, f in runtime.functions.items() if f.tool_name == "shell")
         # PTC is not optional: shell and process are reachable only through code.
         assert model_tools == {PTC_TOOL_NAME}
-        assert {"exec", "process"} <= {f.tool_name for f in runtime.functions.values()}
+        assert {"shell", "process"} <= {f.tool_name for f in runtime.functions.values()}
         code = (
             f"r = await {shell}(command=\"printf '1.5'; echo oops >&2; exit 4\")\n"
             "try:\n"
@@ -1281,7 +1505,7 @@ async def test_failed_nested_calls_raise_short_messages_not_display_text(
         await agent.list_tools()
         runtime = agent._programmatic_tool_runtime()
         assert runtime is not None
-        shell = next(name for name, f in runtime.functions.items() if f.tool_name == "exec")
+        shell = next(name for name, f in runtime.functions.items() if f.tool_name == "shell")
         code = (
             f"try:\n    {call.replace('SHELL', shell)}\n    message = None\n"
             "except RuntimeError as exc:\n    message = str(exc)\nmessage"
@@ -1406,7 +1630,15 @@ async def test_documented_sandbox_modules_match_the_installed_monty() -> None:
     async with AsyncMonty(min_processes=1, max_processes=1) as pool:
         missing = [name for name in available if not await imports(pool, name)]
         present = [name for name in unavailable if await imports(pool, name)]
+        async with pool.checkout(script_name="fnmatch_probe.py") as session:
+            matches = await session.feed_run(
+                "import fnmatch\n"
+                '(fnmatch.filter(["agent.py", "README.md", "AGENT.PY"], "*.py"), '
+                'fnmatch.fnmatchcase("AGENT.PY", "*.py"), '
+                'fnmatch.fnmatchcase("AGENT.PY", "*.PY"))'
+            )
 
+    assert matches == (["agent.py"], False, True)
     assert missing == [] and present == []
     assert {name.split(".")[0] for name in available} <= SANDBOX_MODULES
 
@@ -1489,3 +1721,169 @@ async def test_pending_and_cancelled_dispatch_do_not_claim_success() -> None:
             await task
     assert record["status"] == "cancelled"
     assert record["is_error"] is None
+
+
+@pytest.mark.asyncio
+async def test_preimported_stdlib_modules_work_without_import() -> None:
+    async def noop(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        return CallToolResult(content=[])
+
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.model_tools([])
+    try:
+        result = await runtime.execute(
+            {
+                "code": (
+                    "data = json.loads('{\"a\": [1, 2, 2]}')\n"
+                    "c = collections.Counter(data['a'])\n"
+                    "m = re.search(r'(\\d+)', 'v42')\n"
+                    "print(c[2], m.group(1), math.ceil(1.2), len(list(itertools.islice(range(10), 3))), datetime.date(2026, 1, 1).year)"
+                )
+            },
+            noop,
+        )
+    finally:
+        await runtime.close()
+    assert not result.is_error
+    text = "\n".join(b.text for b in result.content if isinstance(b, TextContent))
+    assert "2 42 2 3 2026" in text
+
+
+@pytest.mark.asyncio
+async def test_inferred_shape_type_check_false_positives_fall_through() -> None:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.model_tools(
+        [Tool(name="fetch", description="Fetch record.", input_schema={"type": "object"})]
+    )
+
+    async def dispatch(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        return CallToolResult(content=[TextContent(type="text", text='{"items": [{"k": "ok"}]}')])
+
+    try:
+        result = await runtime.execute(
+            {
+                "code": (
+                    "res = await fetch()\n"
+                    "rows = res.get('items', []) if isinstance(res, dict) else []\n"
+                    "print([r['k'] for r in rows])"
+                )
+            },
+            dispatch,
+        )
+    finally:
+        await runtime.close()
+    assert not result.is_error
+    text = "\n".join(b.text for b in result.content if isinstance(b, TextContent))
+    assert "['ok']" in text
+
+
+@pytest.mark.asyncio
+async def test_importing_tool_source_gives_targeted_hint() -> None:
+    async def noop(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        return CallToolResult(content=[])
+
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.search_forced = True
+    runtime.model_tools(
+        [
+            Tool(
+                name="huggingface__hf_whoami",
+                description="Who am I.",
+                input_schema={"type": "object"},
+            )
+        ]
+    )
+    try:
+        result = await runtime.execute({"code": "import huggingface"}, noop)
+    finally:
+        await runtime.close()
+    assert result.is_error
+    text = "\n".join(b.text for b in result.content if isinstance(b, TextContent))
+    assert "`huggingface` is a tool source, not an importable module" in text
+    assert 'await search_tools(server="huggingface")' in text
+
+
+def test_only_false_positives_allows_inferred_union_and_operator_diagnostics() -> None:
+    from fast_agent.ptc.runtime import _only_false_positives
+
+    code = "x = d.get('n')\nprint(len(x), x > 0)\nawait f(q=x)\n"
+    assert _only_false_positives(
+        "ptc.py:2:7: error[invalid-argument-type] Argument to function `len` is incorrect: Expected `Sized`, found `Any | None`\n"
+        "ptc.py:2:15: error[unsupported-operator] Operator `>` is not supported between objects of type `Any | int | None` and `Literal[0]`\n"
+        "ptc.py:3:9: error[invalid-argument-type] Argument to function `f` is incorrect: Expected `str`, found `Unknown | str`",
+        code,
+    )
+    # Concrete wrong-type arguments must still be rejected pre-execution.
+    assert not _only_false_positives(
+        "ptc.py:3:9: error[invalid-argument-type] Argument to function `f` is incorrect: Expected `int`, found `None`",
+        code,
+    )
+    assert not _only_false_positives(
+        'ptc.py:3:9: error[invalid-argument-type] Argument to function `f` is incorrect: Expected `Literal["a", "b"]`, found `Literal["c"]`',
+        code,
+    )
+
+
+@pytest.mark.asyncio
+async def test_gather_return_exceptions_and_semaphore_give_targeted_hints() -> None:
+    async def noop(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        return CallToolResult(content=[])
+
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
+    runtime.model_tools([Tool(name="ping", description="Ping.", input_schema={"type": "object"})])
+    try:
+        r_gather = await runtime.execute(
+            {"code": "await asyncio.gather(ping(), return_exceptions=True)"},
+            noop,
+        )
+        r_sem = await runtime.execute(
+            {"code": "sem = asyncio.Semaphore(5)"},
+            noop,
+        )
+    finally:
+        await runtime.close()
+    assert r_gather.is_error
+    gather_text = "\n".join(b.text for b in r_gather.content if isinstance(b, TextContent))
+    assert "settle(...)" in gather_text
+    assert r_sem.is_error
+    sem_text = "\n".join(b.text for b in r_sem.content if isinstance(b, TextContent))
+    assert "batching calls into chunks" in sem_text
+
+
+@pytest.mark.asyncio
+async def test_nested_ptc_calls_record_start_offset_and_timing_ms(runtime) -> None:
+    async def dispatch(name: str, args: dict[str, Any], call_id: str) -> CallToolResult:
+        if args.get("customer_id") == "slow":
+            await asyncio.sleep(0.03)
+        if args.get("customer_id") == "boom":
+            await asyncio.sleep(0.01)
+            raise RuntimeError("boom")
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    result = await runtime.execute(
+        {
+            "code": (
+                "await orders__get_orders(customer_id='slow')\n"
+                "await orders__get_orders(customer_id='fast')\n"
+            )
+        },
+        dispatch,
+    )
+    assert not result.is_error
+    records = (result.meta or {})[FAST_AGENT_PTC_CALLS]
+    assert len(records) == 2
+    first, second = records
+    assert isinstance(first["start_offset_ms"], float) and first["start_offset_ms"] >= 0.0
+    assert isinstance(first["timing_ms"], float) and first["timing_ms"] >= 20.0
+    assert isinstance(second["start_offset_ms"], float)
+    assert second["start_offset_ms"] >= first["start_offset_ms"] + 20.0
+    assert isinstance(second["timing_ms"], float) and second["timing_ms"] >= 0.0
+
+    err_result = await runtime.execute(
+        {"code": "await orders__get_orders(customer_id='boom')"},
+        dispatch,
+    )
+    assert err_result.is_error
+    [err_record] = (err_result.meta or {})[FAST_AGENT_PTC_CALLS]
+    assert err_record["status"] == "raised"
+    assert isinstance(err_record["timing_ms"], float) and err_record["timing_ms"] >= 5.0

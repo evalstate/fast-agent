@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Protocol
 
 import pytest
-from acp.helpers import text_block
 from acp.schema import (
     ClientCapabilities,
     FileSystemCapabilities,
     Implementation,
     PromptResponse,
     StopReason,
+    TextContentBlock,
 )
 
 TEST_DIR = Path(__file__).parent
@@ -39,7 +39,7 @@ def _get_stop_reason(response: PromptResponse) -> StopReason:
     return response.stop_reason
 
 
-def get_fast_agent_cmd() -> tuple:
+def get_fast_agent_cmd(*, acp_client_tools: bool = True) -> tuple[str, ...]:
     """Build the fast-agent command with appropriate flags."""
     cmd = [
         sys.executable,
@@ -55,6 +55,8 @@ def get_fast_agent_cmd() -> tuple:
         "--name",
         "fast-agent-acp-filesystem-test",
     ]
+    if acp_client_tools:
+        cmd.append("--acp-client-tools")
     return tuple(cmd)
 
 
@@ -91,7 +93,7 @@ async def test_acp_filesystem_support_enabled() -> None:
         # Send prompt that should trigger filesystem operations
         prompt_text = "use the read_text_file tool to read: /test/file.txt"
         prompt_response = await connection.prompt(
-            session_id=session_id, prompt=[text_block(prompt_text)]
+            session_id=session_id, prompt=[TextContentBlock(text=prompt_text)]
         )
         assert _get_stop_reason(prompt_response) == END_TURN
 
@@ -134,7 +136,9 @@ async def test_acp_filesystem_read_only() -> None:
         client.queue_permission_selected("allow_once")
         read_response = await connection.prompt(
             session_id=session_id,
-            prompt=[text_block(f'***CALL_TOOL read_text_file {{"path": "{read_path}"}}')],
+            prompt=[
+                TextContentBlock(text=f'***CALL_TOOL read_text_file {{"path": "{read_path}"}}')
+            ],
         )
 
         assert _get_stop_reason(read_response) == END_TURN
@@ -144,8 +148,8 @@ async def test_acp_filesystem_read_only() -> None:
         write_response = await connection.prompt(
             session_id=session_id,
             prompt=[
-                text_block(
-                    f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "nope"}}'
+                TextContentBlock(
+                    text=f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "nope"}}'
                 )
             ],
         )
@@ -187,8 +191,8 @@ async def test_acp_filesystem_write_only() -> None:
         write_response = await connection.prompt(
             session_id=session_id,
             prompt=[
-                text_block(
-                    f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "ok"}}'
+                TextContentBlock(
+                    text=f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "ok"}}'
                 )
             ],
         )
@@ -199,7 +203,9 @@ async def test_acp_filesystem_write_only() -> None:
 
         read_response = await connection.prompt(
             session_id=session_id,
-            prompt=[text_block(f'***CALL_TOOL read_text_file {{"path": "{write_path}"}}')],
+            prompt=[
+                TextContentBlock(text=f'***CALL_TOOL read_text_file {{"path": "{write_path}"}}')
+            ],
         )
 
         assert _get_stop_reason(read_response) == "refusal"
@@ -235,6 +241,57 @@ async def test_acp_filesystem_disabled_when_client_unsupported() -> None:
 
         # Agent should work without filesystem tools
         # This test ensures graceful handling when filesystem is not supported
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_acp_filesystem_disabled_by_default_without_client_tools_flag() -> None:
+    """Client filesystem tools are not attached unless --acp-client-tools is opted in."""
+    from acp.stdio import spawn_agent_process
+
+    client = TestClient()
+
+    async with spawn_agent_process(
+        lambda _: client, *get_fast_agent_cmd(acp_client_tools=False)
+    ) as (connection, _process):
+        await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapabilities(read_text_file=True, write_text_file=True),
+                terminal=False,
+            ),
+            client_info=Implementation(name="pytest-filesystem-client", version="0.0.1"),
+        )
+
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = _get_session_id(session_response)
+        assert session_id
+
+        read_path = "/test/default-disabled.txt"
+        client.files[read_path] = "should not be read"
+        await connection.prompt(
+            session_id=session_id,
+            prompt=[
+                TextContentBlock(text=f'***CALL_TOOL read_text_file {{"path": "{read_path}"}}')
+            ],
+        )
+
+        write_path = "/test/default-disabled-write.txt"
+        await connection.prompt(
+            session_id=session_id,
+            prompt=[
+                TextContentBlock(
+                    text=f'***CALL_TOOL write_text_file {{"path": "{write_path}", "content": "nope"}}'
+                )
+            ],
+        )
+
+        assert client.file_reads == []
+        assert client.file_writes == []
+        assert write_path not in client.files
+        notifications_text = str(client.notifications)
+        assert "should not be read" not in notifications_text
+        assert "acp_filesystem" not in notifications_text
 
 
 async def _wait_for_notifications(client: TestClient, timeout: float = 2.0) -> None:

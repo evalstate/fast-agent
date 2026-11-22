@@ -8,8 +8,11 @@ from fast_agent.ptc.runtime import (
     PtcToolFormat,
     ToolDispatcher,
 )
+from fast_agent.ptc.vocabulary import PTC_BUILTIN_FUNCTIONS, PTC_VOCABULARY_VERSION
 
 __all__ = [
+    "PTC_BUILTIN_FUNCTIONS",
+    "PTC_VOCABULARY_VERSION",
     "PTC_BATCHING_INSTRUCTION",
     "PTC_TOOL_META",
     "PTC_TOOL_NAME",

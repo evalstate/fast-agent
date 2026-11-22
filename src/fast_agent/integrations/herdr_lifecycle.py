@@ -316,6 +316,24 @@ class _HerdrLifecycleReporter:
             # OSC 7501 only: the legacy Herdr socket has no field for this.
             self._program_status.report_queued(count)
 
+    def report_attached(self, summary: str | None) -> None:
+        if os.getpid() != self._creator_pid:
+            return
+        with self._lock:
+            if self._closing:
+                return
+            # OSC 7501 only, as for queued input.
+            self._program_status.report_attached(summary)
+
+    def report_warm(self, summary: str | None) -> None:
+        if os.getpid() != self._creator_pid:
+            return
+        with self._lock:
+            if self._closing:
+                return
+            # OSC 7501 only, as for queued input.
+            self._program_status.report_warm(summary)
+
     def release(self) -> None:
         if os.getpid() != self._creator_pid:
             return
@@ -654,6 +672,26 @@ def report_queued_input(count: int) -> None:
         reporter = _active_reporter()
         if reporter is not None:
             reporter.report_queued_input(count)
+    except Exception:
+        pass
+
+
+def report_session_attached(summary: str | None) -> None:
+    """Report what an idle session is still attached to (see ``hc_children``)."""
+    try:
+        reporter = _active_reporter()
+        if reporter is not None:
+            reporter.report_attached(summary)
+    except Exception:
+        pass
+
+
+def report_session_warm(summary: str | None) -> None:
+    """Report whether an idle session is keeping its prompt cache warm."""
+    try:
+        reporter = _active_reporter()
+        if reporter is not None:
+            reporter.report_warm(summary)
     except Exception:
         pass
 

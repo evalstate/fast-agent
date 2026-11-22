@@ -1,9 +1,13 @@
 """Compatibility for textual-image's batched terminal probe.
 
-Herdr can reply to primary DA before its Kitty graphics reply. textual-image
-0.14.2 treats DA as an end marker, caching a false negative and leaving the
-Kitty reply in the input stream. Collect both replies before backend selection.
-Keep the workaround scoped to our initial probe, not a permanent library patch.
+Herdr can reply to primary DA before its Kitty graphics reply, and can emit
+duplicate Kitty graphics replies (for example, from both the terminal core and
+an attached viewer). textual-image 0.14.2 treats DA as an end marker, caching
+a false negative and leaving the Kitty reply in the input stream; stopping
+immediately after the first Kitty reply likewise leaves a duplicate reply to
+echo into output and leak into the next prompt. Collect all replies and let the
+stream settle briefly before restoring cooked mode. Keep the workaround scoped
+to our initial probe, not a permanent library patch.
 """
 
 from __future__ import annotations
@@ -17,6 +21,8 @@ from typing import TYPE_CHECKING
 
 from textual_image import _terminal as terminal
 
+from fast_agent.ui.prompt.turn_input import suspend_turn_input
+
 if TYPE_CHECKING:
     from collections.abc import Generator
 
@@ -26,7 +32,19 @@ _GRAPHICS_REPLY = re.compile(r"\x1b_G[^\x1b]*\x1b\\")
 # replies a short grace period without imposing the full timeout on them.
 _CELL_REPLY = re.compile(r"\x1b\[6;[0-9]+;[0-9]+t")
 _REPLY_GRACE_SECONDS = 0.25
+# Brief quiet window after expected replies arrive to absorb duplicate graphics
+# replies before restoring echo on the TTY.
+_REPLY_SETTLE_SECONDS = 0.08
 _MAX_REPLY_CHARS = 8192
+
+
+def _has_incomplete_graphics_reply(sequence: str) -> bool:
+    if sequence.endswith(("\x1b", "\x1b_")):
+        return True
+    last_start = sequence.rfind("\x1b_G")
+    if last_start == -1:
+        return False
+    return sequence.find("\x1b\\", last_start + 3) == -1
 
 
 @contextmanager
@@ -37,29 +55,41 @@ def _capture_replies(timeout: float | None = None) -> Generator[SimpleNamespace]
     response = SimpleNamespace(sequence="")
     try:
         rows, cols, width, height = terminal.get_tiocgwinsz()
-        need_cell_reply = not (rows and cols and width and height)
+        need_cell_reply = not (rows and cols and int(width / cols) and int(height / rows))
     except OSError:
         need_cell_reply = True
-    with terminal.capture_mode():
+    with suspend_turn_input(), terminal.capture_mode():
         yield response
         deadline = time.monotonic() + (timeout if timeout is not None else 2.0)
         da_deadline: float | None = None
+        last_rx: float | None = None
         while len(response.sequence) < _MAX_REPLY_CHARS:
             has_da = _PRIMARY_DA.search(response.sequence) is not None
             has_cell = not need_cell_reply or _CELL_REPLY.search(response.sequence) is not None
-            if has_da and has_cell and _GRAPHICS_REPLY.search(response.sequence):
-                break
+            has_graphics = _GRAPHICS_REPLY.search(response.sequence) is not None
+            in_graphics_reply = _has_incomplete_graphics_reply(response.sequence)
             now = time.monotonic()
             if has_da and da_deadline is None:
                 da_deadline = min(deadline, now + _REPLY_GRACE_SECONDS)
-            end = da_deadline if da_deadline is not None else deadline
+            if in_graphics_reply:
+                base = last_rx if last_rx is not None else now
+                end = min(deadline, base + _REPLY_GRACE_SECONDS)
+            elif has_da and has_cell and has_graphics:
+                base = last_rx if last_rx is not None else now
+                end = min(deadline, base + _REPLY_SETTLE_SECONDS)
+            else:
+                end = da_deadline if da_deadline is not None else deadline
             remaining = end - now
             if remaining <= 0:
                 break
             try:
-                response.sequence += terminal.read(fd, 1, remaining)
+                chunk = terminal.read(fd, 1, remaining)
             except TimeoutError:
                 break
+            if not chunk:
+                break
+            response.sequence += chunk
+            last_rx = time.monotonic()
 
 
 def prepare_terminal_image_probe() -> None:

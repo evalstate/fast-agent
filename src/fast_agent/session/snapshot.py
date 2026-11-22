@@ -14,6 +14,7 @@ from urllib.parse import parse_qsl, urlencode
 from pydantic import BaseModel, ConfigDict, Field
 
 from fast_agent.llm.usage_tracking import UsageAccumulator
+from fast_agent.ptc.catalog import PtcBindings  # noqa: TC001 - Pydantic validates the snapshot field
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from fast_agent.session.identity import SessionSaveIdentity
     from fast_agent.session.session_manager import Session, SessionInfo
 
-SESSION_SNAPSHOT_SCHEMA_VERSION = 6
+SESSION_SNAPSHOT_SCHEMA_VERSION = 7
 
 type JsonScalar = None | bool | int | float | str
 type JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -158,6 +159,9 @@ class SessionAgentSnapshot(BaseModel):
     history_file: str | None = None
     # Values programmatic tool calling code kept with store(), written beside the history.
     ptc_store_file: str | None = None
+    ptc_bindings: PtcBindings | None = None
+    # Whether the session used programmatic tool calling; resumed sessions keep it.
+    ptc_enabled: bool | None = None
     resolved_prompt: str | None = None
     model: str | None = None
     model_spec: str | None = None
@@ -254,7 +258,7 @@ class SessionSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[6] = SESSION_SNAPSHOT_SCHEMA_VERSION
+    schema_version: Literal[7] = SESSION_SNAPSHOT_SCHEMA_VERSION
     session_id: str
     created_at: datetime
     last_activity: datetime
@@ -268,6 +272,34 @@ class SessionSnapshot(BaseModel):
 class _ShellStateProvider(Protocol):
     @property
     def shell_runtime_enabled(self) -> bool: ...
+
+
+@runtime_checkable
+class PtcSettingProvider(Protocol):
+    """An agent whose programmatic tool calling setting is saved with its session."""
+
+    @property
+    def ptc_enabled(self) -> bool | None: ...
+
+
+@runtime_checkable
+class PtcSessionAgent(PtcSettingProvider, Protocol):
+    """An agent that resumes a session's programmatic tool calling setting."""
+
+    def restore_ptc(self, enabled: bool) -> None: ...
+
+    async def clear_session_ptc(self, *, refresh_instruction: bool) -> None: ...
+
+
+@runtime_checkable
+class PtcBindingsProvider(Protocol):
+    @property
+    def ptc_bindings(self) -> PtcBindings | None: ...
+
+
+@runtime_checkable
+class PtcBindingsRestorer(Protocol):
+    async def restore_ptc_bindings(self, bindings: PtcBindings) -> frozenset[str]: ...
 
 
 @runtime_checkable
@@ -321,6 +353,9 @@ def load_session_snapshot(payload: object) -> SessionSnapshot:
         raw_schema_version = 5
     if raw_schema_version == 5:
         payload_mapping = _migrate_v5_session_snapshot(payload_mapping)
+        raw_schema_version = 6
+    if raw_schema_version == 6:
+        payload_mapping = _migrate_v6_session_snapshot(payload_mapping)
         raw_schema_version = SESSION_SNAPSHOT_SCHEMA_VERSION
     if raw_schema_version != SESSION_SNAPSHOT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported session snapshot schema version: {raw_schema_version!r}")
@@ -375,6 +410,17 @@ def _migrate_v4_session_snapshot(payload: Mapping[str, object]) -> dict[str, obj
 
 def _migrate_v5_session_snapshot(payload: Mapping[str, object]) -> dict[str, object]:
     """Add the per-agent PTC store file introduced with the v6 snapshot."""
+
+    migrated = dict(payload)
+    migrated["schema_version"] = 6
+    return migrated
+
+
+def _migrate_v6_session_snapshot(payload: Mapping[str, object]) -> dict[str, object]:
+    """Add the per-agent PTC setting introduced with the v7 snapshot.
+
+    Older sessions have none, so they resume with the PTC setting resolved at startup.
+    """
 
     migrated = dict(payload)
     migrated["schema_version"] = SESSION_SNAPSHOT_SCHEMA_VERSION
@@ -983,6 +1029,16 @@ def _capture_agent_snapshot(
             existing_snapshot=existing_snapshot,
         ),
         ptc_store_file=_capture_ptc_store_file(session=session, agent_name=agent.name),
+        ptc_bindings=(
+            agent.ptc_bindings
+            if isinstance(agent, PtcBindingsProvider)
+            else (existing_snapshot.ptc_bindings if existing_snapshot else None)
+        ),
+        ptc_enabled=(
+            agent.ptc_enabled
+            if isinstance(agent, PtcSettingProvider)
+            else (existing_snapshot.ptc_enabled if existing_snapshot is not None else None)
+        ),
         resolved_prompt=resolved_prompt if resolved_prompt is not None else agent.instruction,
         model=(
             llm.model_name

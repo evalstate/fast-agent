@@ -23,6 +23,8 @@
 | `gpt-6-sol` | `responses.gpt-6-sol?reasoning=medium` |
 | `gpt-6.1-sol` | `responses.gpt-6.1-sol?reasoning=medium` |
 | `gpt-6.1-terra` | `responses.gpt-6.1-terra?reasoning=medium` |
+| `gpt-6.2-astra` | `responses.gpt-6.2-astra?reasoning=medium` |
+| `gpt-6.2-sol` | `responses.gpt-6.2-sol?reasoning=medium` |
 | `gpt51` | `responses.gpt-5.1` |
 | `gpt52` | `responses.gpt-5.2` |
 | `gpt54` | `responses.gpt-5.4` |
@@ -35,6 +37,8 @@
 | `gpt56-terra` | `responses.gpt-5.6-terra` |
 | `gpt61sol` | `responses.gpt-6.1-sol?reasoning=medium` |
 | `gpt61terra` | `responses.gpt-6.1-terra?reasoning=medium` |
+| `gpt62astra` | `responses.gpt-6.2-astra?reasoning=medium` |
+| `gpt62sol` | `responses.gpt-6.2-sol?reasoning=medium` |
 | `gpt6astra` | `responses.gpt-6-astra?reasoning=medium` |
 | `gpt6luna` | `responses.gpt-6-luna?reasoning=medium` |
 | `gpt6sol` | `responses.gpt-6-sol?reasoning=medium` |

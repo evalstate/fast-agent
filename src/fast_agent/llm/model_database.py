@@ -32,6 +32,11 @@ from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
 from fast_agent.tools.shell_profiles import ResolvedShellToolProfile
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
+# GPT-5.6 and later keep a prompt cache for at least 30 minutes, so a managed-process
+# wait need not return to the model every few minutes to stay cached. The wait is
+# kept well short of that so a stuck process is still noticed.
+OPENAI_LONG_CACHE_POLL_WAIT_SECONDS = 300
+
 
 class ModelParameters(BaseModel):
     """Configuration parameters for a specific model"""
@@ -129,6 +134,14 @@ class ModelParameters(BaseModel):
 
     google_service_tiers: tuple[Literal["flex"], ...] = ()
     """Supported service_tier values for the native Google API."""
+
+    responses_turn_scoped_instructions: bool = False
+    """Whether top-level Responses ``instructions`` are turn-scoped (GPT-6.2+).
+
+    The API appends them after ``input`` and bills them uncached on every request, so
+    the system prompt is sent as the first ``developer`` input message instead.
+    https://developers.openai.com/api/docs/guides/keep-prefix-unchanged
+    """
 
     codex_responses_lite: bool = False
     """Whether the Codex internal Responses Lite request contract is available.
@@ -413,6 +426,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="max"),
     )
 
+    BEAM_1_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="max"),
+    )
+
     KIMI_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
         kind="toggle",
         default=ReasoningEffortSetting(kind="toggle", value=True),
@@ -421,6 +440,12 @@ class ModelDatabase:
         kind="effort",
         allowed_efforts=["low", "high", "max"],
         default=ReasoningEffortSetting(kind="effort", value="max"),
+    )
+    HY4_FLASH_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "high"],
+        allow_toggle_disable=True,
+        default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
     # Groq exposes reasoning as a binary toggle: `reasoning_effort="default"`
@@ -432,10 +457,11 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="toggle", value=True),
     )
 
+    # The HF router can only switch Gemma 4 thinking via the chat template
+    # (enable_thinking); effort levels have no wire representation there.
     GEMMA4_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
-        kind="effort",
-        allowed_efforts=["none", "low", "medium", "high"],
-        default=ReasoningEffortSetting(kind="effort", value="none"),
+        kind="toggle",
+        default=ReasoningEffortSetting(kind="toggle", value=False),
     )
 
     DEEPSEEK_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
@@ -496,6 +522,19 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value="medium"),
     )
 
+    # https://aistudio.google.com/docs/thinking
+    GOOGLE_GEMINI_4_THINKING_LEVEL_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    GOOGLE_GEMINI_4_HYDROGEN_THINKING_LEVEL_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+
     XAI_GROK_43_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high"],
@@ -518,6 +557,13 @@ class ModelDatabase:
     MUSE_GLIMMER_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+
+    # Inkling 2: reasoning is mandatory on the HF OpenRouter routes.
+    INKLING_2_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high", "xhigh", "max"],
         default=ReasoningEffortSetting(kind="effort", value="high"),
     )
 
@@ -680,7 +726,7 @@ class ModelDatabase:
         default_provider=Provider.RESPONSES,
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
         managed_process_poll_folding=True,
-        process_poll_default_wait_seconds=240,
+        process_poll_default_wait_seconds=OPENAI_LONG_CACHE_POLL_WAIT_SECONDS,
     )
 
     OPENAI_GPT_56_LUNA = OPENAI_GPT_56.model_copy(
@@ -717,7 +763,7 @@ class ModelDatabase:
         default_provider=Provider.RESPONSES,
         model_specific=GPT_53_PLUS_MODEL_SPECIFIC,
         managed_process_poll_folding=True,
-        process_poll_default_wait_seconds=240,
+        process_poll_default_wait_seconds=OPENAI_LONG_CACHE_POLL_WAIT_SECONDS,
     )
 
     OPENAI_GPT_6_SOL_LUNA = OPENAI_GPT_6_ASTRA.model_copy(
@@ -730,6 +776,23 @@ class ModelDatabase:
     # GPT-6.1 Sol keeps the GPT-6 Sol tool/transport layout but, like Astra, rejects
     # `none`/`minimal` effort (verified on Codex OAuth and Copilot Responses).
     OPENAI_GPT_61_SOL = OPENAI_GPT_6_ASTRA
+
+    # GPT-6.2 preserves the preceding tool/reasoning contracts, but Flex is unverified.
+    # Keep sent tool results intact: 6.2 drops reasoning after prefix rewrites.
+    OPENAI_GPT_62_ASTRA = OPENAI_GPT_6_ASTRA.model_copy(
+        update={
+            "response_service_tiers": ("fast",),
+            "managed_process_poll_folding": False,
+            "responses_turn_scoped_instructions": True,
+        }
+    )
+    OPENAI_GPT_62_SOL = OPENAI_GPT_61_SOL.model_copy(
+        update={
+            "response_service_tiers": ("fast",),
+            "managed_process_poll_folding": False,
+            "responses_turn_scoped_instructions": True,
+        }
+    )
 
     # Terra supports none through max effort, with medium as the API default.
     # https://developers.openai.com/api/docs/models/gpt-6.1-terra
@@ -968,21 +1031,32 @@ class ModelDatabase:
         shell_tool_name="Shell",
         shell_edit_tool="write_text_file",
     )
-    DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V4_FLASH.model_copy(
-        update={
-            "reasoning": "reasoning_content",
-            "default_provider": Provider.HUGGINGFACE,
-        }
-    )
     DEEPSEEK_V4_PRO = DEEPSEEK_V4_FLASH
     DEEPSEEK_V41_FLASH = DEEPSEEK_V4_FLASH.model_copy(
         update={"tokenizes": [*OPENAI_VISION, "image/gif"]}
     )
 
+    # Shared by the HF V4.1 Flash checkpoints (10 September and 1017). Combined schema+tools
+    # requests intermittently failed validation on Novita, so structured output defers.
     DEEPSEEK_V41_FLASH_HF = DEEPSEEK_V41_FLASH.model_copy(
         update={
             "reasoning": "reasoning_content",
             "default_provider": Provider.HUGGINGFACE,
+            "structured_tool_policy": "defer",
+        }
+    )
+    # The unlisted 0731 checkpoint shares the HF block; vision arrived with V4.1.
+    DEEPSEEK_V4_FLASH_HF = DEEPSEEK_V41_FLASH_HF.model_copy(update={"tokenizes": TEXT_ONLY})
+    # The 10 September checkpoint cannot disable reasoning on HF. Keep 1017 and
+    # the unprobed 0731 checkpoint's specs separate. Efforts are accepted, but
+    # showed no measurable effect in the 2026-11-15 probes.
+    DEEPSEEK_V41_FLASH_SEPT_HF = DEEPSEEK_V41_FLASH_HF.model_copy(
+        update={
+            "reasoning_effort_spec": replace(
+                DEEPSEEK_REASONING_EFFORT_SPEC,
+                allowed_efforts=["low", "high", "max"],
+                allow_toggle_disable=False,
+            )
         }
     )
 
@@ -1044,6 +1118,19 @@ class ModelDatabase:
 
     # Gemini 3.8 retains the documented 3.7 limits, thinking levels, and Flex support.
     GEMINI_38_FLASH = GEMINI_37_FLASH.model_copy()
+
+    # Gemini 4 shares a unified 1M input/output window. Keep the normal 64K
+    # streaming output cap here; larger outputs require long-decode continuation.
+    # https://aistudio.google.com/docs/models/gemini-4-argon
+    GEMINI_4_STANDARD = GEMINI_38_FLASH.model_copy(
+        update={"reasoning_effort_spec": GOOGLE_GEMINI_4_THINKING_LEVEL_SPEC, "ptc_enabled": True}
+    )
+    GEMINI_4_HYDROGEN = GEMINI_4_STANDARD.model_copy(
+        update={"reasoning_effort_spec": GOOGLE_GEMINI_4_HYDROGEN_THINKING_LEVEL_SPEC}
+    )
+    # Neon shares Hydrogen's limits and thinking levels (low..xhigh, default high).
+    # https://aistudio.google.com/docs/models/gemini-4-neon
+    GEMINI_4_NEON = GEMINI_4_HYDROGEN.model_copy()
 
     GEMINI_2_FLASH = ModelParameters(
         context_window=1_048_576,
@@ -1148,6 +1235,29 @@ class ModelDatabase:
         stream_mode="manual",
         default_provider=Provider.HUGGINGFACE,
         model_specific="You have image understanding capabilities.",
+    )
+
+    BEAM_1_HF = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=131_072,
+        tokenizes=TEXT_ONLY,
+        json_mode="schema",
+        # Both HF upstreams require reasoning on every assistant turn.
+        reasoning="reasoning_content",
+        reasoning_effort_spec=BEAM_1_REASONING_EFFORT_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+    )
+
+    # No published output ceiling: 128K is a nominal budget; the route omits max_tokens.
+    INKLING_2_SMALL_HF = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=128_000,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        structured_tool_policy="defer",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=INKLING_2_REASONING_EFFORT_SPEC,
+        default_provider=Provider.HUGGINGFACE,
     )
 
     GROK_43 = ModelParameters(
@@ -1269,6 +1379,32 @@ class ModelDatabase:
         fast=True,
     )
 
+    HY4_FLASH_DEV = ModelParameters(
+        context_window=960000,
+        max_output_tokens=65536,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=HY4_FLASH_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.TENCENT_EVAL,
+        fast=True,
+    )
+
+    HY4_HF = ModelParameters(
+        ptc_enabled=True,
+        context_window=1_048_576,
+        max_output_tokens=65536,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=HY4_FLASH_REASONING_EFFORT_SPEC,
+        stream_mode="manual",
+        default_provider=Provider.HUGGINGFACE,
+    )
+
+    HY4_FLASH_HF = HY4_HF.model_copy(update={"fast": True})
+
     MINIMAX_21 = ModelParameters(
         context_window=202752,
         max_output_tokens=131072,
@@ -1284,7 +1420,6 @@ class ModelDatabase:
         json_mode="schema",
         structured_tool_policy="no_tools",
         reasoning="reasoning_content",
-        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         stream_mode="manual",
     )
     MINIMAX_27 = ModelParameters(
@@ -1481,6 +1616,8 @@ class ModelDatabase:
         "gpt-5.6-sol": OPENAI_GPT_56,
         "gpt-5.6-terra": _with_fast(OPENAI_GPT_56),
         "gpt-5.6-luna": _with_fast(OPENAI_GPT_56_LUNA),
+        "gpt-6.2-astra": OPENAI_GPT_62_ASTRA,
+        "gpt-6.2-sol": OPENAI_GPT_62_SOL,
         "gpt-6-astra": OPENAI_GPT_6_ASTRA,
         "gpt-6.1-sol": OPENAI_GPT_61_SOL,
         "gpt-6.1-terra": OPENAI_GPT_61_TERRA,
@@ -1547,12 +1684,21 @@ class ModelDatabase:
         "deepseek-v4-flash-vision-exp": _with_fast(DEEPSEEK_V41_FLASH),
         "deepseek-v4-pro": DEEPSEEK_V4_PRO,
         "deepseek-ai/deepseek-v4-flash-0731": _with_fast(DEEPSEEK_V4_FLASH_HF),
-        "deepseek-ai/deepseek-v4.1-flash": _with_fast(DEEPSEEK_V41_FLASH_HF),
+        "deepseek-ai/deepseek-v4.1-flash": _with_fast(DEEPSEEK_V41_FLASH_SEPT_HF),
+        "deepseek-ai/deepseek-v4.1-flash-1017": _with_fast(DEEPSEEK_V41_FLASH_HF),
         # Z.ai models
         "glm-5.2": GLM_5_2.model_copy(update={"default_provider": Provider.ZAI}),
         "glm-5.3": GLM_5_3,
         "glm-5.3-flash": GLM_5_3_FLASH,
+        # Tencent Eval models
+        "hy4-flash-dev": HY4_FLASH_DEV,
+        "tencent/hy4": HY4_HF,
+        "tencent/hy4-flash": HY4_FLASH_HF,
         # Google Gemini Models (vanilla aliases and versioned)
+        "gemini-4-argon": GEMINI_4_STANDARD,
+        "gemini-4-hydrogen": _with_fast(GEMINI_4_HYDROGEN),
+        "gemini-4-carbon": GEMINI_4_STANDARD,
+        "gemini-4-neon": GEMINI_4_NEON,
         "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-pro": GEMINI_25_STANDARD,
         "gemini-2.5-flash": _with_fast(GEMINI_25_STANDARD),
@@ -1583,6 +1729,9 @@ class ModelDatabase:
         "moonshotai/kimi-k3": KIMI_K3_HF,
         "moonshotai/kimi-k3.1-pro": KIMI_K31_HF,
         "meta-models/muse-glimmer-30b": MUSE_GLIMMER_HF,
+        "reflection/beam-1.0-501b-a23b": BEAM_1_HF,
+        "thinkingmachines/inkling-2-small": INKLING_2_SMALL_HF,
+        "thinkingmachines/inkling-2-mini": INKLING_2_SMALL_HF,
         "kimi-k3": KIMI_K3,
         "kimi-k3.1-pro": KIMI_K31,
         "qwen/qwen3-32b": QWEN3_REASONER,
@@ -1616,6 +1765,7 @@ class ModelDatabase:
         "qwen/qwen3.6-27b": GROQ_QWEN36_27B,
         "qwen/qwen3.8-27b": HF_PROVIDER_QWEN38,
         "google/gemma-4-31b-it": HF_PROVIDER_GEMMA4_31B,
+        "google/gemma-4-26b-a4b-it": HF_PROVIDER_GEMMA4_31B,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
         "deepseek-ai/deepseek-v4-pro": HF_PROVIDER_DEEPSEEK4_PRO,
@@ -1636,6 +1786,8 @@ class ModelDatabase:
         {
             (provider, model): _with_long_context(params, window)
             for model, params in (
+                ("gpt-6.2-astra", OPENAI_GPT_62_ASTRA),
+                ("gpt-6.2-sol", OPENAI_GPT_62_SOL),
                 ("gpt-6-astra", OPENAI_GPT_6_ASTRA),
                 ("gpt-6.1-sol", OPENAI_GPT_61_SOL),
                 ("gpt-6.1-terra", OPENAI_GPT_61_TERRA),
@@ -1648,9 +1800,11 @@ class ModelDatabase:
             )
         }
     )
-    # Codex Responses defaults Astra, GPT-6.1 Sol/Terra and Luna to high effort, and serves
-    # GPT-6.1 Sol with a 500k base window (the opt-in long-context window is unchanged).
+    # Keep the intentional high-effort Codex defaults, including GPT-6.2 successors.
+    # GPT-6.1/6.2 Sol have a 500k base window; their opt-in long window is unchanged.
     for _model, _window in (
+        ("gpt-6.2-astra", None),
+        ("gpt-6.2-sol", 500_000),
         ("gpt-6-astra", None),
         ("gpt-6.1-sol", 500_000),
         ("gpt-6.1-terra", None),
@@ -1668,6 +1822,21 @@ class ModelDatabase:
             "process_poll_default_wait_seconds": 240,
         }
     )
+    # On these HF routes combined schema+tools requests answered without calling the tool
+    # (2026-11-15 sweep), so structured output defers: tools first, then a schema-only turn.
+    # Native Z.ai and other routes sharing these constants keep their policy.
+    for _model in (
+        "zai-org/glm-5",
+        "zai-org/glm-5.3",
+        "zai-org/glm-5.3-flash",
+        "moonshotai/kimi-k2.5",
+        "moonshotai/kimi-k2.6",
+        "minimaxai/minimax-m2.5",
+    ):
+        _PROVIDER_MODEL_OVERRIDES[(Provider.HUGGINGFACE, _model)] = MODELS[_model].model_copy(
+            update={"structured_tool_policy": "defer"}
+        )
+    del _model
     _PROVIDER_MODEL_OVERRIDES.update(
         {
             (Provider.OPENROUTER, f"x-ai/{model_name}"): params
@@ -1689,7 +1858,19 @@ class ModelDatabase:
         default_provider=Provider.ATLASCLOUD,
     )
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {
+        (Provider.HUGGINGFACE, "reflection/beam-1.0-501b-a23b"): "reflection/Beam-1.0-501B-A23B",
+        (Provider.HUGGINGFACE, "deepseek-ai/deepseek-v4.1-flash-1017"): (
+            "deepseek-ai/DeepSeek-V4.1-Flash-1017"
+        ),
         (Provider.HUGGINGFACE, "qwen/qwen3.8-27b"): "Qwen/Qwen3.8-27B",
+        (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-mini"): (
+            "thinkingmachines/Inkling-2-Mini"
+        ),
+        (Provider.HUGGINGFACE, "thinkingmachines/inkling-2-small"): (
+            "thinkingmachines/Inkling-2-Small"
+        ),
+        (Provider.HUGGINGFACE, "tencent/hy4"): "tencent/Hy4",
+        (Provider.HUGGINGFACE, "tencent/hy4-flash"): "tencent/Hy4-flash",
     }
 
     @classmethod
@@ -1721,6 +1902,43 @@ class ModelDatabase:
         if params is not None:
             return params
         return cls._RUNTIME_MODEL_PARAMS.get(normalized)
+
+    @classmethod
+    def get_static_model_params(
+        cls,
+        model_key: str,
+        *,
+        provider: Provider | None = None,
+    ) -> ModelParameters | None:
+        """Look up static ModelDatabase parameters without invoking ModelFactory or overlays."""
+        normalized = strip_casefold(model_key)
+        if not normalized or normalized in cls.REMOVED_MODEL_NAMES:
+            return None
+        if provider is not None:
+            provider_override = cls._PROVIDER_MODEL_OVERRIDES.get((provider, normalized))
+            if provider_override is not None:
+                return provider_override
+        return cls.MODELS.get(normalized)
+
+    @classmethod
+    def get_request_model_params(
+        cls,
+        model: str,
+        *,
+        request_provider: Provider,
+    ) -> ModelParameters | None:
+        """Parameters for a request model that differs from the LLM's resolved model.
+
+        Keeps the provider-less lookup, except that Hugging Face route overrides apply only
+        to requests sent through Hugging Face; other providers see the shared catalog entry.
+        """
+        normalized = cls.normalize_model_name(model)
+        hf_override = cls._PROVIDER_MODEL_OVERRIDES.get((Provider.HUGGINGFACE, normalized))
+        if hf_override is None:
+            return cls.get_model_params(model)
+        if request_provider is Provider.HUGGINGFACE:
+            return hf_override
+        return cls.MODELS[normalized]
 
     @classmethod
     def normalize_model_name(cls, model: str) -> str:
@@ -2347,7 +2565,7 @@ ModelDatabase._PROVIDER_MODEL_OVERRIDES.update(
 #     the gateway exposes no Anthropic server-side web tools or beta headers.
 # Unknown models stay unknown.
 def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
-    return {
+    overrides: dict[str, object] = {
         "default_provider": Provider.COPILOT,
         "response_transports": spec.transports,
         "response_websocket_providers": (
@@ -2360,10 +2578,45 @@ def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
         "anthropic_web_fetch_version": None,
         "anthropic_required_betas": None,
     }
+    if spec.wire_api == "chat_completions":
+        # Copilot /models, 2026-11-17: Gemini uses an OpenAI-compatible gateway,
+        # not native Google's thinking, grounding, service tiers or media APIs.
+        efforts: list[ReasoningEffortLevel] = ["low", "medium", "high"]
+        default_effort: ReasoningEffortLevel = "medium"
+        if spec.model_id in ("gemini-4-hydrogen", "gemini-4-neon"):
+            efforts.append("xhigh")
+            default_effort = "high"
+        # Copilot's Gemini gateway pricing and prompt reliability degrade past 200k
+        # input tokens (the catalog's default context tier), so auto-compact at 190k
+        # unless compact_at or compaction.threshold overrides it.
+        overrides.update(
+            context_window=1_000_000 if spec.model_id == "gemini-4-carbon" else 1_048_576,
+            max_output_tokens=64_000 if spec.model_id == "gemini-4-carbon" else 65_536,
+            compaction_trigger_tokens=190_000,
+            reasoning="openai",
+            reasoning_effort_spec=ReasoningEffortSpec(
+                kind="effort",
+                allowed_efforts=efforts,
+                default=ReasoningEffortSetting(kind="effort", value=default_effort),
+            ),
+            google_service_tiers=(),
+            google_search_supported=False,
+            model_specific=None,
+            json_mode=None,
+            tokenizes=[
+                "text/plain",
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "image/heic",
+                "image/heif",
+            ],
+        )
+    return overrides
 
 
 COPILOT_ROUTE_OVERRIDE_FIELDS: Final[frozenset[str]] = frozenset(
-    _copilot_route_overrides(next(iter(COPILOT_MODELS.values())))
+    key for spec in COPILOT_MODELS.values() for key in _copilot_route_overrides(spec)
 )
 
 for _copilot_spec in COPILOT_MODELS.values():

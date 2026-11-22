@@ -14,12 +14,14 @@ class _CaptureDisplay:
     events: ClassVar[list[str]] = []
     tool_call_metadata: ClassVar[list[dict[str, object] | None]] = []
     tool_calls: ClassVar[list[dict[str, object]]] = []
+    user_panels: ClassVar[list[tuple[object, object]]] = []
 
     def __init__(self, config=None) -> None:
         del config
 
     def show_user_message(self, *args: Any, **kwargs: Any) -> None:
-        del args, kwargs
+        del args
+        self.user_panels.append((kwargs.get("name"), kwargs.get("turn_range")))
 
     async def show_assistant_message(self, *args: Any, **kwargs: Any) -> None:
         del args, kwargs
@@ -49,6 +51,7 @@ def _capture_history_display(monkeypatch) -> type[_CaptureDisplay]:
     _CaptureDisplay.events = []
     _CaptureDisplay.tool_call_metadata = []
     _CaptureDisplay.tool_calls = []
+    _CaptureDisplay.user_panels = []
     monkeypatch.setattr("fast_agent.ui.console_display.ConsoleDisplay", _CaptureDisplay)
     return _CaptureDisplay
 
@@ -209,3 +212,24 @@ async def test_review_user_turn_preserves_process_activity_without_empty_bubble(
     if commentary:
         expected.insert(0, "assistant")
     assert display.events == expected
+
+
+@pytest.mark.asyncio
+async def test_display_history_turn_headings_show_who_sent_each_message(monkeypatch) -> None:
+    display = _capture_history_display(monkeypatch)
+
+    def user(text: str) -> PromptMessageExtended:
+        return PromptMessageExtended(role="user", content=[TextContent(type="text", text=text)])
+
+    turn = [
+        user("delegate the build"),
+        PromptMessageExtended(role="assistant", content=[TextContent(type="text", text="ok")]),
+        user('<hc from="t7">build is green</hc>'),
+        PromptMessageExtended(role="assistant", content=[TextContent(type="text", text="done")]),
+    ]
+
+    await history_actions.display_history_turn(
+        "dev", turn, config=None, turn_index=2, total_turns=3
+    )
+
+    assert display.user_panels == [("dev", (2, 2)), ("hc · t7", None)]

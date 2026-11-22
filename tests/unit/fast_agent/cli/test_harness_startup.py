@@ -112,3 +112,23 @@ def test_startup_url_failure_uses_typed_cli_boundary() -> None:
     assert failure.surface == "startup_url"
     assert failure.kind == "timeout"
     assert "secret" not in failure.input_ref
+
+
+def test_config_server_failure_classifies_after_core_disposal() -> None:
+    class _DisposedApp:
+        @property
+        def context(self) -> object:
+            raise RuntimeError("Core not initialized")
+
+    request = SimpleNamespace(startup_mcp_servers=None, config_path="fastagent.config.yaml")
+    cause = ServerInitializationError("MCP startup timed out", server_name="huggingface")
+    cause.__cause__ = TimeoutError("startup budget expired")
+
+    failure = _classify_cli_mcp_failure(
+        SimpleNamespace(app=_DisposedApp()), cast("AgentRunRequest", request), cause
+    )
+
+    assert failure is not None
+    assert failure.server_name == "huggingface"
+    assert failure.surface == "harness_startup"
+    assert failure.kind == "timeout"

@@ -21,12 +21,16 @@ ANTHROPIC_CONTAINER_CHANNEL = "anthropic-container"
 """Anthropic code-execution container metadata for multi-turn request reuse."""
 OPENAI_REASONING_ENCRYPTED = "openai-reasoning-encrypted"
 """Encrypted OpenAI reasoning items for stateless Responses API passback."""
+COPILOT_REASONING_OPAQUE = "copilot-reasoning-opaque"
+"""Opaque Copilot Chat Completions reasoning token for multi-turn passback."""
 OPENAI_COMPACTION_ITEMS = "openai-compaction-items"
 """Opaque OpenAI Responses compaction items carried by a provider-native checkpoint."""
 OPENAI_COMPACTION_TRIGGER = "openai-compaction-trigger"
 """Request-only marker for a final ``compaction_trigger`` item; never persist to history."""
 OPENAI_ASSISTANT_MESSAGE_ITEMS = "openai-assistant-message-items"
 """Raw OpenAI assistant message items for Responses history passback, including phase."""
+OPENAI_TOOL_CALL_METADATA = "openai-tool-call-metadata"
+"""Per-call Responses tool kind and provider IDs for durable call/result replay."""
 OPENAI_MCP_LIST_TOOLS_ITEMS = "openai-mcp-list-tools-items"
 """Raw OpenAI mcp_list_tools output items for Responses history passback."""
 FAST_AGENT_ERROR_CHANNEL = "fast-agent-error"
@@ -52,8 +56,10 @@ FAST_AGENT_SHELL_PROCESS_METADATA = "fast-agent-shell-process-metadata"
 FAST_AGENT_PROCESS_POLL_FOLD = "fast-agent-process-poll-fold"
 FAST_AGENT_USAGE = "fast-agent-usage"
 FAST_AGENT_RETRY = "fast-agent-retry"
+FAST_AGENT_EMPTY_COMPLETION = "fast-agent-empty-completion"
+"""Attempt-local empty response diagnostics; folded into retry/error telemetry."""
 FAST_AGENT_PROVIDER_ERROR = "fast-agent-provider-error"
-"""Why a model call failed, as codes (`fast-agent.provider-error/v1`): exported to ATIF."""
+"""Failure codes and counts (`fast-agent.provider-error/v1`): exported to ATIF."""
 FAST_AGENT_SYNTHETIC_FINAL_CHANNEL = "fast-agent-synthetic-final"
 FAST_AGENT_PENDING_MEDIA_ATTACHMENTS = "fast-agent-pending-media-attachments"
 """Content blocks staged by attach_media for injection as user input on the next LLM call."""
@@ -121,6 +127,9 @@ MAX_FOREGROUND_AUTO_AWAIT_SECONDS = 3600
 
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 16_000
 """Baseline byte limit for ACP terminal output when no model info exists."""
+
+DEFAULT_PTC_OUTPUT_BYTE_LIMIT = 16_000
+"""Default model-facing byte limit for PTC ``exec_sandbox`` tool results."""
 
 DEFAULT_DURABLE_PROCESS_OUTPUT_RETENTION_BYTES = 2 * 1024 * 1024
 """Maximum bytes retained in each durable process output log by default."""

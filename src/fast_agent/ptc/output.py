@@ -51,15 +51,16 @@ def grep(text: str, pattern: str, context: int = 0, limit: int = 50) -> str:
 
 def _view(text: str, n: int) -> str:
     lines = text.splitlines()
+    n = max(0, n)
     if len(lines) <= 2 * n:
         return "\\n".join(lines)
-    k = max(1, n // 4)
+    k = max(1, n // 4) if n > 0 else 0
     omitted = len(lines) - k - n
     marker = (
         "[... " + str(omitted) + " of " + str(len(lines)) + " lines omitted; "
         + "print the stream or use head()/grep() to see them ...]"
     )
-    return "\\n".join(lines[:k] + [marker] + lines[-n:])
+    return "\\n".join(lines[:k] + [marker] + lines[len(lines) - n:])
 
 
 def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str:
@@ -104,9 +105,7 @@ _HELPERS_NOTE = (
 )
 _HELPERS_RUNNING = " If `status` is 'running', `print(show({wait}))` waits for it."
 _STORE_NOTE = ' To use `r` in a later run, `await store("r", r)`.'
-_RETAINED_NOTE = (
-    " `{read}` searches the output the process tool kept for a long-running or long-output command."
-)
+_RETAINED_NOTE = " `{read}` searches kept output, if any."
 
 
 def shell_output_note(

@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from acp.helpers import text_block
-from acp.schema import McpServerStdio
+from acp.schema import McpServerStdio, TextContentBlock
 
 from fast_agent.mcp.common import create_namespaced_name
 
@@ -79,7 +78,7 @@ async def test_acp_session_new_attaches_client_supplied_mcp_servers(
     tool_name = create_namespaced_name(server_name, "progress_task")
     prompt_response = await connection.prompt(
         session_id=session_id,
-        prompt=[text_block(f'***CALL_TOOL {tool_name} {{"steps": 1}}')],
+        prompt=[TextContentBlock(text=f'***CALL_TOOL {tool_name} {{"steps": 1}}')],
     )
 
     assert _get_stop_reason(prompt_response) == END_TURN

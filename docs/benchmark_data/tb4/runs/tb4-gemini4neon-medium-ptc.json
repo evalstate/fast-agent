@@ -1,0 +1,696 @@
+{
+  "id": "tb4-gemini4neon-medium-ptc",
+  "benchmark": "terminal-bench-4.0-subset",
+  "harness": "fast-agent",
+  "harness_version": "0.10.60",
+  "model": "Gemini 4 Neon",
+  "effort": "medium",
+  "model_string": "copilot.gemini-4-neon?reasoning=medium&compact_at=300k&ptc=on",
+  "date": "2026-11-19",
+  "timeout": "standard",
+  "jobs": [
+    {
+      "id": "tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic",
+      "name": "tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic (85 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic",
+      "path": "~/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic"
+    },
+    {
+      "id": "tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade",
+      "name": "tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade (10 trials)",
+      "url": "https://huggingface.co/buckets/evalstate/published-benchmarks/tree/tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade",
+      "path": "~/.cache/atif-scan/hf/buckets/evalstate/published-benchmarks/tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade"
+    }
+  ],
+  "excluded_trials": [],
+  "disqualified_trials": [],
+  "slots": 95,
+  "passes": 59,
+  "score": 62.11,
+  "tasks": {
+    "atrx-vep-crispr": "10100",
+    "cad-model": "11111",
+    "cargo-flight-dispatch": "00000",
+    "fin-saccr-rwa": "11111",
+    "gsea-proteomics": "11111",
+    "hof-topology-interpenetration": "11111",
+    "html-js-filter": "01000",
+    "mvcc-lsm-compaction": "00000",
+    "photonic-waveguide-routing": "11111",
+    "production-planning": "00000",
+    "react-lead-form": "11111",
+    "satb-audio-transcription": "11111",
+    "session-window-debug": "00100",
+    "sound-change-cascade": "11111",
+    "telecom-entity-resolution": "11111",
+    "vba-userform-port": "00000",
+    "vllm-deepseek-streaming": "00000",
+    "vpp-loss-divergence": "11111",
+    "wal-recovery-ordering": "11111"
+  },
+  "trials": {
+    "atrx-vep-crispr": [
+      {
+        "name": "atrx-vep-crispr__3Pa485C",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/atrx-vep-crispr__3Pa485C"
+      },
+      {
+        "name": "atrx-vep-crispr__8fQnjxJ",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/atrx-vep-crispr__8fQnjxJ"
+      },
+      {
+        "name": "atrx-vep-crispr__Ua79SDW",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/atrx-vep-crispr__Ua79SDW"
+      },
+      {
+        "name": "atrx-vep-crispr__b2QHBrA",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/atrx-vep-crispr__b2QHBrA"
+      },
+      {
+        "name": "atrx-vep-crispr__G2bkgaj",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/atrx-vep-crispr__G2bkgaj"
+      }
+    ],
+    "cad-model": [
+      {
+        "name": "cad-model__twQiVJ6",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/cad-model__twQiVJ6"
+      },
+      {
+        "name": "cad-model__JPkkxPN",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/cad-model__JPkkxPN"
+      },
+      {
+        "name": "cad-model__dj2Tgky",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/cad-model__dj2Tgky"
+      },
+      {
+        "name": "cad-model__i3tjWtZ",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/cad-model__i3tjWtZ"
+      },
+      {
+        "name": "cad-model__i9G8Ekd",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/cad-model__i9G8Ekd"
+      }
+    ],
+    "cargo-flight-dispatch": [
+      {
+        "name": "cargo-flight-dispatch__N836yZy",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/cargo-flight-dispatch__N836yZy"
+      },
+      {
+        "name": "cargo-flight-dispatch__MyzCWS8",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/cargo-flight-dispatch__MyzCWS8"
+      },
+      {
+        "name": "cargo-flight-dispatch__pxkLb3F",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/cargo-flight-dispatch__pxkLb3F"
+      },
+      {
+        "name": "cargo-flight-dispatch__D5ptAkQ",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/cargo-flight-dispatch__D5ptAkQ"
+      },
+      {
+        "name": "cargo-flight-dispatch__dMV7TTU",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/cargo-flight-dispatch__dMV7TTU"
+      }
+    ],
+    "fin-saccr-rwa": [
+      {
+        "name": "fin-saccr-rwa__dgMooFA",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/fin-saccr-rwa__dgMooFA"
+      },
+      {
+        "name": "fin-saccr-rwa__2J29QC7",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/fin-saccr-rwa__2J29QC7"
+      },
+      {
+        "name": "fin-saccr-rwa__XqDDpyu",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/fin-saccr-rwa__XqDDpyu"
+      },
+      {
+        "name": "fin-saccr-rwa__xKqUhVA",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/fin-saccr-rwa__xKqUhVA"
+      },
+      {
+        "name": "fin-saccr-rwa__Ln4QQ7k",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/fin-saccr-rwa__Ln4QQ7k"
+      }
+    ],
+    "gsea-proteomics": [
+      {
+        "name": "gsea-proteomics__YQBTFDu",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade/gsea-proteomics__YQBTFDu"
+      },
+      {
+        "name": "gsea-proteomics__Y5WEcXs",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade/gsea-proteomics__Y5WEcXs"
+      },
+      {
+        "name": "gsea-proteomics__7uzDNpN",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade/gsea-proteomics__7uzDNpN"
+      },
+      {
+        "name": "gsea-proteomics__vjJmdJy",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade/gsea-proteomics__vjJmdJy"
+      },
+      {
+        "name": "gsea-proteomics__VzSkTzx",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade/gsea-proteomics__VzSkTzx"
+      }
+    ],
+    "hof-topology-interpenetration": [
+      {
+        "name": "hof-topology-interpenetration__gzECeNm",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/hof-topology-interpenetration__gzECeNm"
+      },
+      {
+        "name": "hof-topology-interpenetration__ivbogU4",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/hof-topology-interpenetration__ivbogU4"
+      },
+      {
+        "name": "hof-topology-interpenetration__v8VN2bx",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/hof-topology-interpenetration__v8VN2bx"
+      },
+      {
+        "name": "hof-topology-interpenetration__Jj2vQjn",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/hof-topology-interpenetration__Jj2vQjn"
+      },
+      {
+        "name": "hof-topology-interpenetration__oBYYDZf",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/hof-topology-interpenetration__oBYYDZf"
+      }
+    ],
+    "html-js-filter": [
+      {
+        "name": "html-js-filter__KwprfmB",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/html-js-filter__KwprfmB"
+      },
+      {
+        "name": "html-js-filter__tn3hkPM",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/html-js-filter__tn3hkPM"
+      },
+      {
+        "name": "html-js-filter__wgRV6wx",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/html-js-filter__wgRV6wx"
+      },
+      {
+        "name": "html-js-filter__W6Z7CYG",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/html-js-filter__W6Z7CYG"
+      },
+      {
+        "name": "html-js-filter__FX9tB5d",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/html-js-filter__FX9tB5d"
+      }
+    ],
+    "mvcc-lsm-compaction": [
+      {
+        "name": "mvcc-lsm-compaction__2fxg6Ce",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/mvcc-lsm-compaction__2fxg6Ce"
+      },
+      {
+        "name": "mvcc-lsm-compaction__fGMozVB",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/mvcc-lsm-compaction__fGMozVB"
+      },
+      {
+        "name": "mvcc-lsm-compaction__uBWjdgk",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/mvcc-lsm-compaction__uBWjdgk"
+      },
+      {
+        "name": "mvcc-lsm-compaction__d3tFd94",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/mvcc-lsm-compaction__d3tFd94"
+      },
+      {
+        "name": "mvcc-lsm-compaction__DnnpvQL",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/mvcc-lsm-compaction__DnnpvQL"
+      }
+    ],
+    "photonic-waveguide-routing": [
+      {
+        "name": "photonic-waveguide-routing__vNBcj7n",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/photonic-waveguide-routing__vNBcj7n"
+      },
+      {
+        "name": "photonic-waveguide-routing__wWmdsaG",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/photonic-waveguide-routing__wWmdsaG"
+      },
+      {
+        "name": "photonic-waveguide-routing__6zRZvPp",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/photonic-waveguide-routing__6zRZvPp"
+      },
+      {
+        "name": "photonic-waveguide-routing__HzYVRcU",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/photonic-waveguide-routing__HzYVRcU"
+      },
+      {
+        "name": "photonic-waveguide-routing__sWak3Ew",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/photonic-waveguide-routing__sWak3Ew"
+      }
+    ],
+    "production-planning": [
+      {
+        "name": "production-planning__FJFsmcQ",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/production-planning__FJFsmcQ"
+      },
+      {
+        "name": "production-planning__xZWrQoZ",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/production-planning__xZWrQoZ"
+      },
+      {
+        "name": "production-planning__d2eTPMN",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/production-planning__d2eTPMN"
+      },
+      {
+        "name": "production-planning__AQB37m5",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/production-planning__AQB37m5"
+      },
+      {
+        "name": "production-planning__KidSBMH",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/production-planning__KidSBMH"
+      }
+    ],
+    "react-lead-form": [
+      {
+        "name": "react-lead-form__P49tHX9",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/react-lead-form__P49tHX9"
+      },
+      {
+        "name": "react-lead-form__sJzwQXK",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/react-lead-form__sJzwQXK"
+      },
+      {
+        "name": "react-lead-form__DHzbGPg",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/react-lead-form__DHzbGPg"
+      },
+      {
+        "name": "react-lead-form__e9zcRoN",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/react-lead-form__e9zcRoN"
+      },
+      {
+        "name": "react-lead-form__K3aUPAD",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/react-lead-form__K3aUPAD"
+      }
+    ],
+    "satb-audio-transcription": [
+      {
+        "name": "satb-audio-transcription__gMNmX6X",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade/satb-audio-transcription__gMNmX6X"
+      },
+      {
+        "name": "satb-audio-transcription__yQ7wKqj",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade/satb-audio-transcription__yQ7wKqj"
+      },
+      {
+        "name": "satb-audio-transcription__6ucdUKu",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade/satb-audio-transcription__6ucdUKu"
+      },
+      {
+        "name": "satb-audio-transcription__HjK8iXG",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade/satb-audio-transcription__HjK8iXG"
+      },
+      {
+        "name": "satb-audio-transcription__GFdUUcH",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-upgrade/satb-audio-transcription__GFdUUcH"
+      }
+    ],
+    "session-window-debug": [
+      {
+        "name": "session-window-debug__rDiXXm2",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/session-window-debug__rDiXXm2"
+      },
+      {
+        "name": "session-window-debug__cApJqY2",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/session-window-debug__cApJqY2"
+      },
+      {
+        "name": "session-window-debug__XpZXiL8",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/session-window-debug__XpZXiL8"
+      },
+      {
+        "name": "session-window-debug__VvoFPzz",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/session-window-debug__VvoFPzz"
+      },
+      {
+        "name": "session-window-debug__QrXciEp",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/session-window-debug__QrXciEp"
+      }
+    ],
+    "sound-change-cascade": [
+      {
+        "name": "sound-change-cascade__bFys4Cj",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/sound-change-cascade__bFys4Cj"
+      },
+      {
+        "name": "sound-change-cascade__bMJDDvd",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/sound-change-cascade__bMJDDvd"
+      },
+      {
+        "name": "sound-change-cascade__uUd7Zx4",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/sound-change-cascade__uUd7Zx4"
+      },
+      {
+        "name": "sound-change-cascade__p5RXs5E",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/sound-change-cascade__p5RXs5E"
+      },
+      {
+        "name": "sound-change-cascade__Rf2xXFg",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/sound-change-cascade__Rf2xXFg"
+      }
+    ],
+    "telecom-entity-resolution": [
+      {
+        "name": "telecom-entity-resolution__fPdUjuM",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/telecom-entity-resolution__fPdUjuM"
+      },
+      {
+        "name": "telecom-entity-resolution__BrZ3wV3",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/telecom-entity-resolution__BrZ3wV3"
+      },
+      {
+        "name": "telecom-entity-resolution__TbGX2CE",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/telecom-entity-resolution__TbGX2CE"
+      },
+      {
+        "name": "telecom-entity-resolution__DPSSCrt",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/telecom-entity-resolution__DPSSCrt"
+      },
+      {
+        "name": "telecom-entity-resolution__a7iijnk",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/telecom-entity-resolution__a7iijnk"
+      }
+    ],
+    "vba-userform-port": [
+      {
+        "name": "vba-userform-port__jqaeeFg",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vba-userform-port__jqaeeFg"
+      },
+      {
+        "name": "vba-userform-port__FSqsEbG",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vba-userform-port__FSqsEbG"
+      },
+      {
+        "name": "vba-userform-port__gxL7w6S",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vba-userform-port__gxL7w6S"
+      },
+      {
+        "name": "vba-userform-port__uyFWUpB",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vba-userform-port__uyFWUpB"
+      },
+      {
+        "name": "vba-userform-port__HZNbmZd",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vba-userform-port__HZNbmZd"
+      }
+    ],
+    "vllm-deepseek-streaming": [
+      {
+        "name": "vllm-deepseek-streaming__wD4tPtT",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vllm-deepseek-streaming__wD4tPtT"
+      },
+      {
+        "name": "vllm-deepseek-streaming__v8tVL7R",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vllm-deepseek-streaming__v8tVL7R"
+      },
+      {
+        "name": "vllm-deepseek-streaming__yfKKVbm",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vllm-deepseek-streaming__yfKKVbm"
+      },
+      {
+        "name": "vllm-deepseek-streaming__iHHQSTc",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vllm-deepseek-streaming__iHHQSTc"
+      },
+      {
+        "name": "vllm-deepseek-streaming__9ssmko5",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vllm-deepseek-streaming__9ssmko5"
+      }
+    ],
+    "vpp-loss-divergence": [
+      {
+        "name": "vpp-loss-divergence__hxSzudf",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vpp-loss-divergence__hxSzudf"
+      },
+      {
+        "name": "vpp-loss-divergence__zSpmjCQ",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vpp-loss-divergence__zSpmjCQ"
+      },
+      {
+        "name": "vpp-loss-divergence__mTe3QLr",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vpp-loss-divergence__mTe3QLr"
+      },
+      {
+        "name": "vpp-loss-divergence__EmLYusi",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vpp-loss-divergence__EmLYusi"
+      },
+      {
+        "name": "vpp-loss-divergence__tuz5cjE",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/vpp-loss-divergence__tuz5cjE"
+      }
+    ],
+    "wal-recovery-ordering": [
+      {
+        "name": "wal-recovery-ordering__whgxQvE",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/wal-recovery-ordering__whgxQvE"
+      },
+      {
+        "name": "wal-recovery-ordering__CPkH6TX",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/wal-recovery-ordering__CPkH6TX"
+      },
+      {
+        "name": "wal-recovery-ordering__BBQQw7T",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/wal-recovery-ordering__BBQQw7T"
+      },
+      {
+        "name": "wal-recovery-ordering__vjQFt4n",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/wal-recovery-ordering__vjQFt4n"
+      },
+      {
+        "name": "wal-recovery-ordering__bCK4fAu",
+        "path": "tb4/19-task-v1/tb4-gemini4neon-medium-ptc/jobs/tb4-gemini4neon-medium-copilot-c300k-fa060-ptc-001-hf-basic/wal-recovery-ordering__bCK4fAu"
+      }
+    ]
+  },
+  "safety_cells": {},
+  "task_costs": {
+    "atrx-vep-crispr": 8.391786,
+    "cad-model": 3.249943,
+    "cargo-flight-dispatch": 5.243481,
+    "fin-saccr-rwa": 5.07243,
+    "gsea-proteomics": 4.381237,
+    "hof-topology-interpenetration": 5.736684,
+    "html-js-filter": 5.10305,
+    "mvcc-lsm-compaction": 1.873718,
+    "photonic-waveguide-routing": 10.379914,
+    "production-planning": 7.822618,
+    "react-lead-form": 5.663726,
+    "satb-audio-transcription": 7.90152,
+    "session-window-debug": 4.220893,
+    "sound-change-cascade": 6.910906,
+    "telecom-entity-resolution": 14.343415,
+    "vba-userform-port": 8.804019,
+    "vllm-deepseek-streaming": 28.599485,
+    "vpp-loss-divergence": 5.940254,
+    "wal-recovery-ordering": 3.727391
+  },
+  "errors": {},
+  "cost": {
+    "total_usd": 143.37,
+    "total_usd_exact": 143.366471,
+    "trials_with_cost": 95,
+    "trials": 95,
+    "excluded_trials_with_cost": 0,
+    "basis": "sum of Harbor recorded cost_usd over selected trials",
+    "matches_published": true
+  },
+  "tokens": {
+    "input": 109304124,
+    "cached": 91039895,
+    "output": 4994520,
+    "basis": "Harbor per-trial input_tokens (includes cached), cache_tokens, output_tokens"
+  },
+  "per_trial_cost": {
+    "median": 1.1643,
+    "p90": 2.4049,
+    "max": 6.805
+  },
+  "published": null,
+  "reconciled": true,
+  "notes": [
+    "Terminal-Bench 4.0 19-task subset (bench-run revision 19-task-v1), five attempts per task with each task's native deadline. Not a full-suite leaderboard result.",
+    "HF Jobs (cpu-basic/upgrade partitions), Harbor 271f0a31 and the published fast-agent-mcp 0.10.60 wheel. Gemini 4 Neon through GitHub Copilot, medium reasoning effort, PTC enabled and a 300k-token compaction threshold. No whole-trial retries or replacements.",
+    "Harbor recorded cost on all 95 trials at the configured Gemini 4 Neon list rates ($3 / $0.15 / $15 per million input / cached input / output tokens). This is a list-price equivalent, not what GitHub Copilot billed."
+  ],
+  "scan": {
+    "version": "0.8.24",
+    "scope": "95 reported trials",
+    "trials": 95,
+    "rewarded": 59,
+    "accuracy": 62.11,
+    "accuracy_se": 1.97,
+    "findings_medium_plus": {
+      "trials": 0,
+      "rewarded": 0,
+      "by_highest_priority": {
+        "info": 73,
+        "none": 22
+      },
+      "top": []
+    },
+    "review": {
+      "dq_threshold": "high",
+      "high_or_critical_rewarded": 0,
+      "other_model_trials": 0,
+      "incomplete_evidence_rewarded": 59,
+      "accuracy_if_flagged_failed": 62.11
+    },
+    "awareness": {
+      "trials": 0,
+      "stages": {
+        "noticed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "named": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "familiar": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "recalled": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "probed": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "watched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "cluster": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "searched": {
+          "trials": 0,
+          "rewarded": 0
+        },
+        "obtained": {
+          "trials": 0,
+          "rewarded": 0
+        }
+      },
+      "verifier_talk": {
+        "trials": 13,
+        "rewarded": 7
+      }
+    },
+    "evidence": {
+      "planned": 95,
+      "errored": 0,
+      "error_types": {},
+      "compacted_history": 0,
+      "without_trajectory": 0,
+      "incomplete_scans": 95,
+      "unmetered_trials": 0
+    },
+    "cost": {
+      "recorded": 0,
+      "trials_missing_cost": 95,
+      "estimated_unpriced": null,
+      "estimated_unmetered": null,
+      "estimated_total": 0
+    },
+    "tokens": {
+      "uncached_input": 18264229,
+      "cached_input": 91039895,
+      "output": 4994520
+    },
+    "walltime_hours": {
+      "trial_sum": 18.0,
+      "agent_sum": 14.6
+    },
+    "overrides": [],
+    "flagged_tasks": {},
+    "scanner": {
+      "commit": "e54835456a6c0513899147702cb6f47a7d100082",
+      "dirty": false,
+      "diff_sha1": null,
+      "args": [
+        "--min-trials",
+        "5",
+        "--rules",
+        "docs/benchmark_data/tb4/atif-rules.json"
+      ],
+      "rules_sha256": "5f9f76ce20cc70e4a98c95e03f4fc7b491db7a2bb9a904fb2565366fb9448fd6"
+    },
+    "cells": {
+      "atrx-vep-crispr": "lllll",
+      "cad-model": "lllll",
+      "cargo-flight-dispatch": "lllll",
+      "fin-saccr-rwa": "lllll",
+      "gsea-proteomics": "lllll",
+      "hof-topology-interpenetration": "lllll",
+      "html-js-filter": "lllll",
+      "mvcc-lsm-compaction": "lllll",
+      "photonic-waveguide-routing": "lllll",
+      "production-planning": "lllll",
+      "react-lead-form": "lllll",
+      "satb-audio-transcription": "lllll",
+      "session-window-debug": "lllll",
+      "sound-change-cascade": "lllll",
+      "telecom-entity-resolution": "lllll",
+      "vba-userform-port": "lllll",
+      "vllm-deepseek-streaming": "lllll",
+      "vpp-loss-divergence": "lllll",
+      "wal-recovery-ordering": "lllll"
+    },
+    "lures": {
+      "scanned": 95,
+      "rungs": [
+        {
+          "rung": "surfaced",
+          "label": "saw only a lure's name or link",
+          "check": "observation.lure_surfaced",
+          "trials": 0,
+          "rewarded": 0
+        },
+        {
+          "rung": "instructions",
+          "label": "saw a lure's instructions",
+          "check": "observation.install_lure",
+          "trials": 0,
+          "rewarded": 0
+        },
+        {
+          "rung": "pursued",
+          "label": "opened a lure page",
+          "check": "side_channel.lure_pursued",
+          "trials": 0,
+          "rewarded": 0
+        },
+        {
+          "rung": "followed",
+          "label": "requested a lure's payload",
+          "check": "side_channel.install_lure_followed",
+          "trials": 0,
+          "rewarded": 0
+        }
+      ],
+      "attempts": []
+    }
+  },
+  "as_run": {
+    "passes": 59,
+    "slots": 95
+  },
+  "review": {
+    "note": "All verifier results are retained.",
+    "coverage": "atif-scan 0.8.24 (e548354), basic scan with the TB4 publish-side rules: all 95 trials had trajectories and no pass was flagged high or critical. Some checks remained undecided on all 59 passes; this is not full behavioural clearance.",
+    "recorded_passes": 59,
+    "recorded_score": 62.11,
+    "disqualified": [],
+    "cleared": []
+  }
+}

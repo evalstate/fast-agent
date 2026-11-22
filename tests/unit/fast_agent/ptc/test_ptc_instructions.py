@@ -72,26 +72,24 @@ async def test_batching_guidance_survives_refresh_and_cloning_without_duplicatio
                 assert clone.config.instruction == template
             finally:
                 await clone.shutdown()
-
-        settings.ptc.enabled = False
-        await rebuild_agent_instruction(agent)
-        assert agent.instruction == "Workspace: /third"
     finally:
         await agent.shutdown()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("use_context_refresh", [False, True])
-async def test_empty_template_guidance_tracks_ptc_when_refreshed(use_context_refresh: bool) -> None:
-    settings = Settings(ptc=ProgrammaticToolCallingSettings(enabled=True))
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_empty_template_guidance_survives_refresh(
+    use_context_refresh: bool, enabled: bool
+) -> None:
+    settings = Settings(ptc=ProgrammaticToolCallingSettings(enabled=enabled))
     agent = McpAgent(
         AgentConfig("ptc-instructions", instruction=""),
         context=Context(config=settings, server_registry=ServerRegistry()),
     )
     try:
         await agent.initialize()
-        for enabled in (False, True, False):
-            settings.ptc.enabled = enabled
+        for _ in range(2):
             if use_context_refresh:
                 await apply_instruction_context([agent], {})
             else:

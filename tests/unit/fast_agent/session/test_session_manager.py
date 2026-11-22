@@ -165,7 +165,7 @@ def test_session_history_window_rejects_boolean_config(tmp_path) -> None:
     update_global_settings(override)
 
     try:
-        assert get_session_history_window() == 20
+        assert get_session_history_window() == 30
     finally:
         update_global_settings(old_settings)
 

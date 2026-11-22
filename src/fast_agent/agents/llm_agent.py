@@ -53,6 +53,7 @@ from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
     build_user_message_display,
     build_user_message_image_previews,
+    group_user_messages_by_sender,
     resolve_highlight_indexes,
     tool_use_requests_file_read_access,
     tool_use_requests_process_poll,
@@ -252,6 +253,11 @@ class LlmAgent(LlmDecorator):
             self._deferred_hook_status_lines_by_bucket.clear()
         for line in lines:
             self.display.show_status_message(line)
+
+    def show_cache_warm_status(self, line: str | None) -> None:
+        """Print a keep-warm diagnostic produced while this agent's turn waits on tools."""
+        if line is not None:
+            self.display.show_status_message(Text(line, style="dim"))
 
     def clear_deferred_hook_status_messages(self, bucket: str | None = None) -> None:
         """Drop buffered hook status lines without rendering them."""
@@ -786,6 +792,12 @@ class LlmAgent(LlmDecorator):
             return
 
         _ = request_params
+        for heading, group in group_user_messages_by_sender(display_messages):
+            self._display_user_message_group(group, heading=heading)
+
+    def _display_user_message_group(
+        self, display_messages: list[PromptMessageExtended], *, heading: str | None
+    ) -> None:
         part_count = len(display_messages)
 
         message_text, attachments = build_user_message_display(display_messages)
@@ -794,7 +806,7 @@ class LlmAgent(LlmDecorator):
         self.display.show_user_message(
             message_text,
             chat_turn=0,
-            name=self.name,
+            name=heading or self.name,
             attachments=attachments if attachments else None,
             image_previews=image_previews or None,
             part_count=part_count if part_count > 1 else None,

@@ -1073,6 +1073,7 @@ async def _select_llamacpp_model(
             catalog=catalog,
             model_id=model_id,
             api_key=interrogation_api_key,
+            autoload=False if catalog.router_mode else None,
         )
         loaded_context = LlamaCppModelPickerContext(
             runtime_context_window=discovered_model.runtime_context_window,

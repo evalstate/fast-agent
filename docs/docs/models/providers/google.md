@@ -30,10 +30,44 @@ The generic `gemini` alias selects Gemini 3.8 Flash (`gemini38`, `gemini38flash`
 `gemini3.8flash`). Explicit older aliases, including `gemini37flash`, `gemini35flash`, and
 `gemini3flash`, retain their original models.
 
-Capabilities verified against the official [Gemini model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash),
+Gemini 3.8 Flash capabilities were verified against the official [Gemini model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash),
 [Vertex model page](https://cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/3-8-flash),
 [migration guide](https://ai.google.dev/gemini-api/docs/latest-model), and
 [pricing](https://ai.google.dev/gemini-api/docs/pricing#gemini-3.8-flash) on September 5, 2026.
+
+## Gemini 4 (native API)
+
+| Native model | Short alias | Thinking levels | Default thinking |
+| --- | --- | --- | --- |
+| [`google.gemini-4-neon`](https://aistudio.google.com/docs/models/gemini-4-neon) | `neon` | low, medium, high, xhigh | high |
+| [`google.gemini-4-argon`](https://aistudio.google.com/docs/models/gemini-4-argon) | `argon` | low, medium, high | medium |
+| [`google.gemini-4-hydrogen`](https://aistudio.google.com/docs/models/gemini-4-hydrogen) | `hydrogen` | low, medium, high, xhigh | high |
+| [`google.gemini-4-carbon`](https://aistudio.google.com/docs/models/gemini-4-carbon) | `carbon` | low, medium, high | medium |
+
+```bash
+fast-agent go --model 'neon?reasoning=xhigh'
+fast-agent go --model 'argon?reasoning=low'
+fast-agent go --model 'google.gemini-4-hydrogen?reasoning=xhigh'
+fast-agent go --model 'carbon?web_search=on'
+```
+
+All four accept text, images, audio, video and PDFs, return text, and support function calling,
+JSON Schema output, Google Search grounding and Flex. They share a **1,048,576-token window
+for input and output combined**. fast-agent uses a 65,536-token output limit by default;
+a single non-streaming hop on Argon or Carbon is limited to 32,768. The separate
+[long decode](https://aistudio.google.com/docs/long-decode?generate-content=true) capability
+does not make 1M the default output budget. Neon is paid-tier only (no Free tier). Use a named [thinking level](https://aistudio.google.com/docs/thinking)
+rather than sampling controls or a numeric thinking budget.
+
+The native provider uses `generateContent` / `streamGenerateContent`, not a chat-completions
+proxy or a server-stored Interactions session. fast-agent keeps the Gemini Developer API on
+`v1beta` for compatibility with preview models and beta features. To opt into a different
+version, set `GOOGLE_GENAI_API_VERSION` (subject to model availability on that version).
+Copilot routes have [separate credentials and capabilities](copilot.md).
+
+**Tracing:** The current OpenTelemetry Google instrumentor requires `google-genai <3`;
+it skips SDK-level Google spans with SDK 3.4. fast-agent's agent and MCP spans do not
+depend on that instrumentor.
 
 ## Reasoning, search, and multimodal input
 
@@ -52,7 +86,7 @@ fast-agent --model "gemini38flash?service_tier=flex"
 
 Useful query parameters:
 
-- `reasoning=auto|minimal|low|medium|high|off` where the selected Gemini model advertises thinking
+- `reasoning=auto|minimal|low|medium|high|xhigh|off` where the selected Gemini model advertises thinking
   controls
 - `web_search=on|off` for Grounding with Google Search on supported Gemini models
 - `structured=json` for JSON schema structured outputs

@@ -135,6 +135,13 @@ async def run_acp_server(context: ServerRuntimeContext) -> None:
         instance_scope=getattr(context.args, "instance_scope", None),
     )
     permissions_enabled = getattr(context.args, "permissions_enabled", True)
+    use_client_tools_arg = getattr(context.args, "use_client_tools", None)
+    if use_client_tools_arg is None:
+        use_client_tools = bool(
+            context.config.acp.use_client_tools if context.config is not None else False
+        )
+    else:
+        use_client_tools = bool(use_client_tools_arg)
 
     acp_server = AgentACPServer(
         bootstrap_instance=context.state.primary_instance,
@@ -143,6 +150,7 @@ async def run_acp_server(context: ServerRuntimeContext) -> None:
         server_name=server_name or f"{context.app_name}",
         skills_directory_override=context.skills_directory_override,
         permissions_enabled=permissions_enabled,
+        use_client_tools=use_client_tools,
         load_card_callback=context.callbacks.load_card_source,
         attach_agent_tools_callback=context.callbacks.attach_agent_tools_source,
         detach_agent_tools_callback=context.callbacks.detach_agent_tools_source,

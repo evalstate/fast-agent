@@ -64,6 +64,9 @@ from fast_agent.utils.reasoning_chunk_join import (
     normalize_reasoning_delta,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 _logger = get_logger(__name__)
 
 _ARGUMENT_DELTA_EVENT_TYPES = {
@@ -157,7 +160,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
 
         verb: str | ProgressAction | None
         logger: Logger
-        name: str | None
+        name: str
 
         def _notify_stream_listeners(self, chunk: StreamChunk) -> None: ...
 
@@ -190,6 +193,10 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
     def _is_provider_managed_function_call(self, name: str) -> bool:
         del name
         return False
+
+    def _observe_response_headers(self, headers: Mapping[str, str]) -> None:
+        """Response headers from HTTP, or relayed in WebSocket metadata events."""
+        del headers
 
     def _handle_safety_buffering_event(
         self,
@@ -801,6 +808,13 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             # Buffered streams repeat ``safety_buffering`` on every event; announce once.
             if not safety_buffered:
                 safety_buffered = self._handle_safety_buffering_event(event, model=model)
+            if event_type == "codex.response.metadata":
+                # Codex relays HTTP response headers (e.g. turn state) over WebSockets.
+                headers = snapshot_json_value(getattr(event, "headers", None))
+                if isinstance(headers, dict):
+                    self._observe_response_headers(
+                        {name: value for name, value in headers.items() if isinstance(value, str)}
+                    )
             if event_type == "response.output_item.done":
                 record_completed_output_item(
                     completed_output_items,

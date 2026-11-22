@@ -35,6 +35,7 @@ def _fast_agent_cmd(
     servers: tuple[str, ...] = (),
     no_permissions: bool = False,
     shell: bool = False,
+    acp_client_tools: bool = False,
 ) -> tuple[str, ...]:
     cmd = [
         sys.executable,
@@ -58,6 +59,8 @@ def _fast_agent_cmd(
         cmd.append("--no-permissions")
     if shell:
         cmd.append("--shell")
+    if acp_client_tools:
+        cmd.append("--acp-client-tools")
     return tuple(cmd)
 
 
@@ -179,6 +182,7 @@ async def acp_filesystem_toolcall_process() -> AsyncIterator[
     cmd = _fast_agent_cmd(
         "fast-agent-acp-filesystem-toolcall-test",
         no_permissions=True,
+        acp_client_tools=True,
     )
     async with _spawn_initialized_agent(
         cmd,
@@ -248,6 +252,7 @@ async def acp_runtime_telemetry_shell_process() -> AsyncIterator[
         "fast-agent-acp-runtime-telemetry-test",
         no_permissions=True,
         shell=True,
+        acp_client_tools=True,
     )
     async with _spawn_initialized_agent(
         cmd,
@@ -275,6 +280,7 @@ async def acp_runtime_telemetry_process() -> AsyncIterator[
     cmd = _fast_agent_cmd(
         "fast-agent-acp-runtime-telemetry-test",
         no_permissions=True,
+        acp_client_tools=True,
     )
     async with _spawn_initialized_agent(
         cmd,
@@ -322,6 +328,7 @@ async def acp_terminal_shell_process() -> AsyncIterator[
     cmd = _fast_agent_cmd(
         "fast-agent-acp-terminal-test",
         shell=True,
+        acp_client_tools=True,
     )
     async with _spawn_initialized_agent(
         cmd,
@@ -344,7 +351,10 @@ async def acp_terminal_shell(
 async def acp_terminal_no_shell_process() -> AsyncIterator[
     tuple[ClientSideConnection, TestClient, InitializeResponse]
 ]:
-    cmd = _fast_agent_cmd("fast-agent-acp-terminal-test")
+    cmd = _fast_agent_cmd(
+        "fast-agent-acp-terminal-test",
+        acp_client_tools=True,
+    )
     async with _spawn_initialized_agent(
         cmd,
         terminal=True,
@@ -369,6 +379,7 @@ async def acp_terminal_client_unsupported_process() -> AsyncIterator[
     cmd = _fast_agent_cmd(
         "fast-agent-acp-terminal-test",
         shell=True,
+        acp_client_tools=True,
     )
     async with _spawn_initialized_agent(
         cmd,

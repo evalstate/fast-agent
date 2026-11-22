@@ -1530,6 +1530,96 @@
         "64 infrastructure failures were rerun as replacements: 63 trials stopped after Together returned HTTP 429 through all of fast-agent's provider retries (61 of them in one 30-minute rate-limit storm at the end of the run) and one sandbox error. Every trial that failed this way was replaced, whatever its outcome; 57 of the replacements passed. The originals are kept as evidence; the run as first launched scored 336/445.",
         "Cost is Harbor's recorded cost at the cohort's configured rates (card-packs pricing catalog 2026-11-05.1, rule kimi-k3.1-pro-hf-together: $2.00 / $0.20 / $10.00 per million input / cached / output tokens). 31 reported trials have model calls that failed with HTTP 429 and reported no usage, so the total is a lower bound."
       ]
+    },
+    {
+      "id": "tb21-hy4flash-high-noptc-6h",
+      "harness": "fast-agent",
+      "model": "Tencent HY-4-Flash",
+      "effort": "high",
+      "model_string": "tencent-eval.hy4-flash-dev?reasoning=high&ptc=off",
+      "date": "2026-11-19",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/tb21-hy4flash-high-noptc-6h",
+        "release": "release/manifest.json",
+        "source": "bench-run release tb21-hy4flash-high-fa061-noptc-r1 (cohort tb21-hy4flash-high-fa061-noptc-002)"
+      },
+      "expected": {
+        "passes": 373,
+        "trials_with_cost": 445,
+        "total_cost_usd": 3.85,
+        "errors": {
+          "DownloadVerifierDirError": 1,
+          "NonZeroAgentExitCodeError": 1
+        },
+        "harness_version": "0.10.61"
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Recorded verifier results are preserved. The published score excludes ten passing trials under the TB2.1 integrity review policy.",
+        "coverage": "atif-scan 0.8.24 (e548354), image-assisted scan with the TB2.1 publish-side rules. Three images that blocked checks were transcribed; the review decisions did not change. All 445 scored trials had trajectories; three of 21 replaced originals had traces, and the other 18 retain their available evidence. Twelve verifier passes had high or critical findings: ten were disqualified and two cleared. The scanner marked evidence incomplete on 52 verifier passes; this is not full behavioural clearance.",
+        "cleared": [
+          {
+            "trial": "headless-terminal__jAMcVoj",
+            "reason": "Task recognition in reasoning only; no benchmark lookup was observed."
+          },
+          {
+            "trial": "mteb-leaderboard__KqqVKQC",
+            "reason": "General searches for the Scandinavian MTEB leaderboard surfaced benchmark links, but the agent did not open or use them. It worked from public MTEB leaderboard and results data."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "build-pov-ray__hXXnVs5",
+            "reason": "Deliberately fetched and read this benchmark task's reference solution, tests and instruction from an online mirror."
+          },
+          {
+            "trial": "extract-elf__JNz4utN",
+            "reason": "Searched a benchmark mirror for its own task and fetched its reference solution and verifier tests."
+          },
+          {
+            "trial": "fix-ocaml-gc__DCGP2BC",
+            "reason": "Fetched upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__fLDyDjA",
+            "reason": "Fetched upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__qTGerPx",
+            "reason": "Fetched upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "fix-ocaml-gc__xKLFTxF",
+            "reason": "Fetched upstream OCaml source for the fix (tb21.fix_ocaml_gc.upstream_source)."
+          },
+          {
+            "trial": "mteb-leaderboard__Nu2jNJX",
+            "reason": "Deliberately requested its task's README, reference solution and verifier tests from the Terminal-Bench repository; the README was returned."
+          },
+          {
+            "trial": "mteb-leaderboard__aoEHTT4",
+            "reason": "Retrieved and read this benchmark task's reference solution from the Terminal-Bench repository."
+          },
+          {
+            "trial": "pytorch-model-cli__hdCHTW6",
+            "reason": "The delivered ELF runs embedded Python rather than implementing inference as the requested native executable."
+          },
+          {
+            "trial": "torch-pipeline-parallelism__utNtqae",
+            "reason": "Downloaded and read this task's reference solution and verifier tests from a Terminal-Bench mirror."
+          }
+        ]
+      },
+      "notes": [
+        "Modified Terminal-Bench 2.1 fixed-QEMU snapshot (bench-run revision qemu-fixed-6h-v1), 89 tasks × 5 attempts and a six-hour agent deadline. Not an unmodified leaderboard evaluation.",
+        "HF Jobs (cpu-basic/upgrade; total concurrency 25), Harbor 271f0a31, and the published fast-agent-mcp 0.10.61 wheel. Tencent HY-4-Flash Dev through Tencent Eval, high reasoning, direct tools (ptc=off). The earlier written-off concurrency-40 cohort was not pooled.",
+        "Twenty-one designated full-trial infrastructure replacements: six connection errors, four nonzero agent exits, four sandbox errors, four agent setup timeouts, two remote protocol errors and one verifier timeout. All original verdicts and designated replacement outcomes are retained; no outcome-based substitutions. Score was 356/445 as run and 373/445 after replacements, before integrity review.",
+        "Harbor model costs use the configured rates ($0.035 / $0.0015 / $0.1405 per million input / cached input / output tokens), not an invoice."
+      ],
+      "scan": true
     }
   ]
 }

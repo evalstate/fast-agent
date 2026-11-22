@@ -182,11 +182,19 @@ fast-agent model setup
 # Inspect reference resolution and onboarding readiness
 fast-agent model doctor
 
+# Connect directly to a running local llama.cpp server (probes :9931 then :8080)
+fast-agent local
+fast-agent --local --attach screenshot.png -m "Describe this image"
+
+# Auto-configure a vLLM, llama.cpp, or OpenAI-compatible endpoint by URL
+fast-agent --model-url http://localhost:8000
+fast-agent --model-url "https://<endpoint>.endpoints.huggingface.cloud" --model-api-key-env HF_TOKEN
+
 # Interactively discover llama.cpp models and import one as a local overlay
-fast-agent model llamacpp --url http://localhost:8080
+fast-agent model llamacpp
 
 # List discovered llama.cpp models
-fast-agent model llamacpp list --url http://localhost:8080
+fast-agent model llamacpp list --url http://localhost:9931
 ```
 
 For overlay manifests and llama.cpp import details, see [Model Overlays](../models/model_overlays/).

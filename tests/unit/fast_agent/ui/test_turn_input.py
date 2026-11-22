@@ -435,3 +435,45 @@ async def test_new_turn_adopts_prompt_typeahead_before_fresh_input(
         turn_input.clear_replayed_input()
         os.close(master)
         os.close(slave)
+
+
+HC_NOTE = "<hc>t135 probe exited (exit 0)</hc>"
+
+
+def test_hc_message_is_submitted_apart_from_a_draft(pipe: PipeInput) -> None:
+    recorder = Recorder()
+    reader = recorder.reader(pipe)
+    pipe.send_text(f"sent\rwe \x1b[200~{HC_NOTE}\x1b[201~\r could")
+    assert reader.take_messages() == ["sent", HC_NOTE]
+    # The person's unfinished line is still a draft, and keeps growing.
+    assert "".join(key.data for key in reader.held_keys) == "we  could"
+    pipe.send_text("\r")
+    assert reader.take_messages() == ["we  could"]
+
+
+def test_draft_survives_an_hc_paste_that_was_never_submitted(pipe: PipeInput) -> None:
+    reader = Recorder().reader(pipe)
+    pipe.send_text(f"we \x1b[200~{HC_NOTE}\x1b[201~")
+    reader._readable()
+    assert sorted(key.data for key in reader.stop()) == sorted([HC_NOTE, "w", "e", " "])
+
+
+def test_hc_message_is_never_deferred_as_a_command(pipe: PipeInput) -> None:
+    reader = Recorder().reader(pipe)
+    message = '<hc from="t7 review">see ^note and /tmp/x</hc>'
+    pipe.send_text(f"\x1b[200~{message}\x1b[201~\r")
+    assert reader.take_messages() == [message]
+
+
+@pytest.mark.asyncio
+async def test_idle_prompt_submits_hc_message_apart_from_a_draft(pipe: PipeInput) -> None:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.output import DummyOutput
+
+    from fast_agent.ui.prompt.keybindings import create_keybindings
+
+    session = PromptSession(input=pipe, output=DummyOutput(), key_bindings=create_keybindings())
+    pipe.send_text(f"we \x1b[200~{HC_NOTE}\x1b[201~\r")
+    assert await session.prompt_async() == HC_NOTE
+    pipe.send_text("could\r")
+    assert await session.prompt_async() == "we could"

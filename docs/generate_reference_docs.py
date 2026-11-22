@@ -723,6 +723,61 @@ def generate_compaction_config_snippet() -> str:
     return "".join(lines)
 
 
+def generate_cache_warm_config_snippet() -> str:
+    """Generate prompt-cache warming defaults from the settings model."""
+    from fast_agent.config import CacheWarmSettings
+
+    lines = [
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: CacheWarmSettings -->\n\n",
+        "```yaml\ncache_warm:\n",
+    ]
+    for name, value in CacheWarmSettings().model_dump().items():
+        prefix = "# " if value is None else ""
+        lines.append(f"  {prefix}{name}: {_yaml_scalar(value)}\n")
+    lines.append("```\n")
+    return "".join(lines)
+
+
+def generate_cache_warm_settings_reference() -> str:
+    """Generate the prompt-cache warming table from settings field descriptions."""
+    from fast_agent.config import CacheWarmSettings
+
+    lines = [
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: CacheWarmSettings -->\n\n",
+        "| Setting | Default | Description |\n",
+        "| --- | --- | --- |\n",
+    ]
+    for name, field in CacheWarmSettings.model_fields.items():
+        lines.append(
+            f"| `cache_warm.{name}` | {_yaml_default_text(field.default)} | "
+            f"{_escape_table(field.description or '')} |\n"
+        )
+    return "".join(lines)
+
+
+def generate_ptc_model_defaults_snippet() -> str:
+    """Generate the bundled catalog's PTC defaults, not runtime overlay models."""
+    from fast_agent.llm.model_database import ModelDatabase
+
+    # Base entries suffice while provider overrides share their base's PTC default
+    # (provider-only IDs are off). test_ptc_model_defaults_match_catalog_policy checks
+    # every override too, so a future divergence must be documented here explicitly.
+    models = sorted(name for name, params in ModelDatabase.MODELS.items() if params.ptc_enabled)
+    lines = [
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: ModelParameters.ptc_enabled -->\n\n",
+        (
+            "PTC defaults to **on** for these catalog model IDs, including aliases that resolve "
+            "to them:\n\n"
+        ),
+    ]
+    lines.extend(f"- `{name}`\n" for name in models)
+    lines.append(
+        "\nOther models default to **off**. Model defaults apply only in supported local POSIX "
+        "environments; unsupported environments fall back to direct tools.\n"
+    )
+    return "".join(lines)
+
+
 def generate_ptc_config_snippet() -> str:
     """Generate bundled PTC defaults from the settings model."""
     from fast_agent.config import ProgrammaticToolCallingSettings
@@ -735,6 +790,20 @@ def generate_ptc_config_snippet() -> str:
         lines.append(f"  {name}: {_yaml_scalar(value)}\n")
     lines.append("```\n")
     return "".join(lines)
+
+
+def generate_session_history_config_snippet() -> str:
+    """Generate session history defaults from the settings model."""
+    from fast_agent.config import Settings
+
+    fields = Settings.model_fields
+    return (
+        "<!-- GENERATED FILE — DO NOT EDIT. Source: Settings -->\n\n"
+        "```yaml\n"
+        f"session_history: {_yaml_scalar(fields['session_history'].default)}\n"
+        f"session_history_window: {_yaml_scalar(fields['session_history_window'].default)}\n"
+        "```\n"
+    )
 
 
 def generate_copilot_config_snippet() -> str:
@@ -977,7 +1046,7 @@ def generate_tui_runtime_reference() -> str:
         ),
         "logger.terminal_images.width": "Image render width.",
         "logger.terminal_images.height": "Image render height.",
-        "shell_execution.tool_profile": "Model-specific shell/process contract.",
+        "shell_execution.tool_profile": "Direct-mode shell/process contract; canonical PTC uses shell/process.",
         "shell_execution.output_display_lines": "Maximum shell/read_text_file lines to display.",
         "shell_execution.show_bash": "Show shell command output on the console.",
         "shell_execution.interactive_use_pty": "Use a PTY for interactive prompt shell commands.",
@@ -1608,8 +1677,18 @@ def main() -> int:
         _write(GENERATED_DIR / "current_models_metaai.md", generate_current_model_table("metaai"))
         _write(GENERATED_DIR / "tui_runtime_reference.md", generate_tui_runtime_reference())
         _write(GENERATED_DIR / "compaction_config_snippet.md", generate_compaction_config_snippet())
+        _write(GENERATED_DIR / "cache_warm_config_snippet.md", generate_cache_warm_config_snippet())
+        _write(
+            GENERATED_DIR / "cache_warm_settings_reference.md",
+            generate_cache_warm_settings_reference(),
+        )
         _write(GENERATED_DIR / "copilot_config_snippet.md", generate_copilot_config_snippet())
         _write(GENERATED_DIR / "ptc_config_snippet.md", generate_ptc_config_snippet())
+        _write(
+            GENERATED_DIR / "session_history_config_snippet.md",
+            generate_session_history_config_snippet(),
+        )
+        _write(GENERATED_DIR / "ptc_model_defaults.md", generate_ptc_model_defaults_snippet())
         _write(
             GENERATED_DIR / "compaction_settings_reference.md",
             generate_compaction_settings_reference(),

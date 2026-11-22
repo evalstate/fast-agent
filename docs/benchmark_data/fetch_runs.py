@@ -887,7 +887,9 @@ def build_run(
         model_str = run["model_string"]
     else:
         shows = {j: fetcher.job_show(j) for j in job_ids}
-        model_str = model_string(next(s for s in shows.values() if s.get("config")), models[0])
+        model_str = run.get("model_string") or model_string(
+            next(s for s in shows.values() if s.get("config")), models[0]
+        )
     versions = sorted({t["agent_version"] for t in selected if t["agent_version"]})
 
     by_task: dict[str, list[Json]] = {task: [] for task in tasks}
@@ -1066,6 +1068,9 @@ def build_run(
         "cost": {
             "total_usd": round(total_cost, 2),
             "total_usd_exact": total_cost,
+            "scored_total_usd_exact": round(
+                sum(t["cost_usd"] for t in selected if t["cost_usd"] is not None), 6
+            ),
             "trials_with_cost": selected_costed,
             "trials": len(selected),
             "excluded_trials_with_cost": len(costs) - selected_costed,
@@ -1316,6 +1321,10 @@ def write_moments(
     import moments
 
     inputs, extra, expect = scan_inputs
+    if "bucket" in run:
+        # The viewer pins trace files without following symlinks. Bucket caches
+        # can be symlinked to another drive, so pass their canonical paths.
+        inputs = [str(Path(path).resolve()) for path in inputs]
     tmp = Path(tempfile.mkdtemp(prefix="fa-highlights-"))
     try:
         target = tmp / "hl"

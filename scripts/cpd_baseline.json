@@ -1,5 +1,5 @@
 {
-  "pmd_version": "7.27.0",
+  "pmd_version": "7.29.0",
   "minimum_tokens": 100,
   "findings": [
     {
@@ -30,21 +30,21 @@
       "rationale": "Typer requires explicit callback signatures for command introspection and help output."
     },
     {
-      "tokens": 143,
+      "tokens": 150,
       "paths": [
         "fast_agent/llm/model_factory.py",
         "fast_agent/llm/model_factory.py"
       ],
-      "code_hash": "4bfdd6c5c5d8d5d1c5e95f867915bfa2a3892b960195b09f77a98465b8ce638d",
+      "code_hash": "41f622f98f8ccc7f6524e67b8eb9f38377ed1d3026faae6c4f0c812326c49ed0",
       "rationale": "Model configuration and frozen query overrides intentionally expose parallel typed fields with distinct semantics."
     },
     {
-      "tokens": 116,
+      "tokens": 114,
       "paths": [
         "fast_agent/llm/provider/openai/openresponses_streaming.py",
         "fast_agent/llm/provider/openai/responses_streaming.py"
       ],
-      "code_hash": "017aead745c6e9938427e479f01014560c16549389a9e524459e9ef800ab346d",
+      "code_hash": "5e91e8131fd60669412b784d479fb31c3cb067e338669e1cf6c0d54e2b0897f5",
       "rationale": "TYPE_CHECKING host contracts intentionally document the requirements of two independent streaming mixins."
     },
     {

@@ -11,11 +11,14 @@ from fast_agent.marketplace.update_status import CommonMarketplaceUpdateStatus
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Mapping
+    from collections.abc import Awaitable, Mapping, Sequence
 
     from mcp_types import Tool
 
-    from fast_agent.command_actions.models import PluginCommandActionSpec
+    from fast_agent.command_actions.models import (
+        PluginCommandActionImage,
+        PluginCommandActionSpec,
+    )
     from fast_agent.llm.usage_tracking import TurnUsage
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -73,6 +76,7 @@ class PluginPostUserTurnOutput:
 
     display: str | None = None
     session_usage: str | None = None
+    images: Sequence[PluginCommandActionImage] = ()
 
 
 type PluginPostUserTurnResult = str | PluginPostUserTurnOutput | None
@@ -91,6 +95,8 @@ class PluginPostUserTurnContext:
     turn_messages: tuple[PromptMessageExtended, ...] = ()
     """The completed turn in the selected agent's history, as stored (process polls
     may be folded; see ``restore_process_poll_history``)."""
+    session_id: str | None = None
+    """The active session ID, if the turn belongs to a session."""
 
 
 class PluginPostUserTurnFunction(Protocol):

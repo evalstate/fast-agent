@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from fast_agent.plugins import PluginPostUserTurnContext
 from fast_agent.plugins.models import PluginPostUserTurnSpec
 from fast_agent.plugins.post_user_turn import (
     load_plugin_post_user_turn_handlers,
@@ -12,6 +13,18 @@ from fast_agent.plugins.post_user_turn import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def test_post_user_turn_context_defaults_to_no_session_id() -> None:
+    ctx = PluginPostUserTurnContext(
+        plugin_name="usage",
+        agent_name="assistant",
+        turn_usage=(),
+        session_usage=(),
+        config={},
+    )
+
+    assert ctx.session_id is None
 
 
 @pytest.mark.asyncio
@@ -23,7 +36,7 @@ async def test_post_user_turn_runs_sync_and_async_handlers_in_order(tmp_path: Pa
     )
     async_file = tmp_path / "async.py"
     async_file.write_text(
-        "async def display(ctx):\n    return f'async:{ctx.agent_name}'\n",
+        "async def display(ctx):\n    return f'async:{ctx.agent_name}:{ctx.session_id}'\n",
         encoding="utf-8",
     )
     handlers = load_plugin_post_user_turn_handlers(
@@ -41,9 +54,10 @@ async def test_post_user_turn_runs_sync_and_async_handlers_in_order(tmp_path: Pa
         session_usage=(),
         config={"sync": {"label": "cost"}},
         display=displayed.append,
+        session_id="session-123",
     )
 
-    assert displayed == ["sync:cost", "async:assistant"]
+    assert displayed == ["sync:cost", "async:assistant:session-123"]
 
 
 @pytest.mark.asyncio
@@ -112,3 +126,43 @@ async def test_structured_post_user_turn_result_reports_session_usage(
 
     assert displayed == ["Cost: $0.01 last"]
     assert reported == ["$0.12"]
+
+
+@pytest.mark.asyncio
+async def test_structured_post_user_turn_result_renders_images(
+    tmp_path: Path,
+) -> None:
+    from fast_agent.command_actions import PluginCommandActionImage
+
+    plugin_file = tmp_path / "images.py"
+    plugin_file.write_text(
+        "from fast_agent.command_actions import PluginCommandActionImage\n"
+        "from fast_agent.plugins import PluginPostUserTurnOutput\n"
+        "\n"
+        "def display(ctx):\n"
+        "    return PluginPostUserTurnOutput(\n"
+        "        display='Diagram rendered',\n"
+        "        images=(PluginCommandActionImage(source='/tmp/diagram.png', label='Flowchart'),),\n"
+        "    )\n",
+        encoding="utf-8",
+    )
+    handlers = load_plugin_post_user_turn_handlers(
+        [PluginPostUserTurnSpec("mermaid", f"{plugin_file}:display")]
+    )
+    displayed: list[str] = []
+    rendered_images: list[list[PluginCommandActionImage]] = []
+
+    await run_plugin_post_user_turn(
+        handlers,
+        agent_name="assistant",
+        turn_usage=(),
+        session_usage=(),
+        config={},
+        display=displayed.append,
+        display_images=lambda imgs: rendered_images.append(list(imgs)),
+    )
+
+    assert displayed == ["Diagram rendered"]
+    assert rendered_images == [
+        [PluginCommandActionImage(source="/tmp/diagram.png", label="Flowchart")]
+    ]

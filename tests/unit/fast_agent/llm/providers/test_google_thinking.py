@@ -271,3 +271,33 @@ def test_available_reasoning_values() -> None:
     assert "medium" in values
     assert "high" in values
     assert "off" in values
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("model", "default_level"),
+    [
+        ("gemini-4-carbon", "MEDIUM"),
+        ("gemini-4-argon", "MEDIUM"),
+        ("gemini-4-hydrogen", "HIGH"),
+        ("gemini-4-neon", "HIGH"),
+    ],
+)
+def test_gemini4_defaults_to_model_thinking_level(model: str, default_level: str) -> None:
+    llm = _build_llm(model=model)
+    assert llm._resolve_thinking_config() == (None, default_level)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("effort", ["low", "medium", "high", "xhigh"])
+def test_hydrogen_efforts_reach_sdk_thinking_config(effort: str) -> None:
+    llm = _build_llm(model="gemini-4-hydrogen", reasoning_effort=effort)
+    budget, level = llm._resolve_thinking_config()
+    config = llm._converter.convert_request_params_to_google_config(
+        llm.default_request_params,
+        thinking_budget=budget,
+        thinking_level=level,
+    )
+    assert config.thinking_config is not None
+    assert config.thinking_config.thinking_level == effort.upper()
+    assert config.thinking_config.thinking_budget is None

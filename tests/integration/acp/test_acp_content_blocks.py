@@ -13,20 +13,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import pytest
-from acp.helpers import text_block
 from acp.schema import (
     BlobResourceContents,
     EmbeddedResourceContentBlock,
     ImageContentBlock,
     InitializeResponse,
     StopReason,
+    TextContentBlock,
     TextResourceContents,
 )
 
 if TYPE_CHECKING:
     from acp.client.connection import ClientSideConnection
-    from acp.helpers import ContentBlock as ACPContentBlock
     from test_client import TestClient
+
+    from fast_agent.acp.types import ACPContentBlock
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -91,7 +92,7 @@ async def test_acp_image_content_processing(
 
     # Send prompt with text and image
     prompt_blocks = _prompt_blocks(
-        text_block("Analyze this image:"),
+        TextContentBlock(text="Analyze this image:"),
         ImageContentBlock(
             type="image",
             data=fake_image_data,
@@ -142,7 +143,7 @@ async def test_acp_embedded_text_resource_processing(
 
     # Send prompt with text resource
     prompt_blocks = _prompt_blocks(
-        text_block("Review this code:"),
+        TextContentBlock(text="Review this code:"),
         EmbeddedResourceContentBlock(
             type="resource",
             resource=TextResourceContents(
@@ -188,7 +189,7 @@ async def test_acp_embedded_blob_resource_processing(
 
     # Send prompt with blob resource
     prompt_blocks = _prompt_blocks(
-        text_block("Summarize this document:"),
+        TextContentBlock(text="Summarize this document:"),
         EmbeddedResourceContentBlock(
             type="resource",
             resource=BlobResourceContents(
@@ -228,7 +229,7 @@ async def test_acp_mixed_content_blocks(
     image_data = base64.b64encode(b"fake-screenshot").decode("utf-8")
 
     prompt_blocks = _prompt_blocks(
-        text_block("I need help with this code:"),
+        TextContentBlock(text="I need help with this code:"),
         EmbeddedResourceContentBlock(
             type="resource",
             resource=TextResourceContents(
@@ -237,13 +238,13 @@ async def test_acp_mixed_content_blocks(
                 text="import sys\nprint(sys.version)",
             ),
         ),
-        text_block("And here's a screenshot of the error:"),
+        TextContentBlock(text="And here's a screenshot of the error:"),
         ImageContentBlock(
             type="image",
             data=image_data,
             mime_type="image/png",
         ),
-        text_block("What's wrong?"),
+        TextContentBlock(text="What's wrong?"),
     )
 
     prompt_response = await connection.prompt(session_id=session_id, prompt=prompt_blocks)

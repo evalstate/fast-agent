@@ -21,6 +21,14 @@ Pydantic AI's harness (`pydantic_ai_harness/code_mode`) does the same thing on *
 
 ## 2. Mapping to fast-agent + Monty
 
+Current PTC uses canonical vocabulary v1: `shell`, unified `process`, the
+`read_text_file`/`write_text_file`/`edit_file` trio (no `apply_patch`), and enabled
+`subagent`, `attach_media`, `get_resource`. The real nested tools are canonical;
+model profiles affect direct mode only. `ptc.function_names: profile` is a
+temporary matched-evaluation switch. Values are deliberately unchanged; the
+return-value work below remains a separate stage. See the
+[configuration reference](../docs/docs/ref/config_file.md#programmatic-tool-calling-ptc).
+
 ```mermaid
 sequenceDiagram
     participant LLM
@@ -29,8 +37,8 @@ sequenceDiagram
     participant Monty as Monty worker (subprocess)
     participant Tools as call_tool path (MCP / shell / fs / function tools)
     Agent->>PTC: list_tools() → model_tools(all tools)
-    PTC-->>LLM: [execute_python(code), …direct_tools]
-    LLM->>Agent: execute_python(code)
+    PTC-->>LLM: [exec_sandbox(code), …direct_tools]
+    LLM->>Agent: exec_sandbox(code)
     Agent->>PTC: execute(code, dispatch)
     PTC->>Monty: feed_run(code, external_lookup=async host fns)
     Monty-->>PTC: suspend: orders__get_orders(customer_id=…)
@@ -46,13 +54,17 @@ sequenceDiagram
 | JavaScript in V8, out of process | Python in **pydantic-monty** 1.4 (Rust interpreter; `AsyncMonty` worker pool in a subprocess) |
 | TypeScript declarations | Python `async def` **stubs** generated from JSON schemas (`ptc/stubs.py`). The same text is shown to the model *and* passed to Monty's bundled `ty` type checker (`type_check_stubs`), so wrong tool names, wrong arguments, unsupported imports and undefined names are rejected **before any tool runs**. Codex has no equivalent. |
 | `tools.x(...)` namespace | Bare global functions resolved lazily via `external_lookup`. Names are sanitised to identifiers; builtin and stdlib-module shadows get a `_tool` suffix and keywords get `_` (`list` → `list_tool`, `from` → `from_`). |
-| `store()/load()` | The same: every `execute_python` run gets a fresh Monty sandbox, and `store(key, value)` / `load(key)` / `stored()` (`ptc/store.py`) carry plain data between runs. The store is saved beside the agent's history in fast-agent sessions, so `--resume` and forks keep it. |
+| `store()/load()` | The same: every `exec_sandbox` run gets a fresh Monty sandbox, and `store(key, value)` / `load(key)` / `stored()` (`ptc/store.py`) carry plain data between runs. The store is saved beside the agent's history in fast-agent sessions, so `--resume` and forks keep it. |
 | `text()` / final output | `print()` plus the value of the final expression. |
-| Dispatch broker through the tool router | `McpAgent.call_tool` intercepts `execute_python`. Nested calls go to `_dispatch_tool_call`, the original `call_tool` body, so MCP routing, ACP permission handlers, shell, filesystem, skills and function tools all work. |
+| Dispatch broker through the tool router | `McpAgent.call_tool` intercepts `exec_sandbox`. Nested calls go to `_dispatch_tool_call`, the original `call_tool` body, so MCP routing, ACP permission handlers, shell, filesystem, skills and function tools all work. |
 | `code_mode_only` / `code_mode` | `ptc.enabled` gives "only" mode; `ptc.direct_tools` (fnmatch) gives hybrid. |
-| Output budget | The existing `bound_tool_result_for_llm` byte limit applies to the `execute_python` result. |
+| Output budget | The existing `bound_tool_result_for_llm` byte limit applies to the `exec_sandbox` result. |
 
 ## 3. What the PoC implements
+
+The remaining sections record the original PoC and its experiments. Historical
+`execute_python` references mean the previous name of today's `exec_sandbox`;
+per-model shell names describe those old runs, not the canonical PTC surface.
 
 - `src/fast_agent/ptc/`
   - `stubs.py`: JSON schema → keyword-only async stubs. It handles enums (`Literal`), unions, arrays, optional parameters (exact schema type with a `= ...` default; omitted arguments are not sent, explicit `None` is only accepted for nullable fields), `**kwargs` only for explicitly open schemas (`additionalProperties: true` or a schema), so a misspelled argument is still a type error, output schemas (rendered as a compact `Returns: {...}` shape in the docstring; the return annotation stays `dict[str, Any]`), and identifier and collision handling. Docstrings are escaped triple-quoted literals, so the model and the type checker see the same readable multi-line text.

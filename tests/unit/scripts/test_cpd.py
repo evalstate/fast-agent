@@ -107,3 +107,23 @@ def test_parse_cpd_findings_accepts_empty_report(tmp_path: Path) -> None:
     xml = '<pmd-cpd xmlns="https://pmd-code.org/schema/cpd-report"/>'
 
     assert parse_cpd_findings(xml, tmp_path) == frozenset()
+
+
+def test_ensure_jre_rejects_archive_path_traversal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    archive = tools_dir / f"{_CPD_MODULE['JRE_FILENAME']}.tar.gz"
+    payload = tmp_path / "payload"
+    payload.write_text("not a JRE")
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(payload, arcname="../escaped")
+
+    monkeypatch.setitem(ensure_jre.__globals__, "TOOLS_DIR", tools_dir)
+    monkeypatch.setitem(ensure_jre.__globals__, "JRE_DIR", tools_dir / "missing-jre")
+    monkeypatch.setattr("shutil.which", lambda _: None)
+
+    with pytest.raises(tarfile.OutsideDestinationError):
+        ensure_jre()
+    assert not (tmp_path / "escaped").exists()

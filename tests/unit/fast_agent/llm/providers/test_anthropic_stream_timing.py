@@ -349,7 +349,14 @@ async def test_sdk_http_read_timeout_and_filtered_pings(
     start_message = _message().model_dump()
     start_message.update(content=[], stop_reason=None)
     start = sse("message_start", {"type": "message_start", "message": start_message})
-    stop = sse("message_stop", {"type": "message_stop"})
+    stop = sse(
+        "message_delta",
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+            "usage": {"output_tokens": 1},
+        },
+    ) + sse("message_stop", {"type": "message_stop"})
     server_done = asyncio.Event()
 
     async def serve(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -422,7 +429,7 @@ async def test_sdk_http_read_timeout_and_filtered_pings(
                 assert response.id == "msg_1"
                 timing = _diagnostics(h.llm)["stream_timing"]
                 # Pings are absent from parsed events, despite keeping reads alive.
-                assert timing["events_received"] == 2
+                assert timing["events_received"] == 3
                 assert timing["first_event_wait_ms"] >= 200
                 assert timing["max_inter_event_wait_ms"] >= 200
             assert request_timeouts == [

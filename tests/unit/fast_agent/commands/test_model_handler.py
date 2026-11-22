@@ -6,6 +6,7 @@ import pytest
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers.model import (
     handle_model_fast,
@@ -17,9 +18,12 @@ from fast_agent.commands.handlers.model import (
     handle_model_web_search,
     handle_model_x_search,
 )
+from fast_agent.commands.handlers.sessions import apply_session_new_history_reset
+from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import CompactionSettings, Settings, ShellSettings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.compaction_support import CompactAt, CompactionSupport
 from fast_agent.llm.model_database import ModelParameters
 from fast_agent.llm.model_factory import ModelConfig, ModelFactory
@@ -32,6 +36,10 @@ from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_
 from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.llm.usage_tracking import UsageAccumulator
+from fast_agent.mcp.prompt import Prompt
+from fast_agent.mcp.provider_management import ProviderManagedMCPAttachment, ProviderManagedMCPState
+from fast_agent.mcp_server_registry import ServerRegistry
+from fast_agent.ptc import PTC_BATCHING_INSTRUCTION, PTC_TOOL_NAME
 from fast_agent.session import SessionManager
 
 
@@ -416,6 +424,37 @@ async def test_model_status_shows_effective_compaction(
 
     [line] = [str(m.text) for m in outcome.messages if str(m.text).startswith("Compaction:")]
     assert line.startswith(f"Compaction: {expected}")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ("none", "off"))
+@pytest.mark.parametrize(
+    "model, expected",
+    [
+        ("inkling", ReasoningEffortSetting(kind="effort", value="minimal")),
+        ("hf.Qwen/Qwen3.8-27B", ReasoningEffortSetting(kind="toggle", value=False)),
+    ],
+)
+async def test_model_reasoning_hf_disable_reports_effective_setting(
+    value: str, model: str, expected: ReasoningEffortSetting
+) -> None:
+    settings = Settings()
+    agent = LlmAgent(AgentConfig(name="test"), context=Context(config=settings))
+    await agent.attach_llm(ModelFactory.create_factory(model))
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(agent),
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=settings,
+    )
+
+    outcome = await handle_model_reasoning(ctx, agent_name="test", value=value)
+
+    assert agent.llm is not None
+    assert agent.llm.reasoning_effort == expected
+    label = "disabled" if expected.kind == "toggle" else "effort=minimal"
+    assert any(label in str(message.text) for message in outcome.messages)
+    assert all(message.channel != "error" for message in outcome.messages)
 
 
 @pytest.mark.asyncio
@@ -861,39 +900,161 @@ async def test_model_web_search_rejects_invalid_value() -> None:
 
 
 @pytest.mark.asyncio
-async def test_model_switch_starts_new_session_before_setting_model(tmp_path: Path) -> None:
-    llm = _StubLLM("claude-haiku-4-5")
-    created_session_before_set_model = False
+async def test_model_switch_validates_before_session_boundary(tmp_path: Path) -> None:
+    manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
+    old_session = manager.create_session()
+    manager.set_current_session(old_session)
+    phases: list[tuple[str, bool]] = []
 
-    def record_session_boundary() -> None:
-        nonlocal created_session_before_set_model
-        created_session_before_set_model = ctx.resolve_session_manager().current_session is not None
+    class ObservedAgent(LlmAgent):
+        def _validate_llm_attachment(
+            self, llm: FastAgentLLMProtocol, *, for_new_session: bool = False
+        ) -> None:
+            super()._validate_llm_attachment(llm, for_new_session=for_new_session)
+            phases.append(("validate", manager.current_session is old_session))
 
-    agent = _StubAgent(llm, before_set_model=record_session_boundary)
-    provider = _StubAgentProvider(agent)
+        def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
+            super()._on_llm_attached(llm)
+            phases.append(("activate", manager.current_session is old_session))
+
+    source = "passthrough"
+    target = "playback"
+    agent = ObservedAgent(AgentConfig("test", model=source))
+    await agent.attach_llm(ModelFactory.create_factory(source))
+    phases.clear()
+    agent.load_message_history([Prompt.user("old conversation")])
     ctx = CommandContext(
-        agent_provider=provider,
+        agent_provider=_StubAgentProvider(agent),
         current_agent_name="test",
         io=_StubIO(),
-        settings=Settings(home=str(tmp_path / "fast-agent")),
-        session_manager=SessionManager(home_override=tmp_path / "fast-agent"),
+        session_manager=manager,
     )
+    try:
+        outcome = await handle_model_switch(ctx, agent_name="test", value=target)
+        assert phases == [("validate", True), ("activate", False)]
+        assert agent.config.model == target
+        assert not agent.message_history
+        assert manager.current_session is not old_session
+        assert any(str(m.text).startswith("Created session: ") for m in outcome.messages)
+        assert all(m.channel != "error" for m in outcome.messages)
+    finally:
+        await agent.shutdown()
+        manager.close()
 
-    outcome = await handle_model_switch(ctx, agent_name="test", value="gpt-4.1-mini")
 
-    assert created_session_before_set_model is True
-    assert agent.config.model == "gpt-4.1-mini"
-    assert llm.model_name == "gpt-4.1-mini"
-    assert ctx.resolve_session_manager().current_session is not None
-    assert any(
-        str(message.text) == "Model switch starts a new session to avoid mixing histories."
-        for message in outcome.messages
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("target", "error"),
+    [
+        ("$system.typo", "could not be resolved"),
+        ("codexresponses.gpt-6.2-astra?max_tokens=4096", "does not support max_tokens"),
+        ("anthropic.claude-sonnet-4-6", "Provider-managed connectors"),
+        ("responses.gpt-6.2-astra?ptc=on", "PTC currently supports local POSIX"),
+    ],
+)
+async def test_model_switch_rejection_keeps_existing_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str, error: str
+) -> None:
+    manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
+    old_session = manager.create_session()
+    manager.set_current_session(old_session)
+
+    source = "responses.gpt-6.2-astra?ptc=off"
+    agent = McpAgent(
+        AgentConfig("test", model=source, api_key="dummy-source-key", servers=[], skills=[]),
+        context=Context(config=Settings(), server_registry=ServerRegistry()),
     )
-    assert any(str(message.text).startswith("Created session: ") for message in outcome.messages)
-    assert any(
-        str(message.text) == "Model: switched from claude-haiku-4-5 to gpt-4.1-mini."
-        for message in outcome.messages
+    monkeypatch.setattr(agent, "_ptc_environment_supported", lambda: False)
+    agent._provider_managed_mcp_state = ProviderManagedMCPState(
+        attachments=(
+            ProviderManagedMCPAttachment(
+                server_name="connector", server_description=None, connector_id="connector_gmail"
+            ),
+        )
     )
+    old_llm = await agent.attach_llm(
+        ModelFactory.create_factory(source),
+        api_key="dummy-source-key",
+        request_params=RequestParams(max_iterations=7),
+    )
+    agent.restore_ptc(False)
+    agent.load_message_history([Prompt.user("keep this")])
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(agent),
+        current_agent_name="test",
+        io=_StubIO(),
+        session_manager=manager,
+    )
+    try:
+        outcome = await handle_model_switch(ctx, agent_name="test", value=target)
+        assert any(m.channel == "error" and error in str(m.text) for m in outcome.messages)
+        assert manager.current_session is old_session
+        assert agent.llm is old_llm
+        assert agent.config.model == source
+        assert agent.config.api_key == "dummy-source-key"
+        assert not agent.ptc_enabled
+        assert [m.last_text() for m in agent.message_history] == ["keep this"]
+        clone = await agent.spawn_isolated_instance()
+        try:
+            assert clone.llm is not None
+            assert clone.provider is Provider.RESPONSES
+            assert clone.llm.get_request_params().max_iterations == 7
+        finally:
+            await clone.shutdown()
+    finally:
+        await agent.shutdown()
+        manager.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("saved_ptc", [True, False])
+async def test_model_switch_discards_resumed_ptc_setting(saved_ptc: bool) -> None:
+    agent = McpAgent(
+        AgentConfig("test", model="passthrough", servers=[], skills=[]),
+        context=Context(config=Settings()),
+    )
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(agent),
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+        no_home=True,
+    )
+    try:
+        agent.restore_ptc(saved_ptc)
+        await agent.attach_llm(ModelFactory.create_factory("passthrough"))
+        agent.set_external_runtime(None)
+        assert agent.ptc_enabled is saved_ptc
+
+        model = f"passthrough?ptc={'off' if saved_ptc else 'on'}"
+        await handle_model_switch(ctx, agent_name="test", value=model)
+
+        assert agent.config.model == model
+        tools = {tool.name for tool in (await agent.list_tools()).tools}
+        assert (PTC_TOOL_NAME in tools) is (not saved_ptc)
+        assert (PTC_BATCHING_INSTRUCTION in agent.instruction) is (not saved_ptc)
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_new_session_refreshes_prompt_after_resumed_ptc(tmp_path: Path) -> None:
+    agent = McpAgent(AgentConfig("test", skills=[]), context=Context(config=Settings()))
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(agent),
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(home=str(tmp_path)),
+    )
+    try:
+        agent.restore_ptc(True)
+        await agent.attach_llm(ModelFactory.create_factory("passthrough?ptc=off"))
+        assert PTC_BATCHING_INSTRUCTION in agent.instruction
+        await apply_session_new_history_reset(ctx, CommandOutcome())
+        assert PTC_BATCHING_INSTRUCTION not in agent.instruction
+        assert PTC_TOOL_NAME not in {tool.name for tool in (await agent.list_tools()).tools}
+    finally:
+        await agent.shutdown()
 
 
 @pytest.mark.asyncio
