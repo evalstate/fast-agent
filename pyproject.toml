@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.10.64"
+version = "0.10.65"
 description = "Code, Build and Evaluate agents - excellent Model and Skills/MCP/ACP/A2A Support"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -14,13 +14,13 @@ classifiers = [
 ]
 requires-python = ">=3.12,<3.16"
 dependencies = [
-    "fastmcp-slim[server]==4.2.0",
+    "fastmcp-slim[server]==4.2.4",
     "mcp==2.3.0",
     "mcp-types==2.3.0",
     "pydantic-settings==2.16.3",
-    "pydantic==2.14.3",
+    "pydantic==2.14.4",
     "pydantic-monty==1.6.0",
-    "pyyaml==6.0.3",
+    "pyyaml==6.0.4",
     "rich==15.0.0",
     "typer==0.29.1",
     # SDK 2.x changes sampling/auth/Vertex contracts; see docs/dependency-review-2026-11-17.md.
