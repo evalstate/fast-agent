@@ -1,5 +1,6 @@
 """Only model direct calls are constrained by the code-only PTC surface."""
 
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -36,8 +37,8 @@ from fast_agent.types import PromptMessageExtended
 
 def _recording_server(record: Path) -> MCPServerSettings:
     return MCPServerSettings(
-        command="uv",
-        args=["run", str(Path(__file__).parent / "fixtures" / "recording_server.py"), str(record)],
+        command=sys.executable,
+        args=[str(Path(__file__).parent / "fixtures" / "recording_server.py"), str(record)],
     )
 
 
