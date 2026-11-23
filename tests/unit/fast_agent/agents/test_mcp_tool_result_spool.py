@@ -15,15 +15,18 @@ from mcp_types import (
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.config import ProgrammaticToolCallingSettings, Settings
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp import tool_result_spool
 from fast_agent.mcp.mcp_aggregator import NamespacedTool
+from fast_agent.ptc import PTC_TOOL_NAME
 from fast_agent.tools.local_shell_executor import LocalEnvironment
 from fast_agent.types import PromptMessageExtended
 
 _BYTE_LIMIT = 200
 _PATH_PATTERN = re.compile(r"available during this session at (\S+?\.(?:json|txt))\.")
+_STORE_KEY_PATTERN = re.compile(r"under key '(truncated_output_\d+)'")
 
 
 def _agent(tmp_path: Path, *, shell: bool, result: CallToolResult) -> McpAgent:
@@ -182,3 +185,218 @@ async def test_oversized_file_read_is_paged_at_a_line_boundary(tmp_path: Path) -
     assert "showing lines 23-44 of 23-52" in second
 
     await agent.shutdown()
+
+
+def _ptc_agent(
+    tmp_path: Path,
+    *,
+    shell: bool = False,
+    output_byte_limit: int = 256,
+    direct_tools: list[str] | None = None,
+    result: CallToolResult | None = None,
+) -> McpAgent:
+    config = AgentConfig(
+        name="ptc-test", instruction="Instruction", servers=[], shell=shell, cwd=tmp_path
+    )
+    environment = (
+        LocalEnvironment(logger=get_logger(__name__), working_directory=tmp_path) if shell else None
+    )
+    settings = Settings(
+        ptc=ProgrammaticToolCallingSettings(
+            enabled=True,
+            output_byte_limit=output_byte_limit,
+            direct_tools=direct_tools or [],
+        )
+    )
+    agent = McpAgent(config=config, context=Context(config=settings), shell_environment=environment)
+    if result is not None:
+        tool = Tool(name="lookup", input_schema={"type": "object"})
+        namespaced = NamespacedTool(
+            tool=tool, server_name="demo", namespaced_tool_name="demo__lookup"
+        )
+        agent._aggregator._namespaced_tool_map = {namespaced.namespaced_tool_name: namespaced}
+        agent._aggregator._server_to_tool_map = {namespaced.server_name: [namespaced]}
+
+        async def fake_list_tools() -> ListToolsResult:
+            return ListToolsResult(
+                tools=[tool.model_copy(update={"name": namespaced.namespaced_tool_name})]
+            )
+
+        async def fake_call_tool(name: str, *args: object, **kwargs: object) -> CallToolResult:
+            del name, args, kwargs
+            return result
+
+        async def fake_get_app_integration_config(server_name: str) -> None:
+            del server_name
+
+        agent._aggregator.list_tools = cast("Any", fake_list_tools)
+        agent._aggregator.call_tool = cast("Any", fake_call_tool)
+        agent._aggregator.get_app_integration_config = cast("Any", fake_get_app_integration_config)
+        agent._model_tool_output_byte_limit = cast("Any", lambda _llm=None: output_byte_limit)
+    return agent
+
+
+async def _run_tool(agent: McpAgent, name: str, arguments: dict[str, Any]) -> CallToolResult:
+    request = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        tool_calls={
+            "call-1": CallToolRequest(params=CallToolRequestParams(name=name, arguments=arguments))
+        },
+    )
+    response = await agent.run_tools(request)
+    assert response.tool_results is not None
+    return response.tool_results["call-1"]
+
+
+@pytest.mark.asyncio
+async def test_ptc_without_shell_retains_oversized_output_in_sandbox_store(tmp_path: Path) -> None:
+    pytest.importorskip("pydantic_monty")
+    agent = _ptc_agent(tmp_path, shell=False, output_byte_limit=256)
+    try:
+        await agent.list_tools()
+        first = await _run_tool(
+            agent,
+            PTC_TOOL_NAME,
+            {"code": ("print('HEAD-' * 40)\nprint('SECRET_MIDDLE_TOKEN_42')\nprint('TAIL-' * 40)")},
+        )
+        assert not first.is_error
+        assert isinstance(first.content[0], TextContent)
+        text = first.content[0].text
+        assert "[Tool result truncated:" in text
+        assert "SECRET_MIDDLE_TOKEN_42" not in text
+        match = _STORE_KEY_PATTERN.search(text)
+        assert match is not None
+        key = match.group(1)
+
+        recovered = await _run_tool(
+            agent,
+            PTC_TOOL_NAME,
+            {
+                "code": (
+                    f"text = await load({key!r})\n"
+                    "print([line for line in text.splitlines() if 'SECRET_MIDDLE' in line])"
+                )
+            },
+        )
+        assert not recovered.is_error
+        assert isinstance(recovered.content[0], TextContent)
+        assert "SECRET_MIDDLE_TOKEN_42" in recovered.content[0].text
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_ptc_without_shell_preserves_is_error_and_retains_oversized_failure(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("pydantic_monty")
+    agent = _ptc_agent(tmp_path, shell=False, output_byte_limit=256)
+    try:
+        await agent.list_tools()
+        failed = await _run_tool(
+            agent,
+            PTC_TOOL_NAME,
+            {
+                "code": (
+                    "print('BEFORE-' * 40)\n"
+                    "print('HIDDEN_DIAGNOSTIC_99')\n"
+                    "print('AFTER-' * 40)\n"
+                    "raise RuntimeError('boom')"
+                )
+            },
+        )
+        assert failed.is_error
+        assert isinstance(failed.content[0], TextContent)
+        text = failed.content[0].text
+        assert "[Tool result truncated:" in text
+        match = _STORE_KEY_PATTERN.search(text)
+        assert match is not None
+
+        recovered = await _run_tool(
+            agent,
+            PTC_TOOL_NAME,
+            {
+                "code": (
+                    f"text = await load({match.group(1)!r})\nprint('HIDDEN_DIAGNOSTIC_99' in text)"
+                )
+            },
+        )
+        assert not recovered.is_error
+        assert isinstance(recovered.content[0], TextContent)
+        assert "True" in recovered.content[0].text
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_ptc_without_shell_retains_direct_structured_tool_result_in_store(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("pydantic_monty")
+    result = _structured_result()
+    agent = _ptc_agent(
+        tmp_path,
+        shell=False,
+        output_byte_limit=256,
+        direct_tools=["demo__lookup"],
+        result=result,
+    )
+    try:
+        await agent.list_tools()
+        direct = await _run_tool(agent, "demo__lookup", {})
+        assert not direct.is_error
+        assert isinstance(direct.content[0], TextContent)
+        text = direct.content[0].text
+        assert "[Tool result truncated:" in text
+        match = _STORE_KEY_PATTERN.search(text)
+        assert match is not None
+
+        recovered = await _run_tool(
+            agent,
+            PTC_TOOL_NAME,
+            {"code": f"data = await load({match.group(1)!r})\nprint(len(data['entries']))"},
+        )
+        assert not recovered.is_error
+        assert isinstance(recovered.content[0], TextContent)
+        assert "50" in recovered.content[0].text
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_ptc_without_shell_falls_back_to_generic_guidance_when_store_is_full(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("pydantic_monty")
+    monkeypatch.setattr("fast_agent.ptc.store.MAX_STORE_BYTES", 100)
+    agent = _ptc_agent(tmp_path, shell=False, output_byte_limit=256)
+    try:
+        await agent.list_tools()
+        res = await _run_tool(agent, PTC_TOOL_NAME, {"code": "print('x' * 500)"})
+        assert not res.is_error
+        assert isinstance(res.content[0], TextContent)
+        text = res.content[0].text
+        assert "[Tool result truncated:" in text
+        assert "Use a narrower query" in text
+        assert _STORE_KEY_PATTERN.search(text) is None
+    finally:
+        await agent.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_ptc_with_shell_prefers_spool_file_over_sandbox_store(tmp_path: Path) -> None:
+    pytest.importorskip("pydantic_monty")
+    agent = _ptc_agent(tmp_path, shell=True, output_byte_limit=256)
+    try:
+        await agent.list_tools()
+        res = await _run_tool(agent, PTC_TOOL_NAME, {"code": "print('x' * 500)"})
+        assert not res.is_error
+        assert isinstance(res.content[0], TextContent)
+        text = res.content[0].text
+        assert _PATH_PATTERN.search(text) is not None
+        assert _STORE_KEY_PATTERN.search(text) is None
+        assert agent.ptc_store is not None
+        assert len(agent.ptc_store) == 0
+    finally:
+        await agent.shutdown()

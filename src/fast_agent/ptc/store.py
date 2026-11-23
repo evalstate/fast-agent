@@ -30,6 +30,9 @@ async def stored() -> dict[str, int]:
     ...
 """
 MAX_STORE_BYTES = 64 * 1024 * 1024
+AUTO_RETAINED_PREFIX = "truncated_output_"
+AUTO_RETAINED_MAX_BYTES = 2 * 1024 * 1024
+AUTO_RETAINED_MAX_ENTRIES = 8
 _MAX_KEY_LENGTH = 200
 _STATE_VERSION = 1
 # Tags for values JSON cannot represent directly. A dict whose keys are all strings and do not
@@ -50,6 +53,7 @@ class SandboxStore:
 
     def __init__(self) -> None:
         self._values: dict[str, str] = {}
+        self._auto_keys: set[str] = set()
         self._size = 0
         # Bumped on every change, so savers can skip writing an unchanged store.
         self.revision = 0
@@ -61,15 +65,21 @@ class SandboxStore:
         return {"store": self._store, "load": self._load, "stored": self._stored}
 
     def clear(self) -> None:
-        if self._values:
+        if self._values or self._auto_keys:
             self._values.clear()
+            self._auto_keys.clear()
             self._size = 0
             self.revision += 1
 
     def to_state(self) -> str:
         """Serialize the store as a JSON document for session persistence."""
         values = ",".join(f"{json.dumps(key)}:{encoded}" for key, encoded in self._values.items())
-        return f'{{"version":{_STATE_VERSION},"values":{{{values}}}}}'
+        auto_part = (
+            f',"auto_keys":{json.dumps(sorted(self._auto_keys), ensure_ascii=False, separators=(",", ":"))}'
+            if self._auto_keys
+            else ""
+        )
+        return f'{{"version":{_STATE_VERSION},"values":{{{values}}}{auto_part}}}'
 
     def restore(self, state: str) -> None:
         """Replace the contents with a document written by ``to_state``."""
@@ -80,7 +90,13 @@ class SandboxStore:
         if not isinstance(values, Mapping):
             raise ValueError("sandbox store document has no values")
         self._values = {str(key): _dumps(value) for key, value in values.items()}
-        self._size = sum(len(key) + len(value) for key, value in self._values.items())
+        raw_auto = document.get("auto_keys", ())
+        self._auto_keys = (
+            {key for key in raw_auto if isinstance(key, str) and key in self._values}
+            if isinstance(raw_auto, list)
+            else set()
+        )
+        self._size = sum(_entry_bytes(key, value) for key, value in self._values.items())
         self.revision += 1
 
     async def _store(self, key: Any = _MISSING, value: Any = _MISSING) -> None:
@@ -89,14 +105,15 @@ class SandboxStore:
         _check_key(key)
         encoded = _dumps(_encode(value))
         previous = self._values.get(key)
-        size = self._size - (len(key) + len(previous) if previous is not None else 0)
-        size += len(key) + len(encoded)
+        size = self._size - (_entry_bytes(key, previous) if previous is not None else 0)
+        size += _entry_bytes(key, encoded)
         if size > MAX_STORE_BYTES:
             raise ValueError(
                 f"store(): {key!r} would bring the store to {size} bytes, over its "
                 f"{MAX_STORE_BYTES // (1024 * 1024)} MB limit; keep large data in files instead"
             )
         self._values[key] = encoded
+        self._auto_keys.discard(key)
         self._size = size
         self.revision += 1
 
@@ -112,8 +129,86 @@ class SandboxStore:
             raise KeyError(f"{key!r} was not stored; stored keys: {kept}")
         return _decode(json.loads(encoded))
 
+    def retain_output(
+        self,
+        value: Any,
+        *,
+        max_bytes: int = AUTO_RETAINED_MAX_BYTES,
+        max_entries: int = AUTO_RETAINED_MAX_ENTRIES,
+    ) -> str | None:
+        """Keep an auto-retained tool output under a monotonic key with bounded retention.
+
+        Returns the assigned key, or ``None`` if the encoded value exceeds ``max_bytes`` or
+        cannot fit within ``MAX_STORE_BYTES`` even after evicting older auto-retained entries.
+        Never evicts keys stored by sandbox code.
+        """
+        if max_entries <= 0 or max_bytes <= 0:
+            return None
+        encoded = _dumps(_encode(value))
+        if _utf8_len(encoded) > max_bytes:
+            return None
+
+        all_prefixed = [
+            index
+            for existing_key in self._values
+            if (index := _auto_retained_index(existing_key)) is not None
+        ]
+        next_index = (max(all_prefixed) + 1) if all_prefixed else 1
+        key = f"{AUTO_RETAINED_PREFIX}{next_index}"
+
+        auto_keys = sorted(
+            (index, existing_key)
+            for existing_key in self._auto_keys
+            if existing_key in self._values
+            and (index := _auto_retained_index(existing_key)) is not None
+        )
+
+        evict: list[str] = []
+        projected_size = self._size
+        overflow_count = max(0, len(auto_keys) - max_entries + 1)
+        for _, old_key in auto_keys[:overflow_count]:
+            evict.append(old_key)
+            projected_size -= _entry_bytes(old_key, self._values[old_key])
+
+        entry_size = _entry_bytes(key, encoded)
+        for _, old_key in auto_keys[overflow_count:]:
+            if projected_size + entry_size <= MAX_STORE_BYTES:
+                break
+            evict.append(old_key)
+            projected_size -= _entry_bytes(old_key, self._values[old_key])
+
+        if projected_size + entry_size > MAX_STORE_BYTES:
+            return None
+
+        for old_key in evict:
+            self._values.pop(old_key)
+            self._auto_keys.discard(old_key)
+        self._values[key] = encoded
+        self._auto_keys.add(key)
+        self._size = projected_size + entry_size
+        self.revision += 1
+        return key
+
     async def _stored(self) -> dict[str, int]:
-        return {key: len(encoded) for key, encoded in self._values.items()}
+        return {key: _utf8_len(encoded) for key, encoded in self._values.items()}
+
+
+def _auto_retained_index(key: str) -> int | None:
+    if not key.startswith(AUTO_RETAINED_PREFIX):
+        return None
+    suffix = key[len(AUTO_RETAINED_PREFIX) :]
+    if not suffix or not suffix.isascii() or not suffix.isdigit():
+        return None
+    index = int(suffix)
+    return index if index > 0 else None
+
+
+def _utf8_len(text: str) -> int:
+    return len(text.encode("utf-8"))
+
+
+def _entry_bytes(key: str, encoded: str) -> int:
+    return _utf8_len(key) + _utf8_len(encoded)
 
 
 def _dumps(value: Any) -> str:

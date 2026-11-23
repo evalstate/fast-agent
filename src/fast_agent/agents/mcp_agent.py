@@ -108,7 +108,7 @@ from fast_agent.mcp.tool_result_metadata import (
     ToolResultDisplayMetadata,
     tool_result_display_metadata,
 )
-from fast_agent.mcp.tool_result_spool import spool_tool_result
+from fast_agent.mcp.tool_result_spool import spool_tool_result, store_tool_result
 from fast_agent.mcp.tool_result_truncation import (
     bound_tool_result_for_llm,
     page_read_text_file_result,
@@ -3023,13 +3023,29 @@ class McpAgent(ABC, ToolAgent):
         result: CallToolResult,
     ) -> str | None:
         store = self.transient_artifact_store()
-        if store is None:
+        if store is not None:
+            try:
+                return await spool_tool_result(store, result, tool_name=call.display_tool_name)
+            except Exception as exc:
+                self.logger.warning(
+                    "Failed to retain full tool result",
+                    data={"tool_name": call.display_tool_name, "error": str(exc)},
+                )
+                return None
+
+        ptc_runtime = self._programmatic_tool_runtime()
+        if ptc_runtime is None:
             return None
         try:
-            return await spool_tool_result(store, result, tool_name=call.display_tool_name)
+            return store_tool_result(
+                ptc_runtime.store,
+                result,
+                tool_name=call.display_tool_name,
+                ptc_tool_name=ptc_runtime.tool_name,
+            )
         except Exception as exc:
             self.logger.warning(
-                "Failed to retain full tool result",
+                "Failed to retain full tool result in PTC store",
                 data={"tool_name": call.display_tool_name, "error": str(exc)},
             )
             return None
