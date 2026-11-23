@@ -144,7 +144,7 @@ def test_update_alt_screen_state_tracks_enter_and_exit_sequences() -> None:
 @pytest.mark.skipif(sys.platform == "win32", reason="PTYs are unavailable on Windows")
 @pytest.mark.parametrize(
     ("restore_scroll_region", "expected"),
-    [(False, None), (True, b"\x1b[r")],
+    [(False, None), (True, b"\x1b7\x1b[r\x1b8")],
 )
 def test_run_interactive_shell_restores_requested_scroll_region(
     restore_scroll_region: bool,
