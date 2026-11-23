@@ -702,3 +702,16 @@ async def test_herdr_guidance_honors_runtime_no_shell_override() -> None:
     await apply_instruction_context([agent], {"herdrInstructions": "hc --skill"})
 
     assert "hc --skill" not in agent.instruction
+
+
+@pytest.mark.asyncio
+async def test_noninteractive_placeholder_defaults_empty_and_accepts_context() -> None:
+    from fast_agent.constants import NONINTERACTIVE_ENVIRONMENT_INSTRUCTION
+
+    assert await build_instruction("Before{{env:noninteractive}}After") == "BeforeAfter"
+    resolved = await build_instruction(
+        DEFAULT_AGENT_INSTRUCTION,
+        context={"env:noninteractive": NONINTERACTIVE_ENVIRONMENT_INSTRUCTION},
+    )
+    assert NONINTERACTIVE_ENVIRONMENT_INSTRUCTION in resolved
+    assert "{{env:noninteractive}}" not in resolved

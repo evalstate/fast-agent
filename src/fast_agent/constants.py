@@ -153,12 +153,20 @@ MAX_TERMINAL_OUTPUT_BYTE_LIMIT = int(MAX_TERMINAL_OUTPUT_TOKEN_LIMIT * TERMINAL_
 MAX_MANAGED_SHELL_PROCESSES = 32
 """Maximum number of retained managed shell process records per runtime."""
 
+NONINTERACTIVE_ENVIRONMENT_INSTRUCTION = (
+    "You are running in non-interactive mode with no user available for follow-up "
+    "questions. Complete the task to the best of your ability, making reasonable "
+    "choices where anything is unspecified and documenting your assumptions in your "
+    "final response."
+)
+
 DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 
 {{serverInstructions}}
 {{agentSkills}}
 {{file_silent:AGENTS.md}}
 {{env}}
+{{env:noninteractive}}
 {{herdrInstructions}}
 
 Mermaid diagrams between code fences are supported.
