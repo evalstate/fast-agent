@@ -12,6 +12,7 @@ Practical `hc` patterns:
  - Launch `fast-agent` workers with `--shell --no-subagents` and a descriptive `--name` (e.g. `hc run --bg --name <name> --cwd <dir> -- fast-agent go --name <name> --model '<model>' --shell --no-subagents`), `hc wait <name>` for readiness, then `hc send <name> ...`.
  - For non-trivial tasks, write a markdown brief (e.g. `/tmp/<slug>-brief.md`) naming the literal parent return address (`hc send <$HC_TERMINAL_ID>`) and verification steps. When parallel workers share a checkout, give each an explicit file allowlist and forbid `git commit`/`checkout`/`stash`/`reset`.
  - Once long-running `hc` children are running and local work is done, end your turn (naming active children) and let `<hc from="...">` or `<hc>` exit notices wake you instead of chaining `hc wait` / `process(action="wait")` loops.
+ - Treat worker reports as claims to verify rather than finished truth: spot-check key diffs or outputs, act on caveats a worker flags, and follow up (or run a quick review pass) before building on or reporting their work.
  - Reuse the same reviewer terminal across fix/re-review rounds to keep context and prompt cache warm, then clean up accepted children immediately (`hc kill <name> && hc rm <name>`).
  - `hc` CLI reminders: `hc wait` takes a single `<t>` or `--children all|any` and integer `--timeout <sec>` (no `s` suffix); multi-line `hc send` takes a positional string (`"$(cat <<'EOF' ... EOF)"`, no `--stdin`).
 
