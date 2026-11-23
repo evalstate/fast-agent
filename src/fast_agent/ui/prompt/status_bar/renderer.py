@@ -35,7 +35,13 @@ from fast_agent.core.cache_warmer import CacheWarmer
 from fast_agent.core.cache_warmer import format_status_summary as format_warm_summary
 from fast_agent.core.cache_warmer import status_level as warm_status_level
 from fast_agent.history.turns import total_user_turns
-from fast_agent.integrations.hc_children import current_hc_attachments, format_status_summary
+from fast_agent.integrations.hc_children import (
+    HcAttachments,
+    current_hc_attachments,
+    format_hc_elapsed,
+    format_status_summary,
+    hc_waiting_since,
+)
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -237,23 +243,32 @@ def render_input_toolbar(
         shortcut_text,
         attachment_summary=attachment_summary.summary,
     )
+    hc_attachments = current_hc_attachments()
+    warm_segment = _build_warm_segment(agent_provider, agent_name)
     notification_segment = (
-        _build_hc_segment()
-        + _build_warm_segment(agent_provider, agent_name)
-        + _build_notification_segment()
+        _build_hc_services_segment(hc_attachments) + warm_segment + _build_notification_segment()
     )
     copy_notice_segment = _build_copy_notice_segment(
         copy_notice,
         copy_notice_until,
         mode.style,
     )
+    agent_identity_segment = _with_hc_waiting_badge(
+        agent_identity_segment,
+        hc_attachments,
+        middle=middle,
+        mode=mode,
+        suffix_width=_toolbar_markup_width(f"{notification_segment}{copy_notice_segment.html}"),
+    )
+    # Keep the version visible on startup, but yield its space once cache warmth is shown.
+    version_segment = "" if warm_segment else f"fast-agent {app_version}"
     toolbar_identity_segment = _resolve_toolbar_identity_segment(
         shell_state=shell_state,
         middle=middle,
         agent_identity_segment=agent_identity_segment,
         mode_style=mode.style,
         mode_text=mode.text,
-        version_segment=f"fast-agent {app_version}",
+        version_segment=version_segment,
         notification_segment=notification_segment,
         copy_notice_segment=copy_notice_segment.html,
         shell_path_switch_delay_seconds=shell_path_switch_delay_seconds,
@@ -792,12 +807,58 @@ def _build_middle_segment(
     return " | ".join(middle_segments)
 
 
-def _build_hc_segment() -> str:
-    """Children that will wake this session, and services it still owns."""
-    summary = format_status_summary(current_hc_attachments(), 0)
-    if summary is None:
+def _build_hc_services_segment(attachments: HcAttachments) -> str:
+    """Services this session still owns, when no child will wake it (that is the badge)."""
+    if attachments.resuming or not attachments.services:
         return ""
-    return f" | {_toolbar_style_segment(f'hc: {summary}', foreground='ansiyellow')}"
+    summary = format_status_summary(attachments, 0)
+    # bottom-toolbar renders with reverse video, so fg=black/bg=cyan is quiet cyan text.
+    return f" | {_toolbar_style_segment(f'hc: {summary}', foreground='ansiblack', background='ansicyan')}"
+
+
+def _hc_waiting_badge(attachments: HcAttachments, *, compact: bool) -> str:
+    """Who will wake this idle session, and for how long it has waited."""
+    resuming = attachments.resuming
+    if not resuming:
+        return ""
+    if compact:
+        label = f"⧗ {len(resuming)}"
+    else:
+        names = ", ".join(child.name or child.address for child in resuming[:2])
+        more = f" +{len(resuming) - 2}" if len(resuming) > 2 else ""
+        label = f"⧗ {names}{more}"
+    waiting_since = hc_waiting_since()
+    if waiting_since is not None and (
+        elapsed := format_hc_elapsed(time.monotonic() - waiting_since)
+    ):
+        label = f"{label} · {elapsed}"
+    # bottom-toolbar renders with reverse video, so fg=cyan/bg=black is a crisp cyan pill.
+    return _toolbar_style_segment(label, foreground="ansicyan", background="ansiblack", padded=True)
+
+
+def _with_hc_waiting_badge(
+    agent_identity_segment: str,
+    attachments: HcAttachments,
+    *,
+    middle: str,
+    mode: ToolbarMode,
+    suffix_width: int,
+) -> str:
+    """Place the waiting badge on the left, where narrow panes do not clip it."""
+    badge = _hc_waiting_badge(attachments, compact=False)
+    if not badge:
+        return agent_identity_segment
+    joined = f"{agent_identity_segment} {badge}" if agent_identity_segment else badge
+    prefix = _format_toolbar_prefix(
+        agent_identity_segment=joined,
+        middle=middle,
+        mode_style=mode.style,
+        mode_text=mode.text,
+    )
+    if _toolbar_markup_width(prefix) + suffix_width > _resolve_toolbar_width():
+        badge = _hc_waiting_badge(attachments, compact=True)
+        joined = f"{agent_identity_segment} {badge}" if agent_identity_segment else badge
+    return joined
 
 
 _WARM_COLOURS = {"ok": "ansigreen", "warning": "ansiyellow", "error": "ansired"}
@@ -863,13 +924,6 @@ def _resolve_toolbar_identity_segment(
     copy_notice_segment: str,
     shell_path_switch_delay_seconds: float,
 ) -> ToolbarIdentitySegment:
-    if not shell_state.enabled:
-        return ToolbarIdentitySegment(
-            html=version_segment,
-            show_shell_path_segment=shell_state.show_path_segment,
-        )
-
-    working_dir = shell_state.working_dir or Path.cwd()
     left_prefix = _format_toolbar_prefix(
         agent_identity_segment=agent_identity_segment,
         middle=middle,
@@ -882,9 +936,25 @@ def _resolve_toolbar_identity_segment(
         - _toolbar_markup_width(left_prefix)
         - _toolbar_markup_width(right_suffix)
     )
-    if _can_fit_shell_path_and_version(working_dir, version_segment, available_width):
+    # Narrow split panes drop the version rather than clip the toolbar.
+    fitted_version = version_segment if available_width >= len(version_segment) else ""
+    if not shell_state.enabled:
+        return ToolbarIdentitySegment(
+            html=fitted_version,
+            show_shell_path_segment=shell_state.show_path_segment,
+        )
+
+    working_dir = shell_state.working_dir or Path.cwd()
+    if version_segment and _can_fit_shell_path_and_version(
+        working_dir, version_segment, available_width
+    ):
         return ToolbarIdentitySegment(
             html=_fit_shell_identity_for_toolbar(working_dir, version_segment, available_width),
+            show_shell_path_segment=True,
+        )
+    if not version_segment:
+        return ToolbarIdentitySegment(
+            html=_fit_shell_path_for_toolbar(working_dir, available_width),
             show_shell_path_segment=True,
         )
 
@@ -899,7 +969,7 @@ def _resolve_toolbar_identity_segment(
             html=_fit_shell_path_for_toolbar(working_dir, available_width),
             show_shell_path_segment=True,
         )
-    return ToolbarIdentitySegment(html=version_segment, show_shell_path_segment=False)
+    return ToolbarIdentitySegment(html=fitted_version, show_shell_path_segment=False)
 
 
 def _format_toolbar_prefix(
@@ -925,6 +995,9 @@ def _build_toolbar_html(
     notification_segment: str,
     copy_notice_segment: str,
 ) -> HTML:
+    suffix = f"{notification_segment}{copy_notice_segment}"
+    if not toolbar_identity_segment and suffix.startswith(" | "):
+        suffix = suffix[3:]
     return HTML(
         (
             _format_toolbar_prefix(
@@ -933,6 +1006,6 @@ def _build_toolbar_html(
                 mode_style=mode_style,
                 mode_text=mode_text,
             )
-            + f"{toolbar_identity_segment}{notification_segment}{copy_notice_segment}"
+            + f"{toolbar_identity_segment}{suffix}"
         )
     )

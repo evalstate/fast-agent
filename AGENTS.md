@@ -1,10 +1,20 @@
 <!-- fast-agent-subagents -->
 
 
-Feel free to use herdr-core to delegate out task work. Good models for this are:
- - codexresponses.gpt-6.2-astra?reasoning=high ; strong openai model excellent for reviews and coordination and second opinions
+When running inside herdr-core (`$HC_TERMINAL_ID` set), prefer `hc` over the built-in `subagent` tool for delegated implementation, code review, multi-round iteration, parallel file-disjoint workers, cross-repo tasks, and long-running jobs. Reserve `subagent` for quick, strictly one-shot read-only lookups when you need an inline answer inside the current turn with no follow-up.
+
+Good models for delegated work:
+ - codexresponses.gpt-6.2-astra?reasoning=high ; strong openai model excellent for reviews, coordination, and second opinions. It tends to overcomplicate and hunt contrived edge cases on repeat passes: constrain it to favor simplicity/no extra abstractions, take real correctness/parity catches, and push back when fixes add complexity for synthetic inputs.
  - codexresponses.gpt-6.2-sol?reasoning=high ; excellent and efficient execution and analysis
  - copilot.claude-opus-5.5?reasoning=high ; excellent implementor and designer
+
+Practical `hc` patterns:
+ - Launch `fast-agent` workers with `--shell --no-subagents` and a descriptive `--name` (e.g. `hc run --bg --name <name> --cwd <dir> -- fast-agent go --name <name> --model '<model>' --shell --no-subagents`), `hc wait <name>` for readiness, then `hc send <name> ...`.
+ - For non-trivial tasks, write a markdown brief (e.g. `/tmp/<slug>-brief.md`) naming the literal parent return address (`hc send <$HC_TERMINAL_ID>`) and verification steps. When parallel workers share a checkout, give each an explicit file allowlist and forbid `git commit`/`checkout`/`stash`/`reset`.
+ - For multi-minute commands (builds, full test suites) as well as agent workers, launch via `hc run --bg` (tagging persistent servers `--label role=service` so they do not hold wait/warm state), finish local work, and end your turn naming active children—letting `<hc>` wake you and idle cache warming run instead of chaining `hc wait` / `process(action="wait")` loops.
+ - Treat worker reports as claims to verify rather than finished truth: spot-check key diffs or outputs, act on caveats a worker flags, and follow up (or run a quick review pass) before building on or reporting their work.
+ - Reuse the same reviewer terminal across fix/re-review rounds to keep context and prompt cache warm (`gpt-6.2-*` holds cache ~30–50m idle between rounds; 5m-TTL `claude-*` reviewers expire between slow fix rounds unless `/warm` is armed for an active loop), then clean up accepted children immediately (`hc kill <name> && hc rm <name>`).
+ - `hc` CLI reminders: `hc wait` takes a single `<t>` or `--children all|any` and integer `--timeout <sec>` (no `s` suffix); multi-line `hc send` takes a positional string (`"$(cat <<'EOF' ... EOF)"`, no `--stdin`).
 
 ## fast-agent contributor notes
 

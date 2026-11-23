@@ -15,6 +15,7 @@ from fast_agent.constants import (
     DEFAULT_HIGH_REASONING_STREAMING_TIMEOUT,
     REASONING,
 )
+from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.models import CopilotModelSpec, get_copilot_model
 from fast_agent.llm.provider.copilot.openai_client import create_openai_client
@@ -362,12 +363,11 @@ class CopilotChatCompletionsLLM(OpenAILLM):
             fitted_request
         )
         recovered_request.arguments = apply_policy(
-            recovered_request.arguments, spec, endpoint.headers
+            recovered_request.arguments,
+            spec,
+            endpoint.headers,
+            agent_initiated=preserve_agent_initiator or self.verb == ProgressAction.WARMING_CACHE,
         )
-        if preserve_agent_initiator:
-            extra_headers = dict(recovered_request.arguments.get("extra_headers") or {})
-            extra_headers["x-initiator"] = "agent"
-            recovered_request.arguments["extra_headers"] = extra_headers
         state = self._copilot_recovery_state.get()
         try:
             return await super()._run_openai_completion_request(recovered_request)

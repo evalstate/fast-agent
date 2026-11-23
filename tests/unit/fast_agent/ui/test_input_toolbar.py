@@ -1,9 +1,10 @@
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from prompt_toolkit.formatted_text import HTML, to_formatted_text
+from prompt_toolkit.formatted_text import HTML, fragment_list_to_text, to_formatted_text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -12,15 +13,18 @@ from fast_agent.core.agent_capabilities import (
     AgentCapabilityMode,
     cycle_agent_capability_mode,
 )
+from fast_agent.integrations.hc_children import HcAttachments, HcChild
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui import notification_tracker
 from fast_agent.ui.prompt.attachment_tokens import build_local_attachment_token
+from fast_agent.ui.prompt.status_bar import renderer
 from fast_agent.ui.prompt.status_bar.agent_capabilities import (
     render_agent_capability_indicator,
 )
 from fast_agent.ui.prompt.status_bar.attachment import DraftAttachmentSummary
 from fast_agent.ui.prompt.status_bar.renderer import (
     AttachmentResourceSnapshot,
+    ShellToolbarState,
     ToolbarAgentState,
     ToolbarRenderCache,
     _build_copy_notice_segment,
@@ -31,6 +35,7 @@ from fast_agent.ui.prompt.status_bar.renderer import (
     _resolve_toolbar_agent_state_cached,
     _should_resolve_attachment_summary,
     _snapshot_local_attachment_path,
+    render_input_toolbar,
 )
 
 if TYPE_CHECKING:
@@ -616,3 +621,98 @@ def test_toolbar_agent_state_deduplicates_parallel_child_models() -> None:
     )
 
     assert result.state.model_display == "haiku,sonnet"
+
+
+def _render_toolbar_text(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    width: int,
+    attachments: HcAttachments = HcAttachments(),
+    waited_seconds: float | None = None,
+) -> tuple[str, str]:
+    """The toolbar's markup and its visible text at a terminal width."""
+    monkeypatch.setattr(renderer, "_resolve_toolbar_width", lambda: width)
+    monkeypatch.setattr(renderer, "current_hc_attachments", lambda: attachments)
+    waiting_since = None if waited_seconds is None else time.monotonic() - waited_seconds
+    monkeypatch.setattr(renderer, "hc_waiting_since", lambda: waiting_since)
+    html = render_input_toolbar(
+        agent_name="dev",
+        show_agent_name=True,
+        toolbar_color="ansiblue",
+        agent_provider=None,
+        multiline_mode=False,
+        shell_state=ShellToolbarState(),
+        app_version="1.2.3",
+        copy_notice=None,
+        copy_notice_until=0.0,
+        shell_path_switch_delay_seconds=1.0,
+    ).html
+    return html.value, fragment_list_to_text(to_formatted_text(html))
+
+
+_WAITING = HcAttachments(
+    resuming=(HcChild("t2", "probe"), HcChild("t3"), HcChild("t4", "review")), services=1
+)
+# bottom-toolbar renders in reverse video: fg=cyan/bg=black is the cyan pill.
+_BADGE_STYLE = "<style fg='ansicyan' bg='ansiblack'>"
+
+
+def test_toolbar_badge_on_the_left_names_the_children_that_will_resume_the_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    markup, text = _render_toolbar_text(
+        monkeypatch, width=200, attachments=_WAITING, waited_seconds=130
+    )
+
+    assert f"{_BADGE_STYLE} ⧗ probe, t3 +1 · 2m </style>" in markup
+    assert text.index(" dev ") < text.index("⧗ probe") < text.index("NRM")
+    assert text.endswith("fast-agent 1.2.3")
+    # The badge already says it; services are not repeated on the right.
+    assert "service" not in text
+
+
+def test_toolbar_badge_compacts_and_drops_the_version_in_narrow_panes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    markup, text = _render_toolbar_text(
+        monkeypatch, width=30, attachments=_WAITING, waited_seconds=30
+    )
+
+    assert f"{_BADGE_STYLE} ⧗ 3 </style>" in markup
+    assert "probe" not in text and "fast-agent" not in text
+
+
+def test_toolbar_drops_the_version_rather_than_overflow_a_narrow_pane(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, wide = _render_toolbar_text(monkeypatch, width=80)
+    _, narrow = _render_toolbar_text(monkeypatch, width=len(wide) - 1)
+
+    assert wide.endswith("fast-agent 1.2.3")
+    assert "fast-agent" not in narrow
+
+
+def test_toolbar_drops_version_when_cache_warmth_is_displayed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        renderer,
+        "_build_warm_segment",
+        lambda *_args: " | <style fg='ansigreen' bg='ansiblack'>warm ✓ 10/10</style>",
+    )
+    _, text = _render_toolbar_text(monkeypatch, width=200)
+
+    assert "warm ✓ 10/10" in text
+    assert "fast-agent" not in text
+    assert "|  |" not in text
+
+
+def test_toolbar_services_alone_are_quiet_text_not_a_badge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    markup, text = _render_toolbar_text(
+        monkeypatch, width=200, attachments=HcAttachments(services=1)
+    )
+
+    assert " | <style fg='ansiblack' bg='ansicyan'>hc: 1 service</style>" in markup
+    assert "⧗" not in text and _BADGE_STYLE not in markup

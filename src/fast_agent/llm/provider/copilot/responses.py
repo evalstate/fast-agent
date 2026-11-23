@@ -6,6 +6,7 @@ from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.prompt_cache import (
     OPENAI_MINIMUM_CACHE_TTL_SECONDS,
@@ -202,7 +203,10 @@ class CopilotResponsesLLM(ResponsesLLM):
             context.ws_headers = merge_headers_case_insensitive(
                 extra_headers,
                 self._build_websocket_headers(),
-                request_headers(context.arguments.get("input")),
+                request_headers(
+                    context.arguments.get("input"),
+                    agent_initiated=self.verb == ProgressAction.WARMING_CACHE,
+                ),
             )
         return await super()._acquire_responses_ws_attempt(attempt=attempt, context=context)
 
@@ -288,4 +292,9 @@ class CopilotResponsesLLM(ResponsesLLM):
     ) -> dict:
         arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
         endpoint = self._copilot_endpoint.get()
-        return apply_policy(arguments, get_copilot_model(endpoint.model_id), endpoint.headers)
+        return apply_policy(
+            arguments,
+            get_copilot_model(endpoint.model_id),
+            endpoint.headers,
+            agent_initiated=self.verb == ProgressAction.WARMING_CACHE,
+        )

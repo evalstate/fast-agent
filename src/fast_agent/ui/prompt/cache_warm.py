@@ -17,9 +17,12 @@ from fast_agent.integrations.herdr_lifecycle import report_session_warm
 from fast_agent.ui.console import rich_print
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable
+    from collections.abc import AsyncGenerator, Callable, Coroutine
 
     from prompt_toolkit import PromptSession
+
+# How often an idle prompt waiting on hc children redraws its elapsed wait.
+_WAITING_REDRAW_SECONDS = 30.0
 
 
 async def _redraw_when_cache_lapses(
@@ -29,6 +32,25 @@ async def _redraw_when_cache_lapses(
     while (lapses_at := warmer.status().lapses_at) is not None and lapses_at > time.time():
         await asyncio.sleep(lapses_at - time.time() + 1)
         report(None)
+
+
+async def _redraw_while_waiting(session: "PromptSession") -> None:
+    """Keep the toolbar's elapsed wait on hc children current while idle."""
+    while True:
+        await asyncio.sleep(_WAITING_REDRAW_SECONDS)
+        session.app.invalidate()
+
+
+@asynccontextmanager
+async def _running(coroutine: Coroutine[object, object, None]) -> AsyncGenerator[None]:
+    """Run a redraw loop for the scope; leaving it cancels the loop."""
+    task = asyncio.create_task(coroutine)
+    try:
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
 
 
 @asynccontextmanager
@@ -41,8 +63,11 @@ async def idle_cache_warming(
     resume this session are the other. Leaving the scope (any submitted input)
     stops warming before the next turn makes a request of its own.
     """
+    attached = bool(current_hc_attachments().resuming)
+    waiting = _running(_redraw_while_waiting(session)) if attached else nullcontext()
     if warmer is None:
-        yield
+        async with waiting:
+            yield
         return
 
     def report(line: str | None) -> None:
@@ -57,17 +82,10 @@ async def idle_cache_warming(
 
     report(None)
     armed = warmer.armed_until is not None
-    attached = bool(current_hc_attachments().resuming)
     warming = (
         warmer.keep_warm("/warm" if armed else "hc", automatic=attached, armed=armed, report=report)
         if armed or attached
         else nullcontext()
     )
-    redraw = asyncio.create_task(_redraw_when_cache_lapses(warmer, report))
-    try:
-        async with warming:
-            yield
-    finally:
-        redraw.cancel()
-        with suppress(asyncio.CancelledError):
-            await redraw
+    async with waiting, _running(_redraw_when_cache_lapses(warmer, report)), warming:
+        yield

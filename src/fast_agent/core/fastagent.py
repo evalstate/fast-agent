@@ -942,6 +942,12 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
             self._skills_directory_override,
             no_home=no_home_mode,
         )
+        if getattr(self.args, "message", None) or getattr(self.args, "prompt_file", None):
+            from fast_agent.constants import NONINTERACTIVE_ENVIRONMENT_INSTRUCTION
+
+            context_variables.setdefault(
+                "env:noninteractive", NONINTERACTIVE_ENVIRONMENT_INSTRUCTION
+            )
         context_variables.update(self._extra_prompt_context)
         return context_variables or None
 

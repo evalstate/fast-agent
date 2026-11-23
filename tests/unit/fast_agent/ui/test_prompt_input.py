@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
+from fast_agent.integrations.hc_children import HcAttachments, HcChild
 from fast_agent.ui.prompt import input as prompt_input
 
 
@@ -49,6 +50,79 @@ def test_build_prompt_text_resolver_shows_named_non_default_agent() -> None:
     )
 
     assert resolver().value == "<ansibrightblue>review</ansibrightblue> ❯ "
+
+
+@pytest.mark.parametrize(
+    ("text", "shell_enabled", "is_human_input", "arrow"),
+    [
+        ("", False, False, "<ansicyan>⧗</ansicyan>"),
+        ("", True, False, "<ansicyan>⧗</ansicyan>"),
+        ("n", False, False, "❯"),
+        ("n", True, False, "<ansibrightyellow>❯</ansibrightyellow>"),
+        ("!ls", False, False, "<ansired>❯</ansired>"),
+        ("", False, True, "❯"),
+    ],
+)
+def test_idle_prompt_shows_it_is_waiting_on_hc_children_until_typing_starts(
+    monkeypatch: pytest.MonkeyPatch,
+    text: str,
+    shell_enabled: bool,
+    is_human_input: bool,
+    arrow: str,
+) -> None:
+    monkeypatch.setattr(
+        prompt_input,
+        "current_hc_attachments",
+        lambda: HcAttachments(resuming=(HcChild("t2"),)),
+    )
+    session = _FakeSession(text)
+    resolver = prompt_input._build_prompt_text_resolver(
+        session_factory=lambda: cast("PromptSession[Any]", session),
+        agent_name="dev",
+        default_agent_name="dev",
+        show_default=False,
+        default="",
+        shell_enabled=shell_enabled,
+        is_human_input=is_human_input,
+    )
+
+    assert resolver().value == f"{arrow} "
+
+
+@pytest.mark.asyncio
+async def test_idle_prompt_redraws_the_wait_on_hc_children_until_input_arrives(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+
+    from fast_agent.ui.prompt import cache_warm
+
+    class _App:
+        def __init__(self) -> None:
+            self.redraws = 0
+
+        def invalidate(self) -> None:
+            self.redraws += 1
+
+    class _Session:
+        def __init__(self) -> None:
+            self.app = _App()
+
+    session = _Session()
+    monkeypatch.setattr(cache_warm, "_WAITING_REDRAW_SECONDS", 0.01)
+    monkeypatch.setattr(
+        cache_warm, "current_hc_attachments", lambda: HcAttachments(resuming=(HcChild("t2"),))
+    )
+
+    async with cache_warm.idle_cache_warming(
+        session=cast("PromptSession[Any]", session), warmer=None
+    ):
+        await asyncio.sleep(0.05)
+    redraws = session.app.redraws
+    await asyncio.sleep(0.03)
+
+    assert redraws > 0
+    assert session.app.redraws == redraws
 
 
 def test_cycle_agent_mode_reports_explicit_subagent_disable(capsys) -> None:

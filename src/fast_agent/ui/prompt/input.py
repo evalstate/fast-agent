@@ -37,6 +37,7 @@ from fast_agent.core.agent_capabilities import cycle_agent_capability_mode
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.integrations.hc_children import (
+    current_hc_attachments,
     format_status_summary,
     format_turn_end_lines,
     hc_terminal_id,
@@ -605,7 +606,10 @@ def _build_prompt_text_resolver(
     show_default: bool,
     default: str,
     shell_enabled: bool,
+    is_human_input: bool = False,
 ) -> "Callable[[], HTML]":
+    shows_default = bool(show_default and default and default != "STOP")
+
     def _resolve_prompt_text() -> HTML:
         buffer_text = ""
         try:
@@ -615,6 +619,14 @@ def _build_prompt_text_resolver(
 
         if buffer_text.lstrip().startswith("!"):
             arrow_segment = "<ansired>❯</ansired>"
+        elif (
+            not buffer_text
+            and not is_human_input
+            and not shows_default
+            and current_hc_attachments().resuming
+        ):
+            # Idle, and hc children will wake this session when they report.
+            arrow_segment = "<ansicyan>⧗</ansicyan>"
         else:
             arrow_segment = "<ansibrightyellow>❯</ansibrightyellow>" if shell_enabled else "❯"
 
@@ -622,7 +634,7 @@ def _build_prompt_text_resolver(
             prompt_text = f"{arrow_segment} "
         else:
             prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> {arrow_segment} "
-        if show_default and default and default != "STOP":
+        if shows_default:
             prompt_text = f"{prompt_text} [<ansigreen>{default}</ansigreen>] "
         return HTML(prompt_text)
 
@@ -911,6 +923,7 @@ async def get_enhanced_input(
         show_default=show_default,
         default=default,
         shell_enabled=shell_input.context.enabled,
+        is_human_input=is_human_input,
     )
 
     warming = (

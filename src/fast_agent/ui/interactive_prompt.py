@@ -232,6 +232,15 @@ def _warning_text(message: str) -> Text:
     return Text(message, style="yellow")
 
 
+def _turn_end_line_text(line: str) -> Text:
+    """Quiet hc state; the background-process line warns that nothing will resume us."""
+    if line.startswith("⧗"):
+        return Text.assemble(("⧗", "cyan"), (line.removeprefix("⧗"), "dim"))
+    if line.startswith("hc "):
+        return Text(line, style="dim")
+    return _warning_text(line)
+
+
 def _clear_current_task_cancellation_requests() -> int:
     """Clear pending cancellation requests on the current interactive task.
 
@@ -1327,7 +1336,7 @@ class InteractivePrompt:
         for line in await refresh_session_attachments(
             agent_name=agent_name, agent_provider=prompt_provider
         ):
-            rich_print(Text(line, style="dim"))
+            rich_print(_turn_end_line_text(line))
 
         return result
 

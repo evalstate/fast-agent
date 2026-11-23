@@ -75,11 +75,11 @@ def reject_files(value: object) -> None:
             reject_files(child)
 
 
-def request_headers(payload: object) -> dict[str, str]:
+def request_headers(payload: object, *, agent_initiated: bool = False) -> dict[str, str]:
     """Classify the latest semantic input, not the presence of old tool history."""
     latest = payload[-1] if isinstance(payload, list) and payload else payload
-    agent = False
-    if isinstance(latest, Mapping):
+    agent = agent_initiated
+    if not agent and isinstance(latest, Mapping):
         agent = latest.get("role") in ("assistant", "tool") or latest.get("type") in (
             "function_call_output",
             "custom_tool_call_output",
@@ -104,6 +104,8 @@ def apply_policy(
     arguments: dict[str, Any],
     spec: CopilotModelSpec,
     broker_headers: Mapping[str, str],
+    *,
+    agent_initiated: bool = False,
 ) -> dict[str, Any]:
     # SDK request dictionaries are the deliberately dynamic boundary here.
     reject_overrides(arguments)
@@ -139,7 +141,10 @@ def apply_policy(
     payload = effective.get(input_key)
     reject_files(payload)
     headers = arguments.get("extra_headers") or {}
-    arguments["extra_headers"] = {**headers, **request_headers(payload)}
+    arguments["extra_headers"] = {
+        **headers,
+        **request_headers(payload, agent_initiated=agent_initiated),
+    }
     if spec.wire_api == "responses":
         if effective.get("previous_response_id") or effective.get("conversation"):
             raise ValueError("Copilot requires full-history replay, not stored continuations.")

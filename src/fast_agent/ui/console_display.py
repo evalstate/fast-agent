@@ -1,4 +1,5 @@
 import json
+import re
 from collections.abc import Callable, Generator, Mapping, MutableMapping
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -27,6 +28,7 @@ from fast_agent.ui.display_suppression import (
     display_tools_enabled,
 )
 from fast_agent.ui.markdown import build_markdown_renderable, prepare_markdown_content
+from fast_agent.ui.markdown.content import count_non_code_xml_tags
 from fast_agent.ui.mermaid_utils import (
     MermaidDiagram,
     create_mermaid_live_link,
@@ -744,7 +746,12 @@ class ConsoleDisplay:
     ) -> str | None:
         if is_error:
             return "dim red"
-        if message_type in (MessageType.USER, MessageType.ASSISTANT, MessageType.SYSTEM):
+        if message_type in (
+            MessageType.USER,
+            MessageType.HC,
+            MessageType.ASSISTANT,
+            MessageType.SYSTEM,
+        ):
             return None
         return "dim"
 
@@ -769,19 +776,19 @@ class ConsoleDisplay:
             renderable = style_markdown_renderable(renderable, markdown_styles)
         console.console.print(renderable, markup=self._markup)
 
+    _LEADING_XML_TAG_RE = re.compile(r"^<[A-Za-z_][A-Za-z0-9_:.-]*(?:\s[^<>]*?)?/?>")
+
     @staticmethod
     def _looks_like_xml_content(content: str) -> bool:
-        import re
-
-        xml_pattern = r"^<[a-zA-Z_][a-zA-Z0-9_-]*[^>]*>"
-        return bool(re.match(xml_pattern, content.strip())) and content.count("<") > 5
+        return bool(
+            ConsoleDisplay._LEADING_XML_TAG_RE.match(content.strip())
+        ) and ConsoleDisplay._has_substantial_xml(content)
 
     @staticmethod
     def _has_substantial_xml(content: str) -> bool:
-        import re
-
-        xml_probe = re.sub(r"<(?:https?://|mailto:)[^>]+>", "", content)
-        return xml_probe.count("<") > 5 and xml_probe.count(">") > 5
+        if content.count("<") <= 5 or content.count(">") <= 5:
+            return False
+        return count_non_code_xml_tags(content) > 5
 
     def _display_forced_markdown_string(
         self,
@@ -1650,8 +1657,9 @@ class ConsoleDisplay:
         image_previews: list["ImageRenderItem"] | None = None,
         part_count: int | None = None,
         show_hook_indicator: bool = False,
+        from_hc: bool = False,
     ) -> None:
-        """Display a user message in the new visual style."""
+        """Display a user message in the new visual style; ``from_hc`` input is set apart."""
         if not self._chat_output_enabled():
             return
 
@@ -1659,7 +1667,7 @@ class ConsoleDisplay:
 
         self.display_message(
             content=message,
-            message_type=MessageType.USER,
+            message_type=MessageType.HC if from_hc else MessageType.USER,
             name=name,
             right_info=self._user_message_right_info(
                 chat_turn=chat_turn,

@@ -1087,8 +1087,9 @@ def _apply_cli_subagent_overrides(fast: Any, request: AgentRunRequest) -> None:
 
 def _build_fast_agent(request: AgentRunRequest):
     from fast_agent import FastAgent
+    from fast_agent.constants import NONINTERACTIVE_ENVIRONMENT_INSTRUCTION
 
-    return FastAgent(
+    fast = FastAgent(
         name=request.name,
         config_path=request.config_path,
         ignore_unknown_args=True,
@@ -1100,6 +1101,9 @@ def _build_fast_agent(request: AgentRunRequest):
         no_home=request.no_home,
         isolated=request.isolated,
     )
+    if request.execution_mode in {"one_shot_message", "one_shot_prompt_file"}:
+        fast.set_prompt_context({"env:noninteractive": NONINTERACTIVE_ENVIRONMENT_INSTRUCTION})
+    return fast
 
 
 def _apply_fast_args(

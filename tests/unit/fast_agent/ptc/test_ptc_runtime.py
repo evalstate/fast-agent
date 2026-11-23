@@ -1601,6 +1601,22 @@ async def test_syntax_errors_are_explained_with_a_nested_quote_hint(type_check) 
     assert unsupported.is_error and "SyntaxError:" not in _text(unsupported)
 
 
+@pytest.mark.asyncio
+async def test_syntax_errors_explain_backtick_string_delimiters() -> None:
+    runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))
+    runtime.model_tools(TOOLS)
+    dispatch = RecordingDispatcher()
+    try:
+        result = await runtime.execute({"code": "x = `hello`"}, dispatch)
+    finally:
+        await runtime.close()
+
+    text = _text(result)
+    assert result.is_error and not dispatch.calls
+    assert "SyntaxError:" in text
+    assert "backticks" in text
+
+
 def _listed_modules(instructions: str, start: str, end: str) -> list[str]:
     text = " ".join(instructions.split())
     listed = text.split(start, 1)[1].split(end, 1)[0]

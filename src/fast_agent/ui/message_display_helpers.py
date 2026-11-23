@@ -7,7 +7,10 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from rich.text import Text
 
 from fast_agent.constants import FAST_AGENT_SAFETY_DETAILS
-from fast_agent.integrations.hc_children import hc_message_heading, is_hc_message
+from fast_agent.integrations.hc_children import (
+    hc_message_heading,
+    unwrap_hc_message,
+)
 from fast_agent.mcp.helpers.content_helpers import (
     get_text,
     is_image_content,
@@ -120,7 +123,12 @@ def _is_local_image_content(content: "ContentBlock") -> bool:
     return source_uri is not None and source_uri.startswith("file://")
 
 
-def _message_display_text(message: PromptMessageExtended) -> str:
+def _message_display_text(message: PromptMessageExtended, *, unwrap_hc: bool = False) -> str:
+    text = _message_text(message)
+    return unwrap_hc_message(text) if unwrap_hc else text
+
+
+def _message_text(message: PromptMessageExtended) -> str:
     from mcp_types import TextContent
 
     for content in message.content:
@@ -142,13 +150,15 @@ def _message_display_text(message: PromptMessageExtended) -> str:
 
 def build_user_message_display(
     messages: Sequence[PromptMessageExtended],
+    *,
+    unwrap_hc: bool = False,
 ) -> tuple[str, list[str] | None]:
     if not messages:
         return "", None
 
     if len(messages) == 1:
         message = messages[0]
-        message_text = _message_display_text(message)
+        message_text = _message_display_text(message, unwrap_hc=unwrap_hc)
         attachments = extract_user_attachments(message)
         return message_text, attachments or None
 
@@ -157,7 +167,7 @@ def build_user_message_display(
         attachments = extract_user_attachments(message)
         if attachments:
             lines.append(f"🔗 {', '.join(attachments)}")
-        message_text = _message_display_text(message)
+        message_text = _message_display_text(message, unwrap_hc=unwrap_hc)
         if message_text:
             lines.append(message_text)
         if index < len(messages):
@@ -171,19 +181,15 @@ def group_user_messages_by_sender(
 ) -> list[tuple[str | None, list[PromptMessageExtended]]]:
     """Split consecutive user messages into panels, each with its hc heading.
 
-    Input delivered by herdr-core gets its own heading; a person did not type it.
+    Input delivered by herdr-core gets a heading per sender; a person did not type it.
     The heading is None for typed input.
     """
-    panels: list[tuple[str | None, list[PromptMessageExtended]]] = []
-    for from_hc, group in groupby(
-        messages, key=lambda message: is_hc_message(message.first_text())
-    ):
-        panel = list(group)
-        heading = (
-            hc_message_heading([message.first_text() for message in panel]) if from_hc else None
+    return [
+        (heading, list(group))
+        for heading, group in groupby(
+            messages, key=lambda message: hc_message_heading([message.first_text()])
         )
-        panels.append((heading, panel))
-    return panels
+    ]
 
 
 def build_tool_use_additional_message(

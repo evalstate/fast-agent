@@ -197,3 +197,105 @@ async def test_stored_values_are_saved_forked_and_resumed_with_the_session(tmp_p
     for result in loaded:
         block = result.content[0]
         assert isinstance(block, TextContent) and block.text.endswith("Result:\ntrue"), block
+
+
+@pytest.mark.asyncio
+async def test_retain_output_evicts_oldest_auto_entries_only_and_survives_restore() -> None:
+    store = SandboxStore()
+    await store.functions()["store"]("user_key", "keep-me")
+
+    keys = [store.retain_output(f"payload-{i}", max_entries=3) for i in range(1, 6)]
+    assert keys == [
+        "truncated_output_1",
+        "truncated_output_2",
+        "truncated_output_3",
+        "truncated_output_4",
+        "truncated_output_5",
+    ]
+    stored_keys = await store.functions()["stored"]()
+    assert set(stored_keys) == {
+        "user_key",
+        "truncated_output_3",
+        "truncated_output_4",
+        "truncated_output_5",
+    }
+    assert await store.functions()["load"]("user_key") == "keep-me"
+    assert await store.functions()["load"]("truncated_output_5") == "payload-5"
+
+    restored = SandboxStore()
+    restored.restore(store.to_state())
+    next_key = restored.retain_output("payload-6", max_entries=3)
+    assert next_key == "truncated_output_6"
+    assert set(await restored.functions()["stored"]()) == {
+        "user_key",
+        "truncated_output_4",
+        "truncated_output_5",
+        "truncated_output_6",
+    }
+
+
+@pytest.mark.asyncio
+async def test_retain_output_respects_store_cap_without_mutating_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("fast_agent.ptc.store.MAX_STORE_BYTES", 120)
+    store = SandboxStore()
+    await store.functions()["store"]("user_key", "u" * 60)
+    first_key = store.retain_output("a" * 10, max_bytes=100, max_entries=4)
+    assert first_key == "truncated_output_1"
+    revision_before = store.revision
+
+    # Too large to fit alongside user_key even if truncated_output_1 were evicted.
+    assert store.retain_output("b" * 80, max_bytes=100, max_entries=4) is None
+    assert store.revision == revision_before
+    assert set(await store.functions()["stored"]()) == {"user_key", "truncated_output_1"}
+
+
+@pytest.mark.asyncio
+async def test_retain_output_counts_utf8_bytes_for_multibyte_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.mcp import tool_result_spool
+
+    store = SandboxStore()
+    emoji_payload = "🚀" * 16  # 16 chars, 64 UTF-8 bytes (+2 quotes = 66 bytes)
+    assert store.retain_output(emoji_payload, max_bytes=18) is None
+
+    monkeypatch.setattr(tool_result_spool, "PTC_STORE_RESULT_MAX_BYTES", 18)
+    result = CallToolResult(content=[TextContent(type="text", text=emoji_payload)])
+    notice = tool_result_spool.store_tool_result(
+        store, result, tool_name="exec_sandbox", ptc_tool_name=PTC_TOOL_NAME
+    )
+    assert notice is not None
+    assert "The first 4 characters" in notice
+    assert await store.functions()["load"]("truncated_output_1") == "🚀" * 4
+    assert (await store.functions()["stored"]())["truncated_output_1"] == 18
+
+
+@pytest.mark.asyncio
+async def test_retain_output_never_evicts_user_created_or_replaced_prefixed_keys() -> None:
+    store = SandboxStore()
+    await store.functions()["store"]("truncated_output_1", "user-created")
+
+    k2 = store.retain_output("auto-2", max_entries=2)
+    assert k2 == "truncated_output_2"
+    # User overwrites an auto-issued key: it becomes user-owned and must not be evicted.
+    await store.functions()["store"]("truncated_output_2", "user-replaced")
+
+    k3 = store.retain_output("auto-3", max_entries=2)
+    k4 = store.retain_output("auto-4", max_entries=2)
+    k5 = store.retain_output("auto-5", max_entries=2)
+    assert (k3, k4, k5) == ("truncated_output_3", "truncated_output_4", "truncated_output_5")
+
+    restored = SandboxStore()
+    restored.restore(store.to_state())
+    k6 = restored.retain_output("auto-6", max_entries=2)
+    assert k6 == "truncated_output_6"
+    assert set(await restored.functions()["stored"]()) == {
+        "truncated_output_1",
+        "truncated_output_2",
+        "truncated_output_5",
+        "truncated_output_6",
+    }
+    assert await restored.functions()["load"]("truncated_output_1") == "user-created"
+    assert await restored.functions()["load"]("truncated_output_2") == "user-replaced"
