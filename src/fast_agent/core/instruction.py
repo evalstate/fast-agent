@@ -18,6 +18,7 @@ Built-in placeholders (automatically resolved):
 Context placeholders (set by caller):
     {{workspaceRoot}} - Working directory
     {{env}} - Environment description
+    {{env:noninteractive}} - Conditional non-interactive (one-shot) execution guidance
     {{herdrInstructions}} - Conditional herdr-core coordination guidance
     {{agentName}} - Current agent name
     {{agentType}} - Current agent type
@@ -138,6 +139,7 @@ class InstructionBuilder:
         "currentDate": _get_current_date,
         "hostPlatform": _get_host_platform,
         "pythonVer": _get_python_version,
+        "env:noninteractive": lambda: "",
     }
 
     def __init__(self, template: str, *, source: str | None = None):

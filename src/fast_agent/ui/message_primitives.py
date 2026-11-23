@@ -7,6 +7,7 @@ class MessageType(Enum):
     """Types of messages that can be displayed."""
 
     USER = "user"
+    HC = "hc"
     ASSISTANT = "assistant"
     SYSTEM = "system"
     TOOL_CALL = "tool_call"
@@ -19,6 +20,12 @@ MESSAGE_CONFIGS: dict[MessageType, dict[str, str]] = {
         "arrow": "▶",
         "arrow_style": "dim blue",
         "highlight_color": "blue",
+    },
+    MessageType.HC: {
+        "block_color": "cyan",
+        "arrow": "▶",
+        "arrow_style": "dim cyan",
+        "highlight_color": "cyan",
     },
     MessageType.ASSISTANT: {
         "block_color": "green",

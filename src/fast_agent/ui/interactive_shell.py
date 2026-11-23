@@ -497,8 +497,10 @@ def _reset_tty_scroll_region(targets: _TerminalTargets, cleanup_state: _PtyClean
     if targets.tty_out_fd is None or not os.isatty(targets.tty_out_fd):
         return
 
+    # DECSTBM (CSI r) homes the cursor to (1, 1); wrap in DECSC/DECRC so the
+    # prompt resumes where the shell exited instead of wiping the viewport.
     with suppress(OSError):
-        os.write(targets.tty_out_fd, b"\x1b[r")
+        os.write(targets.tty_out_fd, b"\x1b7\x1b[r\x1b8")
 
 
 def _close_interactive_shell_fds(

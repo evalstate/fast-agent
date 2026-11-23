@@ -1870,3 +1870,76 @@ async def test_gpt62_system_prompt_leads_input_and_effort_is_appended(
             assert second["input"][: len(first["input"])] == first["input"]
     finally:
         await llm.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("wire", "model", "expected_retention"),
+    [
+        ("messages", "claude-opus-5.5", 300),
+        ("responses", "gpt-6.2-sol", 1800),
+    ],
+)
+async def test_warm_cache_sends_agent_initiator_header(
+    wire: str,
+    model: str,
+    expected_retention: int,
+    broker: FakeBroker,
+    context: Context,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[httpx2.Request] = []
+    bodies: list[dict[str, Any]] = []
+
+    async def respond(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        bodies.append(json.loads(await request.aread()))
+        if wire == "messages":
+            return httpx2.Response(
+                200,
+                json={
+                    "id": "m",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [],
+                    "model": model,
+                    "stop_reason": "max_tokens",
+                    "stop_sequence": None,
+                    "usage": {
+                        "input_tokens": 2,
+                        "output_tokens": 0,
+                        "cache_read_input_tokens": 10,
+                        "cache_creation_input_tokens": 0,
+                    },
+                },
+            )
+        return httpx2.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=responses_events(),
+        )
+
+    def client_factory(**kwargs: Any) -> AsyncAnthropic | AsyncOpenAI:
+        kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
+        return AsyncAnthropic(**kwargs) if wire == "messages" else AsyncOpenAI(**kwargs)
+
+    monkeypatch.setattr(_sdk_client_target(wire), client_factory)
+    llm = (
+        CopilotMessagesLLM(context=context, model=model)
+        if wire == "messages"
+        else CopilotResponsesLLM(context=context, model=model, transport="sse")
+    )
+    try:
+        assert llm.cache_retention_seconds == expected_retention
+        usage = await llm.warm_cache([Prompt.user("Delegate task"), Prompt.assistant("Waiting")])
+        assert usage.prompt.total is not None and usage.prompt.total > 0
+        [request], [body] = requests, bodies
+        assert request.headers["x-initiator"] == "agent"
+        if wire == "messages":
+            assert body["max_tokens"] == 0
+            assert body["messages"][-1]["role"] == "user"
+        else:
+            assert body["input"][-1]["role"] == "user"
+    finally:
+        if isinstance(llm, CopilotResponsesLLM):
+            await llm.close()

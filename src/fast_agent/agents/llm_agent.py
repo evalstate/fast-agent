@@ -800,7 +800,9 @@ class LlmAgent(LlmDecorator):
     ) -> None:
         part_count = len(display_messages)
 
-        message_text, attachments = build_user_message_display(display_messages)
+        message_text, attachments = build_user_message_display(
+            display_messages, unwrap_hc=heading is not None
+        )
         image_previews = build_user_message_image_previews(display_messages)
 
         self.display.show_user_message(
@@ -811,6 +813,7 @@ class LlmAgent(LlmDecorator):
             image_previews=image_previews or None,
             part_count=part_count if part_count > 1 else None,
             show_hook_indicator=self.has_before_llm_call_hook,
+            from_hc=heading is not None,
         )
 
     def show_user_message(self, message: PromptMessageExtended) -> None:

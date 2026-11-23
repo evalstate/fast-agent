@@ -10,6 +10,7 @@ from uuid import uuid4
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient, omit
 
 from fast_agent.config import AnthropicSettings
+from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.compaction_support import CompactionSupport
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM, CacheTTL
 from fast_agent.llm.provider.copilot import broker
@@ -200,4 +201,9 @@ class CopilotMessagesLLM(AnthropicLLM):
         arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
         spec = get_copilot_model(self.default_request_params.model or "")
         endpoint = self._copilot_endpoint.get()
-        return apply_policy(arguments, spec, endpoint.headers)
+        return apply_policy(
+            arguments,
+            spec,
+            endpoint.headers,
+            agent_initiated=self.verb == ProgressAction.WARMING_CACHE,
+        )

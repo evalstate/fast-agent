@@ -21,6 +21,7 @@ from fast_agent.ui.message_display_helpers import (
     build_user_message_image_previews,
     extract_user_attachments,
     extract_user_local_image_previews,
+    group_user_messages_by_sender,
     resolve_highlight_indexes,
     tool_use_requests_file_read_access,
     tool_use_requests_process_lifecycle,
@@ -317,6 +318,26 @@ def test_build_user_message_display_prefers_original_text_metadata() -> None:
 
     assert message_text == "can you see ^file:/tmp/photo.png"
     assert attachments == ["image (file:///tmp/photo.png)"]
+
+
+def test_build_user_message_display_unwraps_hc_envelopes_only_when_headed() -> None:
+    notice = "<hc>t1 probe exited (exit 0).\nRead: hc read t1</hc>"
+    peer_text = '<hc from="t7 review">Review ok</hc>'
+    single = PromptMessageExtended(role="user", content=[TextContent(type="text", text=peer_text)])
+    multi = PromptMessageExtended(role="user", content=[TextContent(type="text", text=notice)])
+
+    # Headless callers (e.g. A2A) retain sender tags; hc-headed panels unwrap them.
+    assert build_user_message_display([single])[0] == peer_text
+    assert build_user_message_display([single], unwrap_hc=True)[0] == "Review ok"
+    assert build_user_message_display([single, multi], unwrap_hc=True)[0] == (
+        "Review ok\n\nt1 probe exited (exit 0).\nRead: hc read t1"
+    )
+    assert [(h, len(g)) for h, g in group_user_messages_by_sender([single, multi])] == [
+        ("hc · t7 review", 1),
+        ("hc · t1 exited", 1),
+    ]
+    # The model and saved history still see what hc delivered.
+    assert multi.first_text() == notice
 
 
 _ROSTER = TextContent(

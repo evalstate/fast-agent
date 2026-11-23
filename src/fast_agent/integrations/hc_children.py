@@ -51,6 +51,7 @@ class HcAttachments:
 _NONE = HcAttachments()
 _current = _NONE
 _read_at = 0.0
+_waiting_since: float | None = None
 
 
 def hc_terminal_id() -> str | None:
@@ -114,19 +115,45 @@ async def refresh_hc_attachments(*, reuse_recent: bool = False) -> HcAttachments
     ``reuse_recent`` accepts a snapshot read moments ago, e.g. at the turn end
     that preceded this prompt.
     """
-    global _current, _read_at
+    global _read_at
 
     if hc_terminal_id() is None:
-        _current = _NONE
+        _update_current(_NONE)
     elif not reuse_recent or time.monotonic() - _read_at >= _CACHE_SECONDS:
-        _current = await asyncio.to_thread(read_hc_attachments)
+        _update_current(await asyncio.to_thread(read_hc_attachments))
         _read_at = time.monotonic()
     return _current
+
+
+def _update_current(attachments: HcAttachments) -> None:
+    """Replace the snapshot; the wait clock runs while any child will resume us."""
+    global _current, _waiting_since
+
+    _current = attachments
+    if not attachments.resuming:
+        _waiting_since = None
+    elif _waiting_since is None:
+        _waiting_since = time.monotonic()
 
 
 def current_hc_attachments() -> HcAttachments:
     """The last snapshot read, for synchronous renderers such as the toolbar."""
     return _current
+
+
+def hc_waiting_since() -> float | None:
+    """``time.monotonic()`` when this session started waiting on resuming children."""
+    return _waiting_since
+
+
+def format_hc_elapsed(seconds: float) -> str | None:
+    """A coarse wait duration, or None for the first minute."""
+    minutes = int(seconds // 60)
+    if minutes < 1:
+        return None
+    if minutes < 60:
+        return f"{minutes}m"
+    return f"{minutes // 60}h{minutes % 60:02d}m"
 
 
 def _count(count: int, noun: str, plural: str | None = None) -> str:
@@ -137,15 +164,15 @@ def format_turn_end_lines(attachments: HcAttachments, background_processes: int)
     """Scrollback lines saying what will, and will not, bring this session back."""
     lines: list[str] = []
     resuming = attachments.resuming
-    if resuming or attachments.services:
-        parts: list[str] = []
-        if resuming:
-            names = ", ".join(child.label for child in resuming)
-            pronoun = "it reports or exits" if len(resuming) == 1 else "they report or exit"
-            parts.append(f"{len(resuming)} running - {names} · will resume when {pronoun}")
-        if attachments.services:
-            parts.append(f"{_count(attachments.services, 'service')} running")
-        lines.append("hc: " + " · ".join(parts))
+    services = (
+        f" · {_count(attachments.services, 'service')} running" if attachments.services else ""
+    )
+    if resuming:
+        names = ", ".join(child.label for child in resuming)
+        pronoun = "it reports or exits" if len(resuming) == 1 else "they report or exit"
+        lines.append(f"⧗ hc · waiting on {names} · resumes when {pronoun}{services}")
+    elif services:
+        lines.append(f"hc{services}")
     if background_processes > 0:
         pronoun = "it ends" if background_processes == 1 else "they end"
         lines.append(
@@ -171,6 +198,14 @@ def format_status_summary(attachments: HcAttachments, background_processes: int)
 def is_hc_message(text: str) -> bool:
     """Whether submitted text is an hc peer message or an hc notice."""
     return _HC_MESSAGE.match(text) is not None
+
+
+def unwrap_hc_message(text: str) -> str:
+    """The body of an hc message without its envelope, for display only."""
+    match = _HC_MESSAGE.match(text)
+    if match is None:
+        return text
+    return match.group("body").rstrip().removesuffix("</hc>").strip()
 
 
 def hc_message_heading(texts: list[str]) -> str | None:
