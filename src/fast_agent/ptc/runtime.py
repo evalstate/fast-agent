@@ -145,6 +145,9 @@ math, os, os.path, pathlib, random, re, sys, time, tomllib, typing and unicodeda
 standard library (difflib, heapq, io, string, struct, subprocess, ...), no packages, no \
 environment variables. Unsupported syntax: class inheritance, `@staticmethod`/`@classmethod`/\
 `@property`, `yield`, `del`, `async with`/`async for`, `except*`, `import *`.
+- Python string syntax only: use `'...'`, `"..."`, or `'''...'''`/`\"\"\"...\"\"\"`, never \
+backticks (`` `...` ``); avoid nesting the same triple-quote delimiter inside a string \
+(write multi-line scripts to a file instead of embedding heredocs).
 {shell_python_note}\
 {functions_note}\
 {search_note}\

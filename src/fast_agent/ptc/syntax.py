@@ -35,7 +35,7 @@ def describe_syntax_error(code: str, *, direct_functions: Sequence[str] = ()) ->
         )
     except SyntaxError as exc:
         report = "".join(traceback.format_exception_only(exc)).rstrip()
-        hint = _nested_quote_hint(exc, direct_functions)
+        hint = _nested_quote_hint(exc, direct_functions) or _backtick_hint(exc)
         return f"{report}\n{hint}" if hint else report
     except (ValueError, RecursionError, MemoryError):
         return None
@@ -62,3 +62,13 @@ def _nested_quote_hint(exc: SyntaxError, direct_functions: Sequence[str]) -> str
             "which take the text without quoting."
         )
     return hint
+
+
+def _backtick_hint(exc: SyntaxError) -> str | None:
+    line = exc.text or ""
+    if "`" not in line:
+        return None
+    return (
+        "Hint: Python does not use backticks (`...`) as string delimiters. "
+        "Use single, double, or triple Python quotes instead."
+    )
