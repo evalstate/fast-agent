@@ -470,7 +470,7 @@ def test_show_assistant_message_auto_detect_renders_markdown_with_leading_autoli
         return capture.get()
 
     rendered = asyncio.run(_render())
-    assert "https://example.com" in rendered
+    assert "<https://example.com>" in rendered.split()
     assert "Tags" in rendered
     assert "**Tags**" not in rendered
     assert "`<a>`" not in rendered
