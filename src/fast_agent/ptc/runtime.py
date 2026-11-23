@@ -152,7 +152,7 @@ backticks (`` `...` ``); avoid nesting the same triple-quote delimiter inside a 
 {functions_note}\
 {search_note}\
 - Independent calls can run concurrently: `a, b = await asyncio.gather(f(x=1), g(y=2))` \
-(asyncio, collections, datetime, itertools, json, math and re are pre-imported). `settle(aw)` returns an exception instead of raising, so \
+(asyncio, collections, datetime, itertools, json, math, os, pathlib and re are pre-imported). `settle(aw)` returns an exception instead of raising, so \
 `await asyncio.gather(*[settle(f(x=x)) for x in xs])` collects every result \
 (`return_exceptions=` is unsupported).
 {shell_batch_note}\
@@ -175,6 +175,8 @@ import datetime
 import itertools
 import json
 import math
+import os
+import pathlib
 import re
 
 
