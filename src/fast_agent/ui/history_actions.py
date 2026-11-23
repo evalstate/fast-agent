@@ -20,6 +20,7 @@ from fast_agent.ui.citation_display import (
     render_sources_pre_content,
     web_tool_badges,
 )
+from fast_agent.ui.streaming.preferences import resolve_streaming_preferences
 from fast_agent.ui.subagent_result_presentation import build_subagent_result_presentation
 from fast_agent.utils.tool_names import (
     is_read_text_file_tool_name as is_read_text_file_tool_name_shared,
@@ -94,6 +95,7 @@ class _HistoryTurnDisplayContext:
     turn_index: int | None
     total_turns: int | None
     tool_metadata_lookup: dict[str, JsonObject]
+    render_markdown: bool | None = None
     user_group: list["PromptMessageExtended"] = field(default_factory=list)
     tool_name_lookup: dict[str, str] = field(default_factory=dict)
     turn_header_shown: bool = False
@@ -161,6 +163,7 @@ class _HistoryTurnDisplayContext:
                 highlight_indexes=assistant_payload["highlight_indexes"],
                 additional_message=assistant_payload["additional_message"],
                 pre_content=assistant_payload["pre_content"],
+                render_markdown=self.render_markdown,
             )
 
         self._display_tool_calls(message)
@@ -340,12 +343,15 @@ async def display_history_turn(
             )
         }
     )
+    prefs = resolve_streaming_preferences(replay_config.logger)
+    render_markdown = (prefs.mode == "markdown") if prefs.enabled else None
     context = _HistoryTurnDisplayContext(
         display=cast("_HistoryDisplay", ConsoleDisplay(config=replay_config)),
         agent_name=agent_name,
         turn_index=turn_index,
         total_turns=total_turns,
         tool_metadata_lookup=_stored_tool_metadata_from_turn(turn),
+        render_markdown=render_markdown,
     )
     for message in turn:
         context.record_tool_calls(message)

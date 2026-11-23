@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import pytest
-from mcp_types import CallToolRequest, CallToolRequestParams, TextContent
+from mcp_types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
-from fast_agent.constants import ANTHROPIC_SERVER_TOOLS_CHANNEL, FAST_AGENT_TOOL_METADATA
+from fast_agent.config import LoggerSettings, Settings
+from fast_agent.constants import (
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    BUILTIN_SUBAGENT_TOOL_NAME,
+    FAST_AGENT_TOOL_METADATA,
+)
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.ui import history_actions
 
 
 class _CaptureDisplay:
     events: ClassVar[list[str]] = []
+    assistant_calls: ClassVar[list[dict[str, object]]] = []
     tool_call_metadata: ClassVar[list[dict[str, object] | None]] = []
     tool_calls: ClassVar[list[dict[str, object]]] = []
     user_panels: ClassVar[list[tuple[object, object]]] = []
@@ -24,8 +30,14 @@ class _CaptureDisplay:
         self.user_panels.append((kwargs.get("name"), kwargs.get("turn_range")))
 
     async def show_assistant_message(self, *args: Any, **kwargs: Any) -> None:
-        del args, kwargs
+        del args
         self.events.append("assistant")
+        self.assistant_calls.append(
+            {
+                "name": kwargs.get("name"),
+                "render_markdown": kwargs.get("render_markdown"),
+            }
+        )
 
     def show_tool_call(self, *args: Any, **kwargs: Any) -> None:
         del args
@@ -49,6 +61,7 @@ class _CaptureDisplay:
 
 def _capture_history_display(monkeypatch) -> type[_CaptureDisplay]:
     _CaptureDisplay.events = []
+    _CaptureDisplay.assistant_calls = []
     _CaptureDisplay.tool_call_metadata = []
     _CaptureDisplay.tool_calls = []
     _CaptureDisplay.user_panels = []
@@ -233,3 +246,73 @@ async def test_display_history_turn_headings_show_who_sent_each_message(monkeypa
     )
 
     assert display.user_panels == [("dev", (2, 2)), ("hc · t7", None)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("streaming_mode", "expected_render_markdown"),
+    [
+        (None, True),
+        ("markdown", True),
+        ("none", None),
+        ("plain", False),
+    ],
+)
+async def test_display_history_turn_sets_render_markdown_from_streaming_mode(
+    monkeypatch,
+    streaming_mode: Literal["markdown", "plain", "none"] | None,
+    expected_render_markdown: bool | None,
+) -> None:
+    import json
+
+    display = _capture_history_display(monkeypatch)
+    config = (
+        None
+        if streaming_mode is None
+        else Settings(logger=LoggerSettings(streaming=streaming_mode))
+    )
+    turn = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Delegating now.")],
+            tool_calls={
+                "sub_1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="subagent",
+                        arguments={"label": "worker", "message": "check tokens"},
+                    ),
+                )
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[],
+            tool_results={
+                "sub_1": CallToolResult(
+                    content=[TextContent(type="text", text="Found `<|im_end|>` token.")]
+                )
+            },
+            channels={
+                FAST_AGENT_TOOL_METADATA: [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(
+                            {"sub_1": {"fast_agent": {"builtin": BUILTIN_SUBAGENT_TOOL_NAME}}}
+                        ),
+                    )
+                ]
+            },
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="**Summary**: done")],
+        ),
+    ]
+
+    await history_actions.display_history_turn("demo", turn, config=config)
+
+    assert len(display.assistant_calls) == 3
+    assert display.assistant_calls[0]["render_markdown"] is expected_render_markdown
+    assert display.assistant_calls[1]["render_markdown"] is None
+    assert display.assistant_calls[2]["render_markdown"] is expected_render_markdown

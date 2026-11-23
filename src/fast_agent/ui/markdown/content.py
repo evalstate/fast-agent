@@ -14,8 +14,11 @@ HTML_ESCAPE_CHARS: dict[str, str] = {
     '"': "&quot;",
     "'": "&#39;",
 }
+_AUTOLINK_RE = re.compile(r"<(?:https?://|mailto:)[^>]+>")
 _BLOCKQUOTE_PREFIX_RE = re.compile(r"^(?P<prefix>[ ]{0,3}(?:>[ \t]?)+)")
 _FENCE_PATTERN = re.compile(r"^```", re.MULTILINE)
+_HTML_COMMENT_RE = re.compile(r"<!--[\s\S]*?-->")
+_XML_TAG_RE = re.compile(r"</?[A-Za-z_][A-Za-z0-9_:.-]*(?:\s[^<>]*?)?/?>")
 
 
 def _flatten_tokens(tokens: Iterable[Any]) -> Iterator[Any]:
@@ -163,6 +166,34 @@ def _escape_markdown_text(text: str) -> str:
     return "".join(escaped_lines)
 
 
+def count_non_code_xml_tags(content: str) -> int:
+    """Count XML-shaped tags outside fenced, indented, and inline code."""
+    parser = _get_markdown_parser()
+    try:
+        tokens = parser.parse(content)
+    except Exception:
+        cleaned = _HTML_COMMENT_RE.sub(" ", _AUTOLINK_RE.sub(" ", content))
+        return len(_XML_TAG_RE.findall(cleaned))
+
+    parts: list[str] = []
+    for token in _flatten_tokens(tokens):
+        if token.type in ("fence", "code_block", "code_inline", "inline") or token.children:
+            if token.block:
+                parts.append("\n")
+            continue
+        if token.type in ("softbreak", "hardbreak"):
+            parts.append("\n")
+        elif token.content:
+            parts.append(token.content)
+        else:
+            parts.append(" ")
+        if token.block:
+            parts.append("\n")
+
+    outside_code = _HTML_COMMENT_RE.sub(" ", "".join(parts))
+    return len(_XML_TAG_RE.findall(outside_code))
+
+
 def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
     """Prepare content for markdown rendering, escaping HTML/XML outside code blocks."""
     if not escape_xml or not isinstance(content, str):
@@ -170,4 +201,4 @@ def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
     return _prepare_markdown_content_cached(content)
 
 
-__all__ = ["HTML_ESCAPE_CHARS", "prepare_markdown_content"]
+__all__ = ["HTML_ESCAPE_CHARS", "count_non_code_xml_tags", "prepare_markdown_content"]

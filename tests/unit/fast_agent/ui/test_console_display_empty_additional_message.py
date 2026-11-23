@@ -407,3 +407,141 @@ def test_user_message_header_uses_rule_fill_for_turn_info() -> None:
     assert header.startswith("▎▶ dev ")
     assert "─" in header
     assert header.endswith(" turn 3 (12)")
+
+
+def test_show_assistant_message_auto_detect_renders_markdown_with_backticked_tokens() -> None:
+    display = ConsoleDisplay(config=None)
+    markdown_text = (
+        "**Special tokens**: "
+        "`<|im_end|>`, `<a>`, `<b>`, `<c>`, `<d>`, `<e>`, `<f>`, `` `<g>` ``, and `<think>`."
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(
+                message_text=markdown_text,
+                name="dev",
+                model="gpt-test",
+                render_markdown=None,
+            )
+        return capture.get()
+
+    rendered = asyncio.run(_render())
+    assert "Special tokens" in rendered
+    assert "**Special tokens**" not in rendered
+    assert "`<|im_end|>`" not in rendered
+    assert "<|im_end|>" in rendered
+    assert "`<a>`" not in rendered
+    assert "<a>" in rendered
+
+
+def test_show_assistant_message_auto_detect_renders_markdown_with_leading_autolink_and_backticked_tags() -> (
+    None
+):
+    display = ConsoleDisplay(config=None)
+    markdown_text = (
+        "<https://example.com>\n\n**Tags**: `<a>`, `<b>`, `<c>`, `<d>`, `<e>`, `<f>`, and `<g>`."
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(
+                message_text=markdown_text,
+                name="dev",
+                model="gpt-test",
+                render_markdown=None,
+            )
+        return capture.get()
+
+    rendered = asyncio.run(_render())
+    assert "https://example.com" in rendered
+    assert "Tags" in rendered
+    assert "**Tags**" not in rendered
+    assert "`<a>`" not in rendered
+    assert "<a>" in rendered
+
+
+def test_show_assistant_message_auto_detect_renders_markdown_with_fenced_xml() -> None:
+    display = ConsoleDisplay(config=None)
+    markdown_text = (
+        "**XML example**:\n\n"
+        "```xml\n"
+        "<available_skills>\n"
+        "  <skill>\n"
+        "    <name>demo</name>\n"
+        "    <description>desc</description>\n"
+        "  </skill>\n"
+        "</available_skills>\n"
+        "```"
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(
+                message_text=markdown_text,
+                name="dev",
+                model="gpt-test",
+                render_markdown=None,
+            )
+        return capture.get()
+
+    rendered = asyncio.run(_render())
+    assert "XML example" in rendered
+    assert "**XML example**" not in rendered
+    assert "```xml" not in rendered
+    assert "<available_skills>" in rendered
+
+
+def test_show_assistant_message_auto_detect_skips_markdown_for_raw_xml_outside_code() -> None:
+    display = ConsoleDisplay(config=None)
+    mixed_text = (
+        "**Skills**:\n\n"
+        "<available_skills>\n"
+        "<skill>\n"
+        "<name>demo</name>\n"
+        "<description>desc</description>\n"
+        "</skill>\n"
+        "</available_skills>"
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(
+                message_text=mixed_text,
+                name="dev",
+                model="gpt-test",
+                render_markdown=None,
+            )
+        return capture.get()
+
+    rendered = asyncio.run(_render())
+    assert "**Skills**:" in rendered
+    assert "<available_skills>\n<skill>\n<name>demo</name>" in rendered
+
+
+def test_has_substantial_xml_ignores_non_xml_angles_autolinks_and_code() -> None:
+    assert not ConsoleDisplay._has_substantial_xml(
+        "Compare a < b, c < d, e < f, g < h, i < j, k < l -> done -> ok -> yes -> no -> end -> !"
+    )
+    assert not ConsoleDisplay._has_substantial_xml(
+        "Links: <https://a.example>, <https://b.example>, <https://c.example>, "
+        "<https://d.example>, <https://e.example>, <mailto:user@example.com>."
+    )
+    assert not ConsoleDisplay._has_substantial_xml(
+        "Tokens: <|im_start|> <|im_end|> <|endoftext|> <|pad|> <|bos|> <|eos|>"
+    )
+    assert not ConsoleDisplay._has_substantial_xml(
+        "Indented code:\n\n    <a><b><c><d><e><f></f></e></d></c></b></a>\n"
+    )
+    assert not ConsoleDisplay._has_substantial_xml(
+        "Emphasized angles: <*a*> <*b*> <*c*> <*d*> <*e*> <*f*> <*g*>"
+    )
+    assert not ConsoleDisplay._has_substantial_xml(
+        "Commented tags: <!-- <a><b><c><d><e><f></f></e></d></c></b></a> -->"
+    )
+    assert not ConsoleDisplay._looks_like_xml_content(
+        "<https://example.com>\n\n`<a>` `<b>` `<c>` `<d>` `<e>` `<f>`"
+    )
+    assert ConsoleDisplay._has_substantial_xml(
+        "Prose before\n<root><a>1</a><b>2</b><c>3</c></root>\nProse after"
+    )
