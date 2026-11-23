@@ -43,13 +43,16 @@ def _status_stream() -> TtyCapableStream | None:
     return stream if is_tty_stream(stream) else None
 
 
-def _encoded_text(text: str, limit: int) -> str:
+def _clean_text(text: str, limit: int) -> str:
     # OSC free text forbids C0/C1 controls, including tabs and newlines.
     text = "".join(" " if ord(c) < 32 or 0x7F <= ord(c) <= 0x9F else c for c in text)
     text = " ".join(text.split())
     # Limits are UTF-8 bytes; never leave a partial code point at the boundary.
-    raw = text.encode("utf-8", errors="replace")[:limit].decode("utf-8", errors="ignore")
-    return base64.b64encode(raw.encode("utf-8")).decode("ascii")
+    return text.encode("utf-8", errors="replace")[:limit].decode("utf-8", errors="ignore")
+
+
+def _encoded_text(text: str, limit: int) -> str:
+    return base64.b64encode(_clean_text(text, limit).encode("utf-8")).decode("ascii")
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +95,7 @@ class ProgramStatusReporter:
             None
         )
         self._last_sequence: str | None = None
+        self._last_window_title: str = ""
 
     def activate(self) -> None:
         self._active = True
@@ -114,6 +118,8 @@ class ProgramStatusReporter:
         """Withdraw the record without deactivating, e.g. after a startup question."""
         if self._last_sequence is not None and self._write("\x1b]7501;state=clear\x1b\\"):
             self._last_sequence = None
+        if self._last_window_title and self._write("\x1b]2;\x1b\\"):
+            self._last_window_title = ""
 
     def report_metadata(
         self,
@@ -159,12 +165,15 @@ class ProgramStatusReporter:
     def release(self) -> None:
         if self._last_sequence is not None:
             self._write("\x1b]7501;state=clear\x1b\\")
+        if self._last_window_title:
+            self._write("\x1b]2;\x1b\\")
         self._active = False
         self._plugin_usage = None
         self._queued = 0
         self._attached = None
         self._warm = None
         self._last_sequence = None
+        self._last_window_title = ""
 
     def _emit(self, *, force: bool = False) -> None:
         if not self._active:
@@ -182,6 +191,9 @@ class ProgramStatusReporter:
         sequence = ProgramStatus(self._state, self._title, message, self._kind).encode()
         if (force or sequence != self._last_sequence) and self._write(sequence):
             self._last_sequence = sequence
+        window_title = _clean_text(self._title, 192) if self._title else ""
+        if window_title != self._last_window_title and self._write(f"\x1b]2;{window_title}\x1b\\"):
+            self._last_window_title = window_title
 
     def _write(self, sequence: str) -> bool:
         if not self._active:

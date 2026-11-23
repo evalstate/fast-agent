@@ -48,6 +48,10 @@ def reports(stream: io.StringIO) -> list[dict[str, str]]:
     return result
 
 
+def window_titles(stream: io.StringIO) -> list[str]:
+    return re.findall(r"\x1b\]2;([^\x1b]*)\x1b\\", stream.getvalue())
+
+
 def metadata(*, title: str | None = "Review auth", usage: str | None = "$0.0123") -> None:
     herdr_lifecycle.report_session_metadata(
         session_id="session-1",
@@ -579,3 +583,38 @@ def test_deferred_command_can_settle_at_next_prompt(terminal: TtyStream) -> None
     # Commands that do not call the model do not emit C/D.
     herdr_lifecycle.report_prompt_mark("A")
     assert reports(terminal)[-1]["state"] == "idle"
+
+
+def test_window_title_tracks_session_title_without_churn_or_control_injection(
+    terminal: TtyStream,
+) -> None:
+    herdr_lifecycle.report_prompt_mark("A")
+    herdr_lifecycle.release_agent()
+    assert window_titles(terminal) == []
+    herdr_lifecycle._reset_for_tests()
+
+    metadata(title="🚀 Fix\n\x1b]52;evil\x07  tab  title")
+    assert window_titles(terminal) == []  # Inactive before first prompt mark.
+
+    herdr_lifecycle.report_prompt_mark("A")
+    herdr_lifecycle.report_prompt_mark("C")
+    herdr_lifecycle.report_session_usage("$0.0500")
+    herdr_lifecycle.report_prompt_mark("D;0")
+    herdr_lifecycle.report_prompt_mark("A")
+    assert window_titles(terminal) == ["🚀 Fix ]52;evil tab title"]
+
+    metadata(title="Renamed session")
+    assert window_titles(terminal) == ["🚀 Fix ]52;evil tab title", "Renamed session"]
+
+    metadata(title=None)
+    assert window_titles(terminal) == ["🚀 Fix ]52;evil tab title", "Renamed session", ""]
+
+    metadata(title="Final title")
+    herdr_lifecycle.release_agent()
+    assert window_titles(terminal) == [
+        "🚀 Fix ]52;evil tab title",
+        "Renamed session",
+        "",
+        "Final title",
+        "",
+    ]
