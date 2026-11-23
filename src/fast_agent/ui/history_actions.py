@@ -124,7 +124,9 @@ class _HistoryTurnDisplayContext:
         )
 
         for heading, group in group_user_messages_by_sender(self.user_group):
-            message_text, attachments = build_user_message_display(group)
+            message_text, attachments = build_user_message_display(
+                group, unwrap_hc=heading is not None
+            )
             image_previews = build_user_message_image_previews(group)
             # Only the prompt that opens the turn carries the turn header; input that
             # arrived later (herdr-core messages, typed-ahead text) is part of that turn.
@@ -138,6 +140,7 @@ class _HistoryTurnDisplayContext:
                 part_count=len(group),
                 turn_range=(self.turn_index, self.turn_index) if opens_turn else None,
                 total_turns=self.total_turns if opens_turn else None,
+                from_hc=heading is not None,
             )
         self.user_group.clear()
 

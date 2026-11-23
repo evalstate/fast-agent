@@ -104,6 +104,7 @@ class SubagentDisplayRecorder(ConsoleDisplay):
         image_previews: list["ImageRenderItem"] | None = None,
         part_count: int | None = None,
         show_hook_indicator: bool = False,
+        from_hc: bool = False,
     ) -> None:
         del (
             model,
@@ -114,6 +115,7 @@ class SubagentDisplayRecorder(ConsoleDisplay):
             image_previews,
             part_count,
             show_hook_indicator,
+            from_hc,
         )
         self.events.append(("user", {"message": message, "name": name}))
 

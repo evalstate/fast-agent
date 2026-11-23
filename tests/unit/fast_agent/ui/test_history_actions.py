@@ -20,14 +20,16 @@ class _CaptureDisplay:
     assistant_calls: ClassVar[list[dict[str, object]]] = []
     tool_call_metadata: ClassVar[list[dict[str, object] | None]] = []
     tool_calls: ClassVar[list[dict[str, object]]] = []
-    user_panels: ClassVar[list[tuple[object, object]]] = []
+    user_panels: ClassVar[list[tuple[object, object, object]]] = []
 
     def __init__(self, config=None) -> None:
         del config
 
     def show_user_message(self, *args: Any, **kwargs: Any) -> None:
         del args
-        self.user_panels.append((kwargs.get("name"), kwargs.get("turn_range")))
+        self.user_panels.append(
+            (kwargs.get("name"), kwargs.get("turn_range"), kwargs.get("from_hc"))
+        )
 
     async def show_assistant_message(self, *args: Any, **kwargs: Any) -> None:
         del args
@@ -245,7 +247,7 @@ async def test_display_history_turn_headings_show_who_sent_each_message(monkeypa
         "dev", turn, config=None, turn_index=2, total_turns=3
     )
 
-    assert display.user_panels == [("dev", (2, 2)), ("hc · t7", None)]
+    assert display.user_panels == [("dev", (2, 2), False), ("hc · t7", None, True)]
 
 
 @pytest.mark.asyncio

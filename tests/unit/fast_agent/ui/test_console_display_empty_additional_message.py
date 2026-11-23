@@ -409,6 +409,22 @@ def test_user_message_header_uses_rule_fill_for_turn_info() -> None:
     assert header.endswith(" turn 3 (12)")
 
 
+def test_hc_delivered_input_gets_a_cyan_panel_with_undimmed_text() -> None:
+    display = ConsoleDisplay(config=None)
+
+    with console.console.capture() as capture:
+        display.show_user_message("Review ok", name="hc · t7", from_hc=True)
+
+    header = capture.get().splitlines()[1]
+    assert header.startswith("▎▶ hc · t7")
+    assert display._message_header_left(
+        message_type=MessageType.HC, name="hc · t7", is_error=False, show_hook_indicator=False
+    ).startswith("[cyan]▎[/cyan][dim cyan]▶[/dim cyan]")
+    assert (
+        ConsoleDisplay._content_display_style(is_error=False, message_type=MessageType.HC) is None
+    )
+
+
 def test_show_assistant_message_auto_detect_renders_markdown_with_backticked_tokens() -> None:
     display = ConsoleDisplay(config=None)
     markdown_text = (

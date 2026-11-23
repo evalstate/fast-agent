@@ -746,7 +746,12 @@ class ConsoleDisplay:
     ) -> str | None:
         if is_error:
             return "dim red"
-        if message_type in (MessageType.USER, MessageType.ASSISTANT, MessageType.SYSTEM):
+        if message_type in (
+            MessageType.USER,
+            MessageType.HC,
+            MessageType.ASSISTANT,
+            MessageType.SYSTEM,
+        ):
             return None
         return "dim"
 
@@ -1652,8 +1657,9 @@ class ConsoleDisplay:
         image_previews: list["ImageRenderItem"] | None = None,
         part_count: int | None = None,
         show_hook_indicator: bool = False,
+        from_hc: bool = False,
     ) -> None:
-        """Display a user message in the new visual style."""
+        """Display a user message in the new visual style; ``from_hc`` input is set apart."""
         if not self._chat_output_enabled():
             return
 
@@ -1661,7 +1667,7 @@ class ConsoleDisplay:
 
         self.display_message(
             content=message,
-            message_type=MessageType.USER,
+            message_type=MessageType.HC if from_hc else MessageType.USER,
             name=name,
             right_info=self._user_message_right_info(
                 chat_turn=chat_turn,
