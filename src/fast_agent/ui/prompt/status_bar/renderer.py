@@ -244,10 +244,9 @@ def render_input_toolbar(
         attachment_summary=attachment_summary.summary,
     )
     hc_attachments = current_hc_attachments()
+    warm_segment = _build_warm_segment(agent_provider, agent_name)
     notification_segment = (
-        _build_hc_services_segment(hc_attachments)
-        + _build_warm_segment(agent_provider, agent_name)
-        + _build_notification_segment()
+        _build_hc_services_segment(hc_attachments) + warm_segment + _build_notification_segment()
     )
     copy_notice_segment = _build_copy_notice_segment(
         copy_notice,
@@ -261,13 +260,15 @@ def render_input_toolbar(
         mode=mode,
         suffix_width=_toolbar_markup_width(f"{notification_segment}{copy_notice_segment.html}"),
     )
+    # Keep the version visible on startup, but yield its space once cache warmth is shown.
+    version_segment = "" if warm_segment else f"fast-agent {app_version}"
     toolbar_identity_segment = _resolve_toolbar_identity_segment(
         shell_state=shell_state,
         middle=middle,
         agent_identity_segment=agent_identity_segment,
         mode_style=mode.style,
         mode_text=mode.text,
-        version_segment=f"fast-agent {app_version}",
+        version_segment=version_segment,
         notification_segment=notification_segment,
         copy_notice_segment=copy_notice_segment.html,
         shell_path_switch_delay_seconds=shell_path_switch_delay_seconds,
@@ -811,7 +812,8 @@ def _build_hc_services_segment(attachments: HcAttachments) -> str:
     if attachments.resuming or not attachments.services:
         return ""
     summary = format_status_summary(attachments, 0)
-    return f" | {_toolbar_style_segment(f'hc: {summary}', foreground='ansicyan')}"
+    # bottom-toolbar renders with reverse video, so fg=black/bg=cyan is quiet cyan text.
+    return f" | {_toolbar_style_segment(f'hc: {summary}', foreground='ansiblack', background='ansicyan')}"
 
 
 def _hc_waiting_badge(attachments: HcAttachments, *, compact: bool) -> str:
@@ -824,13 +826,14 @@ def _hc_waiting_badge(attachments: HcAttachments, *, compact: bool) -> str:
     else:
         names = ", ".join(child.name or child.address for child in resuming[:2])
         more = f" +{len(resuming) - 2}" if len(resuming) > 2 else ""
-        label = f"⧗ waiting: {names}{more}"
+        label = f"⧗ {names}{more}"
     waiting_since = hc_waiting_since()
     if waiting_since is not None and (
         elapsed := format_hc_elapsed(time.monotonic() - waiting_since)
     ):
         label = f"{label} · {elapsed}"
-    return _toolbar_style_segment(label, foreground="ansiblack", background="ansicyan", padded=True)
+    # bottom-toolbar renders with reverse video, so fg=cyan/bg=black is a crisp cyan pill.
+    return _toolbar_style_segment(label, foreground="ansicyan", background="ansiblack", padded=True)
 
 
 def _with_hc_waiting_badge(
@@ -942,9 +945,16 @@ def _resolve_toolbar_identity_segment(
         )
 
     working_dir = shell_state.working_dir or Path.cwd()
-    if _can_fit_shell_path_and_version(working_dir, version_segment, available_width):
+    if version_segment and _can_fit_shell_path_and_version(
+        working_dir, version_segment, available_width
+    ):
         return ToolbarIdentitySegment(
             html=_fit_shell_identity_for_toolbar(working_dir, version_segment, available_width),
+            show_shell_path_segment=True,
+        )
+    if not version_segment:
+        return ToolbarIdentitySegment(
+            html=_fit_shell_path_for_toolbar(working_dir, available_width),
             show_shell_path_segment=True,
         )
 
@@ -985,6 +995,9 @@ def _build_toolbar_html(
     notification_segment: str,
     copy_notice_segment: str,
 ) -> HTML:
+    suffix = f"{notification_segment}{copy_notice_segment}"
+    if not toolbar_identity_segment and suffix.startswith(" | "):
+        suffix = suffix[3:]
     return HTML(
         (
             _format_toolbar_prefix(
@@ -993,6 +1006,6 @@ def _build_toolbar_html(
                 mode_style=mode_style,
                 mode_text=mode_text,
             )
-            + f"{toolbar_identity_segment}{notification_segment}{copy_notice_segment}"
+            + f"{toolbar_identity_segment}{suffix}"
         )
     )

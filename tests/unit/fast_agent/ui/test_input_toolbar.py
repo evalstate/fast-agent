@@ -653,7 +653,8 @@ def _render_toolbar_text(
 _WAITING = HcAttachments(
     resuming=(HcChild("t2", "probe"), HcChild("t3"), HcChild("t4", "review")), services=1
 )
-_BADGE_STYLE = "<style fg='ansiblack' bg='ansicyan'>"
+# bottom-toolbar renders in reverse video: fg=cyan/bg=black is the cyan pill.
+_BADGE_STYLE = "<style fg='ansicyan' bg='ansiblack'>"
 
 
 def test_toolbar_badge_on_the_left_names_the_children_that_will_resume_the_session(
@@ -663,8 +664,8 @@ def test_toolbar_badge_on_the_left_names_the_children_that_will_resume_the_sessi
         monkeypatch, width=200, attachments=_WAITING, waited_seconds=130
     )
 
-    assert f"{_BADGE_STYLE} ⧗ waiting: probe, t3 +1 · 2m </style>" in markup
-    assert text.index(" dev ") < text.index("⧗ waiting") < text.index("NRM")
+    assert f"{_BADGE_STYLE} ⧗ probe, t3 +1 · 2m </style>" in markup
+    assert text.index(" dev ") < text.index("⧗ probe") < text.index("NRM")
     assert text.endswith("fast-agent 1.2.3")
     # The badge already says it; services are not repeated on the right.
     assert "service" not in text
@@ -678,7 +679,7 @@ def test_toolbar_badge_compacts_and_drops_the_version_in_narrow_panes(
     )
 
     assert f"{_BADGE_STYLE} ⧗ 3 </style>" in markup
-    assert "waiting:" not in text and "fast-agent" not in text
+    assert "probe" not in text and "fast-agent" not in text
 
 
 def test_toolbar_drops_the_version_rather_than_overflow_a_narrow_pane(
@@ -691,6 +692,21 @@ def test_toolbar_drops_the_version_rather_than_overflow_a_narrow_pane(
     assert "fast-agent" not in narrow
 
 
+def test_toolbar_drops_version_when_cache_warmth_is_displayed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        renderer,
+        "_build_warm_segment",
+        lambda *_args: " | <style fg='ansigreen' bg='ansiblack'>warm ✓ 10/10</style>",
+    )
+    _, text = _render_toolbar_text(monkeypatch, width=200)
+
+    assert "warm ✓ 10/10" in text
+    assert "fast-agent" not in text
+    assert "|  |" not in text
+
+
 def test_toolbar_services_alone_are_quiet_text_not_a_badge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -698,5 +714,5 @@ def test_toolbar_services_alone_are_quiet_text_not_a_badge(
         monkeypatch, width=200, attachments=HcAttachments(services=1)
     )
 
-    assert " | <style fg='ansicyan' bg='ansiblack'>hc: 1 service</style>" in markup
+    assert " | <style fg='ansiblack' bg='ansicyan'>hc: 1 service</style>" in markup
     assert "⧗" not in text and _BADGE_STYLE not in markup
