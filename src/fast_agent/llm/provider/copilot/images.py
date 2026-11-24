@@ -21,7 +21,8 @@ if TYPE_CHECKING:
     from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
 
 logger = logging.getLogger(__name__)
-_MAX_URL_IMAGES = 20
+MAX_MESSAGES_URL_IMAGES = 20
+MAX_RESPONSES_URL_IMAGES = 50
 _UPLOAD_TIMEOUT_SECONDS = 60
 _UPLOAD_URL = "https://uploads.github.com/copilot/chat/attachments"
 
@@ -58,7 +59,12 @@ class CopilotImageUploads:
                             if slot in item:
                                 item[slot] = deepcopy(item[slot])
                                 self._content(item[slot], blocks)
-        remaining = max(0, _MAX_URL_IMAGES - sum(self._is_url(block) for block in blocks))
+        url_cap = (
+            MAX_RESPONSES_URL_IMAGES
+            if endpoint.wire_api == "responses"
+            else MAX_MESSAGES_URL_IMAGES
+        )
+        remaining = max(0, url_cap - sum(self._is_url(block) for block in blocks))
         # Repeated history images need only one decode/resize per request, including
         # inline overflow. Keep image bytes request-local rather than in the URL cache.
         resized: dict[tuple[str, str], tuple[bytes, str]] = {}

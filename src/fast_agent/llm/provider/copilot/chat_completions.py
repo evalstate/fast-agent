@@ -21,7 +21,7 @@ from fast_agent.llm.provider.copilot.models import CopilotModelSpec, get_copilot
 from fast_agent.llm.provider.copilot.openai_client import create_openai_client
 from fast_agent.llm.provider.copilot.policy import apply_policy, reject_files, reject_overrides
 from fast_agent.llm.provider.openai.llm_openai import EmptyStreamError, OpenAILLM
-from fast_agent.llm.provider.openai.request_images import ChatRequestImageFitter, ImageBudget
+from fast_agent.llm.provider.request_images import ChatRequestImageFitter, ImageBudget
 from fast_agent.llm.provider.streaming_timeouts import StreamIdleTimeoutError
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -82,6 +82,10 @@ class CopilotChatCompletionsLLM(OpenAILLM):
             != "chat_completions"
         ):
             raise ValueError("Copilot Chat Completions requires a Chat Completions model.")
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        super().clear(clear_prompts=clear_prompts)
+        self._image_fitter.reset_watermark()
 
     def _openai_reasoning_settings(self) -> None:
         return None

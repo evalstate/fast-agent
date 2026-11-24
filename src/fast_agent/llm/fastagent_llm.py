@@ -905,6 +905,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         exception_module_roots = {
             exception_type.__module__.partition(".")[0] for exception_type in type(error).__mro__
         }
+        if "anthropic" in exception_module_roots:
+            from anthropic import APIStatusError as AnthropicAPIStatusError
+
+            return isinstance(error, AnthropicAPIStatusError) and error.status_code == 413
         if "openai" in exception_module_roots:
             from openai import APIStatusError as OpenAIAPIStatusError
 
@@ -935,9 +939,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         }
         if "anthropic" in exception_module_roots:
             from anthropic import BadRequestError as AnthropicBadRequestError
-            from anthropic import RequestTooLargeError as AnthropicRequestTooLargeError
 
-            if isinstance(error, (AnthropicBadRequestError, AnthropicRequestTooLargeError)):
+            if isinstance(error, AnthropicBadRequestError):
                 return True
 
         if "openai" in exception_module_roots:
