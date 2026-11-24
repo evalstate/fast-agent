@@ -536,8 +536,17 @@ class AgentCardRuntimeMixin:
             self._agent_card_name_by_path.pop(path_entry, None)
             self._agent_card_file_cache.pop(path_entry, None)
 
+    _cli_image_gen_override: bool | str | None = None
+
     def _register_changed_agent_cards(self, changed_cards: list["LoadedAgentCard"]) -> None:
+        override = self._cli_image_gen_override
         for card in changed_cards:
+            if override is not None:
+                card_config = card.agent_data.get("config")
+                if isinstance(card_config, AgentConfig) and not bool(
+                    card.agent_data.get("tool_only", False)
+                ):
+                    card_config.image_gen = override
             self.agents[card.name] = card.agent_data
             self._agent_card_sources[card.name] = card.path
             self._agent_card_name_by_path[card.path] = card.name

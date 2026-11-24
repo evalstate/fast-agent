@@ -531,6 +531,17 @@ def _build_agent_data(
     )
     if "subagent_model" in raw and subagent_model is None:
         raise AgentConfigError(f"'subagent_model' must be a non-empty string in {path}")
+    image_gen_value = raw.get("image_gen")
+    image_gen: bool | str | None = None
+    if "image_gen" in raw:
+        if isinstance(image_gen_value, bool):
+            image_gen = image_gen_value
+        elif isinstance(image_gen_value, str) and image_gen_value.strip():
+            image_gen = image_gen_value.strip()
+        else:
+            raise AgentConfigError(
+                f"'image_gen' must be a boolean or non-empty model string in {path}"
+            )
     harness_tools = _ensure_bool(raw.get("harness_tools"), "harness_tools", path, default=False)
     if harness_tools and tool_only:
         raise AgentConfigError(f"'harness_tools' cannot be enabled on a tool-only agent in {path}")
@@ -564,6 +575,7 @@ def _build_agent_data(
         tool_only=tool_only,
         subagents=subagents,
         subagent_model=subagent_model,
+        image_gen=image_gen,
         harness_tools=harness_tools,
         api_key=api_key,
         function_tools=function_tools,
@@ -1108,6 +1120,13 @@ def _serialize_optional_common_fields(
         "subagent_model",
         config.subagent_model,
         when=config.subagent_model is not None,
+    )
+    _set_allowed(
+        card,
+        allowed_fields,
+        "image_gen",
+        config.image_gen,
+        when=config.image_gen is not None,
     )
     _set_allowed(
         card,

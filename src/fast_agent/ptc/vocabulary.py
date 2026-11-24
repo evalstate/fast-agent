@@ -51,7 +51,7 @@ class PtcBuiltinNameReserver(Protocol):
     def reserve_ptc_builtin_name(self, name: str) -> bool: ...
 
 
-BUILTIN_TOOL_OWNERS: Final = frozenset({"harness", "subagent", "elicitation"})
+BUILTIN_TOOL_OWNERS: Final = frozenset({"harness", "subagent", "elicitation", "image_gen"})
 """``meta["fast_agent"]["builtin"]`` values of tools the fast-agent runtime installs."""
 
 

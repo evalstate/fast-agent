@@ -80,6 +80,8 @@ class AgentRunRequest:
     trajectory_format: Literal["atif"] = "atif"
     subagents: bool | None = None
     subagent_model: str | None = None
+    image_gen: bool | None = None
+    image_gen_model: str | None = None
     model_base_url: str | None = None
     isolated: bool = False
     ptc: bool | None = None
@@ -106,6 +108,10 @@ class AgentRunRequest:
             raise ValueError("--subagent-model cannot be combined with --no-subagents")
         if self.subagent_model is not None:
             self.subagents = True
+        if self.image_gen is False and self.image_gen_model is not None:
+            raise ValueError("--image-gen-model cannot be combined with --no-image-gen")
+        if self.image_gen_model is not None:
+            self.image_gen = True
 
     def _validate_timeout(self) -> None:
         if self.timeout_seconds is not None and self.timeout_seconds < 1:
@@ -215,6 +221,8 @@ class AgentRunRequest:
             "no_shell": self.no_shell,
             "subagents": self.subagents,
             "subagent_model": self.subagent_model,
+            "image_gen": self.image_gen,
+            "image_gen_model": self.image_gen_model,
             "model_base_url": self.model_base_url,
             "prefer_local_shell": self.prefer_local_shell,
             "acp_client_tools": self.acp_client_tools,

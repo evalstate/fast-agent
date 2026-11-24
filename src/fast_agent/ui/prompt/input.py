@@ -755,6 +755,11 @@ async def _show_input_startup(
         is_human_input=is_human_input,
         session_manager=session_manager,
     )
+    if not is_human_input:
+        input_startup.show_image_gen_startup(
+            agent_name=agent_name,
+            agent_provider=agent_provider,
+        )
     if agent_provider and _startup_notices:
         _render_startup_notices(agent_name=agent_name, agent_provider=agent_provider)
     rich_print()

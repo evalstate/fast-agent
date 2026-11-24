@@ -157,6 +157,12 @@ class A2APromptStatusAgent(Protocol):
     def prompt_status_line(self) -> str | None: ...
 
 
+@runtime_checkable
+class ImageGenStartupProvider(Protocol):
+    @property
+    def image_gen_model(self) -> str | None: ...
+
+
 class ShellInputContextLike(Protocol):
     enabled: bool
     access_modes: tuple[str, ...]
@@ -561,6 +567,26 @@ def render_startup_notices(
     notices.clear()
 
 
+def show_image_gen_startup(
+    *,
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+) -> None:
+    if agent_provider is None:
+        return
+    try:
+        agent = agent_provider._agent(agent_name)
+    except Exception:
+        return
+    if not isinstance(agent, ImageGenStartupProvider):
+        return
+    model_spec = agent.image_gen_model
+    if model_spec:
+        rich_print(
+            f"[dim]Image generation enabled ([/dim][cyan]{escape_markup(model_spec)}[/cyan][dim])[/dim]"
+        )
+
+
 def show_a2a_prompt_status(
     *,
     agent_name: str,
@@ -586,6 +612,7 @@ __all__ = [
     "render_startup_notices",
     "show_a2a_prompt_status",
     "show_fast_agent_home_summary",
+    "show_image_gen_startup",
     "show_input_help_banner",
     "show_model_shortcut_hints",
     "show_shell_startup",

@@ -116,7 +116,7 @@ With local shell access, every model gets the same keyword-only functions:
 - No `read_text_file`: code reads files with `open()`/`pathlib`, and the skills prompt,
   `attach_media` and retained-output notices say so. Add `read_text_file` to
   `ptc.direct_tools` to keep it as a direct tool.
-- `subagent`, `attach_media`, and `get_resource` keep their names when enabled.
+- `subagent`, `attach_media`, `get_resource`, `generate_image`, and `edit_image` keep their names when enabled.
   The code tool remains `exec_sandbox` (JSON `code` or freeform `input`).
 
 Return values are unchanged.
@@ -1092,6 +1092,24 @@ managed-process polling exchanges are collapsed before the next model call:
   validated.
 - `on` forces folding for every model.
 - `off` preserves every poll exchange in model history.
+
+## Image Generation Settings
+
+Configure defaults for the built-in `generate_image` and `edit_image` tools (enabled via `--image-gen`, `--image-gen-model`, or `image_gen` in an AgentCard):
+
+```yaml
+image_gen:
+  # Default model spec (also supports ?complexity=high or ?resolution=2k)
+  model: codexresponses.gpt-image-2.6-flare
+  # Directory for auto-saved images (defaults to <environment_dir>/images)
+  output_dir: .fast-agent/images
+  # Optional OpenAI GPT-Image-2.6 complexity default: low | medium | high
+  complexity: medium
+  # Optional xAI Imagine resolution default: 1k | 2k
+  resolution: 2k
+```
+
+Supported routes are OpenAI (`OPENAI_API_KEY`), OpenAI Codex OAuth (`fast-agent auth provider login codex`), and xAI (`XAI_API_KEY` or `fast-agent auth provider login xai`).
 
 ## LLM Retries
 
