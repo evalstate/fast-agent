@@ -101,6 +101,27 @@ def test_tty_probe_reports_observed_support_not_terminal_brand(monkeypatch) -> N
     assert "Not checked" in report.model_image_support
 
 
+def test_detached_herdr_core_probe_note_explains_halfcell_fallback(monkeypatch) -> None:
+    from textual_image import _terminal
+
+    class FakeHalfcell:
+        pass
+
+    monkeypatch.setenv("HC_TERMINAL_ID", "t99")
+    monkeypatch.setattr(terminal, "_interactive_terminal", lambda: True)
+    monkeypatch.setattr(terminal, "prepare_terminal_image_probe", lambda: None)
+    monkeypatch.setattr(
+        _terminal,
+        "probe_terminal",
+        lambda: _terminal.TerminalCapabilities(_terminal.CellSize(10, 20), False, False),
+    )
+    monkeypatch.setattr(terminal, "_resolve_textual_image_class", lambda backend: FakeHalfcell)
+    report = terminal.inspect_terminal(TerminalImageSettings(), json_output=False)
+    assert report.reported_kitty is False
+    assert report.reported_sixel is False
+    assert "interactive viewer" in report.probe_note
+
+
 def test_failed_probe_is_diagnostic_not_traceback(monkeypatch) -> None:
     monkeypatch.setattr(terminal, "_interactive_terminal", lambda: True)
 

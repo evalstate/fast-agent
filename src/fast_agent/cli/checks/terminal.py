@@ -68,6 +68,7 @@ def _interactive_terminal() -> bool:
 def inspect_terminal(settings: TerminalImageSettings, *, json_output: bool) -> TerminalCheck:
     state: Literal["completed", "skipped", "failed"] = "skipped"
     note = "Active probing requires interactive stdin/stdout and non-JSON output."
+    hc_terminal_id = os.environ.get("HC_TERMINAL_ID")
     kitty = sixel = None
     width = height = None
     renderer = None
@@ -84,6 +85,12 @@ def inspect_terminal(settings: TerminalImageSettings, *, json_output: bool) -> T
                 "Capabilities reported by the terminal, not inferred from TERM_PROGRAM. "
                 "Cell size may be the library fallback if the terminal did not supply one."
             )
+            if hc_terminal_id and hc_terminal_id.strip() and not kitty and not sixel:
+                note += (
+                    " Herdr core relays Kitty graphics queries only while an interactive viewer "
+                    "is attached; detached or observe-only terminals use half-cell so rendered "
+                    "images remain in the cell grid."
+                )
             if settings.enabled and settings.backend != "none":
                 image_cls = _resolve_textual_image_class(settings.backend)
                 if image_cls is not None:
@@ -98,7 +105,7 @@ def inspect_terminal(settings: TerminalImageSettings, *, json_output: bool) -> T
         stdout_tty=sys.stdout is not None and sys.stdout.isatty(),
         term=os.environ.get("TERM"),
         term_program=os.environ.get("TERM_PROGRAM"),
-        hc_terminal_id=os.environ.get("HC_TERMINAL_ID"),
+        hc_terminal_id=hc_terminal_id,
         images_enabled=settings.enabled,
         configured_backend=settings.backend,
         probe=state,
