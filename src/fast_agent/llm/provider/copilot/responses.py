@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any, Final
 from uuid import uuid4
 
 from fast_agent.event_progress import ProgressAction
@@ -13,7 +14,7 @@ from fast_agent.llm.prompt_cache import (
     uses_openai_minimum_cache_ttl,
 )
 from fast_agent.llm.provider.copilot import broker
-from fast_agent.llm.provider.copilot.images import CopilotImageUploads
+from fast_agent.llm.provider.copilot.images import MAX_RESPONSES_URL_IMAGES, CopilotImageUploads
 from fast_agent.llm.provider.copilot.models import get_copilot_model
 from fast_agent.llm.provider.copilot.openai_client import create_openai_client
 from fast_agent.llm.provider.copilot.policy import (
@@ -38,6 +39,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     merge_headers_case_insensitive,
     resolve_responses_ws_url,
 )
+from fast_agent.llm.provider.request_images import ImageBudget, request_bytes
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import guess_mime_type
 
@@ -48,6 +50,12 @@ if TYPE_CHECKING:
     from fast_agent.llm.provider.copilot.broker import CopilotEndpoint
     from fast_agent.llm.provider.copilot.models import CopilotModelSpec
     from fast_agent.types import PromptMessageExtended, RequestParams
+
+_RESPONSES_IMAGE_MAX_DIMENSION: Final = 2048
+_RESPONSES_IMAGE_REENCODE_MIN_BYTES: Final = 200_000
+_RESPONSES_MAX_IMAGE_BYTES: Final = 15 * 1024 * 1024
+_RESPONSES_MAX_REQUEST_BYTES: Final = 40 * 1024 * 1024
+_RESPONSES_LOW_WATER_REQUEST_BYTES: Final = 24 * 1024 * 1024
 
 
 class CopilotResponsesLLM(ResponsesLLM):
@@ -62,11 +70,49 @@ class CopilotResponsesLLM(ResponsesLLM):
         self._copilot_endpoint: ContextVar[CopilotEndpoint] = ContextVar(
             "copilot_responses_endpoint"
         )
+        self._copilot_body_overhead: ContextVar[int] = ContextVar(
+            "copilot_responses_body_overhead", default=0
+        )
         kwargs.pop("provider", None)
         super().__init__(provider=Provider.COPILOT, **kwargs)
         if get_copilot_model(self.default_request_params.model or "").wire_api != "responses":
             raise ValueError("Copilot Responses requires a Responses model.")
         self.set_web_search_enabled(self._web_search_override)
+
+    @staticmethod
+    def _copilot_image_budget(spec: CopilotModelSpec, overhead_bytes: int = 0) -> ImageBudget:
+        return ImageBudget(
+            max_dimension=_RESPONSES_IMAGE_MAX_DIMENSION,
+            reencode_min_bytes=_RESPONSES_IMAGE_REENCODE_MIN_BYTES,
+            max_request_bytes=max(0, _RESPONSES_MAX_REQUEST_BYTES - overhead_bytes),
+            low_water_request_bytes=max(0, _RESPONSES_LOW_WATER_REQUEST_BYTES - overhead_bytes),
+            max_images=spec.max_prompt_images,
+            max_image_bytes=_RESPONSES_MAX_IMAGE_BYTES,
+            url_image_slots=MAX_RESPONSES_URL_IMAGES,
+            max_url_images=MAX_RESPONSES_URL_IMAGES,
+        )
+
+    async def _normalize_request_files(
+        self,
+        client: AsyncOpenAI,
+        input_items: list[dict[str, Any]],
+        *,
+        display_model: str,
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> list[dict[str, Any]]:
+        overhead = self._responses_body_overhead(input_items, request_params, tools)
+        token = self._copilot_body_overhead.set(overhead)
+        try:
+            return await super()._normalize_request_files(
+                client,
+                input_items,
+                display_model=display_model,
+                request_params=request_params,
+                tools=tools,
+            )
+        finally:
+            self._copilot_body_overhead.reset(token)
 
     def _get_provider_config(self) -> None:
         return None
@@ -252,10 +298,37 @@ class CopilotResponsesLLM(ResponsesLLM):
             uploaded = True
             self._log_upload_progress(count, total, model=display_model, noun="image")
 
+        spec = get_copilot_model(endpoint.model_id)
+        budget = self._copilot_image_budget(spec, self._copilot_body_overhead.get())
+        fitted_payload, report = self._image_fitter.fit({"input": input_items}, budget)
+        if report.changed:
+            self.logger.info(
+                "Fitted inline images to Copilot Responses request budget",
+                data={
+                    "model": endpoint.model_id,
+                    "images": report.images,
+                    "resized": report.resized,
+                    "reencoded": report.reencoded,
+                    "omitted": report.omitted,
+                    "request_bytes_before": report.request_bytes_before,
+                    "request_bytes_after": report.request_bytes_after,
+                    "dimensions": report.dimensions,
+                },
+            )
         # Copilot attachments are distinct from the unsupported OpenAI Files API.
         normalized = await self._image_uploads.normalize(
-            {"input": input_items}, endpoint, on_progress=on_progress
+            {"input": fitted_payload["input"]}, endpoint, on_progress=on_progress
         )
+        if (
+            report.images
+            and budget.max_request_bytes is not None
+            and request_bytes(normalized) > budget.max_request_bytes
+        ):
+            normalized, _ = self._image_fitter.fit(
+                normalized,
+                replace(budget, url_image_slots=0),
+                update_watermark=False,
+            )
         if uploaded:
             # Uploads run after the Sending event here; restore it for the request.
             self._log_chat_progress(self.chat_turn(), model=display_model)

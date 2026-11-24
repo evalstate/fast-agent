@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from functools import partial
@@ -97,6 +98,12 @@ from fast_agent.llm.provider.openai.web_tools import (
     resolve_web_search,
 )
 from fast_agent.llm.provider.reasoning_config import reasoning_setting_from_config
+from fast_agent.llm.provider.request_images import (
+    ImageBudget,
+    ResponsesRequestImageFitter,
+    has_responses_images,
+    request_bytes,
+)
 from fast_agent.llm.provider.streaming_timeouts import (
     enter_stream_with_timeout,
     with_stream_idle_timeout,
@@ -226,6 +233,18 @@ class _ResponsesWsFailureDiagnostic:
 _CLOSE_KINDS = frozenset(
     {"close_frame_received", "no_close_frame", "close_code", "no_close_code", "unknown"}
 )
+
+
+def _strip_omit_values(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {
+            key: _strip_omit_values(item)
+            for key, item in value.items()
+            if not isinstance(item, Omit)
+        }
+    if isinstance(value, list):
+        return [_strip_omit_values(item) for item in value if not isinstance(item, Omit)]
+    return value
 
 
 def _close_snapshot_fields(
@@ -360,6 +379,7 @@ class ResponsesLLM(
             RESPONSES_WS_RECONNECT_OUTCOME: 0,
         }
         self._file_id_cache: dict[str, str] = {}
+        self._image_fitter = ResponsesRequestImageFitter()
         self._transport: ResponsesTransport = self._default_transport_setting()
         self._last_transport_used: ResponsesActiveTransport | None = None
         self._ws_connections = WebSocketConnectionManager(
@@ -1684,12 +1704,34 @@ class ResponsesLLM(
         append_retry_channel(retry_message, [self._empty_completion_retry(diagnostics)])
         return retry_message
 
+    def _responses_image_budget(self, *, overhead_bytes: int = 0) -> ImageBudget | None:
+        del overhead_bytes
+        return None
+
+    def _responses_body_overhead(
+        self,
+        input_items: list[dict[str, Any]],
+        request_params: RequestParams | None,
+        tools: list[Tool] | None,
+    ) -> int:
+        if request_params is None or not has_responses_images(input_items):
+            return 0
+        shell_args = self._build_response_args([], request_params, tools)
+        shell_args.pop("extra_headers", None)
+        extra_body = shell_args.pop("extra_body", None)
+        if isinstance(extra_body, Mapping):
+            shell_args.update(extra_body)
+        wire_shell = _strip_omit_values(shell_args)
+        return max(0, request_bytes(wire_shell) - request_bytes({"input": []}))
+
     async def _normalize_request_files(
         self,
         client: AsyncOpenAI,
         input_items: list[dict[str, Any]],
         *,
         display_model: str,
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
     ) -> list[dict[str, Any]]:
         normalized, uploaded = await run_with_upload_progress(
             lambda: self._normalize_input_files(client, input_items),
@@ -1698,6 +1740,26 @@ class ResponsesLLM(
         if uploaded:
             # Uploads run after the Sending event here; restore it for the request.
             self._log_chat_progress(self.chat_turn(), model=display_model)
+        if self._responses_image_budget() is not None and has_responses_images(normalized):
+            overhead = self._responses_body_overhead(normalized, request_params, tools)
+            budget = self._responses_image_budget(overhead_bytes=overhead)
+            assert budget is not None
+            fitted, report = self._image_fitter.fit({"input": normalized}, budget)
+            if report.changed:
+                self.logger.info(
+                    "Fitted inline images to Responses request budget",
+                    data={
+                        "model": display_model,
+                        "images": report.images,
+                        "resized": report.resized,
+                        "reencoded": report.reencoded,
+                        "omitted": report.omitted,
+                        "request_bytes_before": report.request_bytes_before,
+                        "request_bytes_after": report.request_bytes_after,
+                        "dimensions": report.dimensions,
+                    },
+                )
+                normalized = fitted["input"]
         return normalized
 
     async def _responses_completion_sse(
@@ -1712,7 +1774,11 @@ class ResponsesLLM(
             await self._prepare_responses_client(model_name, "sse")
             async with self._responses_client() as client:
                 normalized_input = await self._normalize_request_files(
-                    client, input_items, display_model=model_name
+                    client,
+                    input_items,
+                    display_model=model_name,
+                    request_params=request_params,
+                    tools=tools,
                 )
                 arguments = self._build_response_args(normalized_input, request_params, tools)
                 if self._keep_warm_request:
@@ -1807,7 +1873,11 @@ class ResponsesLLM(
         async with self._responses_client() as client:
             phase_started_at = time.perf_counter()
             normalized_input = await self._normalize_request_files(
-                client, input_items, display_model=f"{model_name} [ws]"
+                client,
+                input_items,
+                display_model=f"{model_name} [ws]",
+                request_params=request_params,
+                tools=tools,
             )
             self._record_ws_phase(phase_timings, "normalize_input", phase_started_at)
 
@@ -2190,6 +2260,7 @@ class ResponsesLLM(
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)
+        self._image_fitter.reset_watermark()
         self._responses_prompt_cache_key = uuid4().hex
         self._tool_call_id_map.clear()
         self._tool_kind_map.clear()

@@ -139,6 +139,7 @@ The `codexresponses` provider is similar to `responses`, with these main differe
 
 - The `flex` service tier is **not supported**.
 - Remote MCP and Connectors are **not supported**.
+- The OpenAI Files API is **not supported**; local file and image inputs are sent inline, with large inline images normalized and batch-rotated per request to stay within WebSocket and SSE payload limits.
 - Output token limits are **not supported**; explicit `max_tokens` settings are rejected.
 - The supported model list includes `gpt-5.3-codex-spark`.
 - Billing is via the Codex subscription.

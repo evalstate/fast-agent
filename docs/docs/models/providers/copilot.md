@@ -323,15 +323,17 @@ Copilot credential; upload failures fall back to inline images.
 The adapter retains original image data in saved history. Upload URLs are cached
 in memory per adapter and credential (up to 128 entries, refreshed after 30
 minutes), not persisted into the session. Resuming a session uploads its images
-again as needed. At most 20 image URLs are used per request, including existing
-URL images; additional inline images remain inline rather than being dropped.
+again as needed. Per request, up to 20 image URLs are used on Messages and up to
+50 on Responses (including existing URL images); additional images remain inline.
 
-Messages images are proportionally resized to a maximum dimension of 2,000
-pixels before upload or inline fallback, avoiding the stricter dimension limit
-on many-image requests. JPEG stays JPEG; other resized formats become PNG
-(animated images are flattened to the first frame when resizing is necessary).
-This only changes the request representation, not the original files or history.
-It does not remove the provider's total image-count or context limits.
+Inline request images are deterministically normalized (proportionally resized to
+1,568 pixels on Messages and 2,048 pixels on Responses, with heavy opaque PNGs
+re-encoded as JPEG when smaller; animated Messages images above 2,000 pixels are
+flattened to the first frame). If a screenshot-heavy conversation still
+approaches the route's HTTP body limit before token compaction triggers, the
+oldest request images are omitted in a batch with a text placeholder down to a
+low-water mark so subsequent turns preserve prompt caching while canonical
+session history stays intact.
 
 Run the live smoke test with existing Copilot credentials (uses inference quota):
 

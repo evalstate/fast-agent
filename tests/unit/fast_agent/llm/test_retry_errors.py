@@ -80,16 +80,17 @@ def test_anthropic_bad_request_is_fatal() -> None:
     assert FastAgentLLM._is_fatal_retry_error(error) is True
 
 
-def test_anthropic_request_too_large_is_fatal() -> None:
+def test_anthropic_request_too_large_skips_retry_without_raising() -> None:
     request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx2.Response(413, request=request)
     error = AnthropicRequestTooLargeError(
-        "prompt is too long",
+        "Request body too large.",
         response=response,
         body={"error": {"type": "request_too_large"}},
     )
 
-    assert FastAgentLLM._is_fatal_retry_error(error) is True
+    assert FastAgentLLM._is_request_too_large(error) is True
+    assert FastAgentLLM._is_fatal_retry_error(error) is False
 
 
 def test_openai_api_error_subclass_outside_sdk_module_is_classified() -> None:

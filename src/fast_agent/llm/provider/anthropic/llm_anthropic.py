@@ -8,12 +8,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal, Protocol, cast, runtime_checkable
 
 from anthropic import (
     APIError,
     AsyncAnthropic,
     AuthenticationError,
+    RequestTooLargeError,
     Timeout,
     transform_schema,
 )
@@ -95,6 +96,12 @@ from fast_agent.llm.provider.anthropic.web_tools import (
     web_tool_progress_label,
 )
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
+from fast_agent.llm.provider.request_images import (
+    ImageBudget,
+    ImageFitReport,
+    MessagesRequestImageFitter,
+    request_bytes,
+)
 from fast_agent.llm.provider.streaming_timeouts import (
     _IdleTimeoutAsyncStream,
     await_stream_start,
@@ -167,6 +174,16 @@ logger = get_logger(__name__)
 
 _UNSET_TASK_BUDGET = object()
 
+# Anthropic bills images at ~1,600 tokens after downscaling to <=1,568 px, so
+# screenshot-heavy sessions can cross the 32 MiB HTTP body limit well before
+# token compaction triggers. Normalize inline images deterministically and
+# batch-evict down to a 16 MiB low-water mark when approaching 28 MiB.
+ANTHROPIC_IMAGE_MAX_DIMENSION: Final = 1568
+ANTHROPIC_IMAGE_REENCODE_MIN_BYTES: Final = 200_000
+ANTHROPIC_MAX_IMAGE_BYTES: Final = 3_750_000
+ANTHROPIC_MAX_REQUEST_BYTES: Final = 28 * 1024 * 1024
+ANTHROPIC_LOW_WATER_REQUEST_BYTES: Final = 16 * 1024 * 1024
+
 
 @runtime_checkable
 class _ModelDumpable(Protocol):
@@ -211,6 +228,7 @@ class _AnthropicWireRequest:
     params: RequestParams
     structured: _AnthropicStructuredMode
     cache_diagnostics_enabled: bool
+    has_images: bool = False
 
 
 @dataclass(slots=True)
@@ -441,6 +459,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         )
         self._file_id_cache: dict[str, str] = {}
         self._cache_diagnostics_previous_message_id: str | None = None
+        self._image_fitter = MessagesRequestImageFitter()
 
         raw_setting = kwargs.get("reasoning_effort")
         config = self._anthropic_settings()
@@ -462,6 +481,62 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
 
         # Explicit long-context (1M) opt-in setup for pre-4.6 models.
         self._configure_anthropic_long_context(long_context_requested, model_name)
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        super().clear(clear_prompts=clear_prompts)
+        self._image_fitter.reset_watermark()
+
+    def _anthropic_image_budget(self) -> ImageBudget:
+        return ImageBudget(
+            max_dimension=ANTHROPIC_IMAGE_MAX_DIMENSION,
+            reencode_min_bytes=ANTHROPIC_IMAGE_REENCODE_MIN_BYTES,
+            max_request_bytes=ANTHROPIC_MAX_REQUEST_BYTES,
+            low_water_request_bytes=ANTHROPIC_LOW_WATER_REQUEST_BYTES,
+            max_image_bytes=ANTHROPIC_MAX_IMAGE_BYTES,
+        )
+
+    async def _fit_anthropic_request_images(
+        self,
+        base_args: dict[str, Any],
+        *,
+        model: str,
+    ) -> tuple[dict[str, Any], ImageFitReport]:
+        budget = self._anthropic_image_budget()
+        fitted, report = self._image_fitter.fit(base_args, budget)
+        if report.changed:
+            logger.info(
+                "Fitted inline images to Messages request budget",
+                data={
+                    "model": model,
+                    "images": report.images,
+                    "resized": report.resized,
+                    "reencoded": report.reencoded,
+                    "omitted": report.omitted,
+                    "request_bytes_before": report.request_bytes_before,
+                    "request_bytes_after": report.request_bytes_after,
+                    "dimensions": report.dimensions,
+                },
+            )
+        return fitted, report
+
+    def _anthropic_413_retry_budget(self, sent_bytes: int) -> ImageBudget:
+        # Wire images are already normalized; omit older slots without re-encoding
+        # surviving JPEGs so the resend prefix stays byte-identical on canonical replay.
+        return ImageBudget(
+            max_dimension=None,
+            reencode_min_bytes=None,
+            max_request_bytes=sent_bytes // 2,
+            low_water_request_bytes=sent_bytes // 4,
+        )
+
+    async def _prepare_anthropic_413_retry_arguments(
+        self,
+        arguments: dict[str, Any],
+        retry_budget: ImageBudget,
+        omitted: int,
+    ) -> tuple[dict[str, Any], int]:
+        del retry_budget
+        return arguments, omitted
 
     def _configure_anthropic_reasoning(
         self,
@@ -3014,6 +3089,9 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         if provider_mcp_payload.servers:
             base_args["mcp_servers"] = provider_mcp_payload.servers
 
+        base_args, image_report = await self._fit_anthropic_request_images(base_args, model=model)
+        request.messages = cast("list[BetaMessageParam]", base_args["messages"])
+
         # Use the base class method to prepare all arguments with Anthropic-specific exclusions
         # Do this BEFORE applying cache control so metadata doesn't override cached fields
         arguments = self.prepare_provider_arguments(
@@ -3040,6 +3118,7 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
             params=request.params,
             structured=structured,
             cache_diagnostics_enabled=cache_diagnostics_enabled,
+            has_images=bool(image_report.images),
         )
 
     async def _anthropic_completion(
@@ -3078,6 +3157,46 @@ class AnthropicLLM(FastAgentLLM[BetaMessageParam, BetaMessage]):
         _save_stream_request(capture_filename, arguments)
 
         try:
+            (
+                response,
+                thinking_segments,
+                streamed_text_segments,
+            ) = await self._execute_anthropic_stream(
+                anthropic=request.client,
+                arguments=arguments,
+                model=model,
+                capture_filename=capture_filename,
+                timeout_seconds=request.params.streaming_timeout,
+            )
+        except RequestTooLargeError:
+            if not request.has_images:
+                raise
+            sent = request_bytes(arguments)
+            retry_budget = self._anthropic_413_retry_budget(sent)
+            retry_args, retry_report = self._image_fitter.fit(
+                arguments,
+                retry_budget,
+                update_watermark=False,
+            )
+            if not retry_report.changed:
+                raise
+            arguments, total_omitted = await self._prepare_anthropic_413_retry_arguments(
+                retry_args,
+                retry_budget,
+                retry_report.omitted,
+            )
+            self._image_fitter.record_extra_evictions(total_omitted)
+            request.messages = cast("list[BetaMessageParam]", arguments["messages"])
+            logger.warning(
+                "Provider rejected the Messages request as too large (413); resending with fewer images",
+                data={
+                    "model": model,
+                    "request_bytes": sent,
+                    "retry_request_bytes": request_bytes(arguments),
+                    "omitted": total_omitted,
+                },
+            )
+            _save_stream_request(capture_filename, arguments)
             (
                 response,
                 thinking_segments,
