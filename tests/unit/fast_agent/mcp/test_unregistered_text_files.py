@@ -11,7 +11,6 @@ from fast_agent.mcp.resource_utils import load_resource_content
 TEXT_FILES = {
     "main.go": "package main\n\nfunc main() {}\n",
     "App.tsx": "export default () => <div>café</div>;\n",
-    "deploy.yaml": "name: demo\nreplicas: 2\n",
 }
 
 
