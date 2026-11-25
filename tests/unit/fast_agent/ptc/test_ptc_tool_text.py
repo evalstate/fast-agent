@@ -67,7 +67,7 @@ _SHELL = Tool(
     ("code", "hinted"),
     [
         ("print(str.maketrans('ab', 'ba'))", True),
-        ("print((5).bit_length())", True),
+        ("print((5).to_bytes(2, 'big'))", True),
         ("import difflib", True),
         ("x = {'a': 1}\nprint(x['b'])", False),
     ],

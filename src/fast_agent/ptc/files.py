@@ -26,8 +26,10 @@ _MAX_DIRECTORY_ENTRIES = 10_000
 _MAX_DIRECTORY_PATH_BYTES = 4 * 1024 * 1024
 _WRITE_OPERATIONS = frozenset(
     {
+        "Path.create_exclusive",
         "Path.write_text",
         "Path.write_bytes",
+        "Path.write_bytes_at",
         "Path.append_text",
         "Path.append_bytes",
         "Path.mkdir",
@@ -62,7 +64,9 @@ class SandboxFilesystem(AbstractOS):
         return self._run(name, args, kwargs)
 
     async def _run(self, name: OsFunction, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
-        writing = name in _WRITE_OPERATIONS or (name == "open" and args[1][0] != "r")
+        writing = name in _WRITE_OPERATIONS or (
+            name == "open" and (args[1][0] != "r" or "+" in args[1])
+        )
         if not (self._write if writing else self._read):
             raise PermissionError(
                 "Local filesystem "
@@ -124,6 +128,19 @@ class SandboxFilesystem(AbstractOS):
         with _regular_file(Path(path_from_arg(path)), "ab") as stream:
             return stream.write(data)
 
+    def path_write_bytes_at(
+        self, path: PurePosixPath | MontyFileHandle, offset: int, data: bytes
+    ) -> int:
+        if offset < 0 or offset + len(data) > 2**63 - 1:
+            raise ValueError("write range exceeds the supported file-position range")
+        with _regular_file(Path(path_from_arg(path)), "rb+") as stream:
+            if not data:
+                return 0
+            if offset > os.fstat(stream.fileno()).st_size:
+                raise ValueError("write offset is past the end of the file")
+            stream.seek(offset)
+            return stream.write(data)
+
     def path_exists(self, path: PurePosixPath) -> bool:
         return Path(path).exists()
 
@@ -176,10 +193,10 @@ class SandboxFilesystem(AbstractOS):
             for entry in iterator:
                 size += 4 * len(entry.path)
                 if len(entries) >= _MAX_DIRECTORY_ENTRIES or size > _MAX_DIRECTORY_PATH_BYTES:
-                    raise OSError(
-                        errno.EFBIG,
-                        "Directory listing too large for sandbox file access",
-                        str(path),
+                    # RuntimeError (not OSError) so AbstractOS.path_scan does not swallow it
+                    # on subdirectories and silently return an empty listing.
+                    raise RuntimeError(
+                        f"Directory listing too large for sandbox file access: {path}"
                     )
                 entries.append(PurePosixPath(entry.path))
         return entries
@@ -194,7 +211,9 @@ class SandboxFilesystem(AbstractOS):
 
 @contextmanager
 def _regular_file(path: Path, mode: str) -> Generator[IO[Any]]:
-    flags = os.O_RDONLY if mode[0] == "r" else os.O_WRONLY | os.O_CREAT
+    flags = os.O_RDWR if "+" in mode else (os.O_RDONLY if mode[0] == "r" else os.O_WRONLY)
+    if mode[0] != "r":
+        flags |= os.O_CREAT
     if mode[0] == "w":
         flags |= os.O_TRUNC
     elif mode[0] == "a":

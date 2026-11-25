@@ -636,3 +636,85 @@ async def test_local_environment_filesystem_cwd_without_a_shell(tmp_path) -> Non
     finally:
         await agent.shutdown()
         await environment.close()
+
+
+@pytest.mark.asyncio
+async def test_positional_write_and_update_mode_enforce_read_and_write_permissions(
+    tmp_path,
+) -> None:
+    from pathlib import PurePosixPath
+
+    from fast_agent.ptc.files import SandboxFilesystem
+
+    target = tmp_path / "data.bin"
+    target.write_bytes(b"hello world")
+
+    read_only = SandboxFilesystem(read=True, write=False)
+    with pytest.raises(PermissionError, match="writing is not enabled"):
+        await read_only(
+            name="Path.write_bytes_at",
+            args=(PurePosixPath(target.as_posix()), 0, b"HELLO"),
+            kwargs={},
+            is_async=True,
+        )
+    with pytest.raises(PermissionError, match="writing is not enabled"):
+        await read_only(
+            name="open",
+            args=(PurePosixPath(target.as_posix()), "w+b"),
+            kwargs={},
+            is_async=True,
+        )
+    assert target.read_bytes() == b"hello world"
+
+    write_only = SandboxFilesystem(read=False, write=True)
+    with pytest.raises(PermissionError, match="reading is not enabled"):
+        await write_only(
+            name="Path.read_bytes",
+            args=(PurePosixPath(target.as_posix()),),
+            kwargs={},
+            is_async=True,
+        )
+    assert target.read_bytes() == b"hello world"
+
+
+@pytest.mark.asyncio
+async def test_binary_chunked_write_past_read_limit_and_positional_overwrite(tmp_path) -> None:
+    from pathlib import PurePosixPath
+
+    from pydantic_monty import AsyncMonty
+
+    from fast_agent.ptc.files import MAX_BINARY_READ_BYTES, SandboxFilesystem
+
+    chunk = b"x" * (MAX_BINARY_READ_BYTES // 2 + 1024)
+    big = tmp_path / "big.bin"
+    write_only = SandboxFilesystem(read=False, write=True)
+    read_write = SandboxFilesystem(read=True, write=True)
+
+    async with AsyncMonty(min_processes=1, max_processes=1) as pool:
+        async with pool.checkout(script_name="wb_chunked.py") as session:
+            await session.feed_run(
+                f"with open({big.as_posix()!r}, 'wb') as f:\n"
+                f"    f.write(b'x' * {len(chunk)})\n"
+                f"    f.write(b'y' * {len(chunk)})\n"
+                f"    f.write(b'tail')\n",
+                os=write_only,
+            )
+        assert big.read_bytes() == chunk + (b"y" * len(chunk)) + b"tail"
+
+        overwrite = tmp_path / "overwrite.bin"
+        async with pool.checkout(script_name="wb_seek.py") as session:
+            data = await session.feed_run(
+                f"with open({overwrite.as_posix()!r}, 'w+b') as f:\n"
+                "    f.write(b'hello world!')\n"
+                "    f.seek(6)\n"
+                "    f.write(b'monty')\n"
+                "    f.seek(0)\n"
+                "    out = f.read()\n"
+                "out\n",
+                os=read_write,
+            )
+        assert data == b"hello monty!"
+        assert overwrite.read_bytes() == b"hello monty!"
+
+        with pytest.raises(ValueError, match="past the end"):
+            read_write.path_write_bytes_at(PurePosixPath(overwrite.as_posix()), 100, b"z")
