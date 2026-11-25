@@ -104,3 +104,19 @@ When upgrading any dependency listed below:
   - Relies on the ACP Python SDK's `field_meta` attribute name when setting or
     reading `_meta` on update payloads.
   - Check on upgrade: verify `field_meta` naming/aliasing on ACP schema models.
+
+---
+
+## `pydantic-monty`
+
+- **`sorted()` shim for `pathlib.Path` ordering (`src/fast_agent/ptc/runtime.py`)**
+  - `_PRELUDE` wraps builtin `sorted()` so `sorted(paths)` (e.g.
+    `sorted(p.iterdir())`, `sorted(p.glob(...))`, `sorted(p.rglob(...))`) falls
+    back to `key=lambda p: p.parts` when `key is None` and all elements are
+    `pathlib.Path` instances.
+  - Why: `pydantic-monty 1.7.0` does not implement rich ordering comparisons
+    (`<`, `<=`, `>`, `>=`) on `PosixPath`.
+  - Check on upgrade: test `pathlib.Path("a") < pathlib.Path("b")` inside Monty;
+    remove the `_PRELUDE` `sorted` wrapper once upstream supports `PosixPath`
+    ordering.
+  - Tests: `tests/unit/fast_agent/ptc/test_ptc_files.py`.

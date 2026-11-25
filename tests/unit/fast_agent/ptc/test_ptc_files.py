@@ -718,3 +718,42 @@ async def test_binary_chunked_write_past_read_limit_and_positional_overwrite(tmp
 
         with pytest.raises(ValueError, match="past the end"):
             read_write.path_write_bytes_at(PurePosixPath(overwrite.as_posix()), 100, b"z")
+
+
+@pytest.mark.asyncio
+async def test_sorted_pathlib_paths_matches_cpython_ordering(tmp_path: Path) -> None:
+    (tmp_path / "b.txt").write_text("b", encoding="utf-8")
+    (tmp_path / "a.txt").write_text("a", encoding="utf-8")
+    (tmp_path / "a-b").mkdir()
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "b").write_text("nested", encoding="utf-8")
+
+    async with _agent(tmp_path) as (agent, _):
+        result = await _run(
+            agent,
+            "import json\n"
+            "root = pathlib.Path('.')\n"
+            "iterdir_names = [p.name for p in sorted(root.iterdir())]\n"
+            "glob_names = [p.name for p in sorted(root.glob('*.txt'))]\n"
+            "set_names = [p.name for p in sorted(set(root.glob('*.txt')), reverse=True)]\n"
+            "part_order = [str(p) for p in sorted([pathlib.Path('a-b'), pathlib.Path('a/b')])]\n"
+            "key_order = [str(p) for p in sorted([pathlib.Path('a-b'), pathlib.Path('a/b')], key=str)]\n"
+            "print(json.dumps({\n"
+            "    'iterdir': iterdir_names,\n"
+            "    'glob': glob_names,\n"
+            "    'set_rev': set_names,\n"
+            "    'parts': part_order,\n"
+            "    'str': key_order,\n"
+            "}))\n",
+        )
+        assert not result.is_error, _text(result)
+        payload = json.loads(_text(result).split("Output:\n", 1)[1])
+        assert payload["iterdir"] == ["a", "a-b", "a.txt", "b.txt"]
+        assert payload["glob"] == ["a.txt", "b.txt"]
+        assert payload["set_rev"] == ["b.txt", "a.txt"]
+        assert payload["parts"] == ["a/b", "a-b"]
+        assert payload["str"] == ["a-b", "a/b"]
+
+        mixed = await _run(agent, "sorted([pathlib.Path('a'), 'b'])")
+        assert mixed.is_error
+        assert "TypeError" in _text(mixed)

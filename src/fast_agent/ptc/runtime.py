@@ -181,6 +181,16 @@ import pathlib
 import re
 
 
+_builtin_sorted = sorted
+
+
+def sorted(iterable, /, *, key=None, reverse=False):
+    items = list(iterable)
+    if key is None and items and all(isinstance(item, pathlib.Path) for item in items):
+        return _builtin_sorted(items, key=lambda p: p.parts, reverse=reverse)
+    return _builtin_sorted(items, key=key, reverse=reverse)
+
+
 async def settle(awaitable):
     try:
         return await awaitable
