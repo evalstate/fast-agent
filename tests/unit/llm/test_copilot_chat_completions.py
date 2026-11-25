@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import httpx2
 import pytest
 from mcp import Tool
-from mcp.types import TextContent
+from mcp.types import CallToolRequest, CallToolRequestParams, TextContent
 from openai import AsyncOpenAI
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -30,7 +30,7 @@ from fast_agent.llm.provider.copilot.chat_completions import CopilotChatCompleti
 from fast_agent.llm.provider.copilot.policy import request_headers
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt import Prompt
-from fast_agent.types import RequestParams
+from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
@@ -859,3 +859,94 @@ async def test_gemini_image_cap_omits_oldest_images_above_ten_and_keeps_newest(
         if isinstance(blk, ImageContent)
     )
     assert total_history_images == 11
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("model", "expected_retention"),
+    [
+        ("gemini-4-neon", 1800),
+        ("gemini-4-hydrogen", 900),
+        ("gemini-4-carbon", 900),
+        ("gemini-4-argon", 240),
+    ],
+)
+async def test_copilot_gemini_warm_cache_retention_and_agent_initiator(
+    model: str,
+    expected_retention: int,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requests: list[httpx2.Request] = []
+    bodies: list[dict[str, Any]] = []
+
+    class Broker:
+        async def resolve(
+            self, model_id: str, *, owner_id: str, transport: Literal["sse", "websocket"]
+        ) -> CopilotEndpoint:
+            return CopilotEndpoint(
+                model_id=model_id,
+                wire_api="chat_completions",
+                transport=transport,
+                base_url="https://copilot.example",
+                headers={"authorization": "Bearer dummy-broker-token"},
+            )
+
+    def respond(request: httpx2.Request) -> httpx2.Response:
+        requests.append(request)
+        bodies.append(json.loads(request.content))
+        chunk = {
+            "id": "chat-warm",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "OK"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 12000,
+                "completion_tokens": 2,
+                "total_tokens": 12002,
+                "prompt_tokens_details": {"cached_tokens": 10000},
+            },
+        }
+        return httpx2.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=f"data: {json.dumps(chunk)}\n\ndata: [DONE]\n\n",
+        )
+
+    def client_factory(**kwargs: Any) -> AsyncOpenAI:
+        kwargs["http_client"] = httpx2.AsyncClient(transport=httpx2.MockTransport(respond))
+        return AsyncOpenAI(**kwargs)
+
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.copilot.broker.get_copilot_broker", lambda context: Broker()
+    )
+    monkeypatch.setattr("fast_agent.llm.provider.copilot.openai_client.AsyncOpenAI", client_factory)
+
+    llm = CopilotChatCompletionsLLM(model=model, context=Context(config=Settings()))
+    assert llm.cache_retention_seconds == expected_retention
+    assert llm.warm_cache_reports_cache_use is True
+    assert llm.warms_cache_mid_turn is True
+
+    # Mid-turn conversation with a pending assistant tool call is trimmed before warming.
+    pending_tool_turn = PromptMessageExtended(
+        role="assistant",
+        tool_calls={
+            "call-1": CallToolRequest(
+                method="tools/call", params=CallToolRequestParams(name="slow_tool", arguments={})
+            )
+        },
+    )
+    usage = await llm.warm_cache([Prompt.user("Delegate task"), pending_tool_turn])
+    assert usage.prompt.total == 12000
+    assert usage.prompt.cache_read == 10000
+
+    [request], [body] = requests, bodies
+    assert request.headers["x-initiator"] == "agent"
+    assert body["messages"][-1]["role"] == "user"
+    assert not any(msg.get("tool_calls") for msg in body["messages"])

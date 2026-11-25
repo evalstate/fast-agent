@@ -441,7 +441,7 @@ class CacheWarmer:
             reason=reason,
             duration_seconds=time.time() - started,
             prompt_tokens=usage.prompt.total,
-            cache_read_tokens=usage.prompt.cache_read if reports_cache_use else None,
+            cache_read_tokens=(usage.prompt.cache_read or 0) if reports_cache_use else None,
             cache_write_tokens=usage.prompt.cache_write if reports_cache_use else None,
             output_tokens=usage.completion.total,
             cost_usd=usage.cost_usd,

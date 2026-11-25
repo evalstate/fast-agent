@@ -54,6 +54,17 @@ def _set_home_for_context(ctx: typer.Context | None, resolved: Path) -> None:
     ctx.call_on_close(restore_home)
 
 
+def _clear_runtime_home_for_context(ctx: typer.Context | None) -> None:
+    previous_runtime_env = os.environ.pop(FAST_AGENT_RUNTIME_HOME, None)
+    if ctx is None:
+        return
+
+    def restore_runtime_home() -> None:
+        _restore_env_value(FAST_AGENT_RUNTIME_HOME, previous_runtime_env)
+
+    ctx.call_on_close(restore_runtime_home)
+
+
 def resolve_home_option(
     ctx: typer.Context | None,
     home: Path | None,
@@ -65,6 +76,8 @@ def resolve_home_option(
         resolved = _parent_home_option(ctx)
 
     if resolved is None:
+        if set_env_var and ctx is not None:
+            _clear_runtime_home_for_context(ctx)
         return None
 
     resolved = _resolve_home_path(resolved)
@@ -81,8 +94,17 @@ def resolve_workspace_and_home_options(
     no_home: bool = False,
 ) -> tuple[Path | None, Path | None]:
     resolved_workspace = resolve_workspace_option(ctx, workspace)
-    home_option = home
+    explicit_home = _coerce_home_path(home)
+    if explicit_home is None and ctx is not None:
+        explicit_home = _parent_home_option(ctx)
+    home_option = explicit_home
     if home_option is None and resolved_workspace is not None and not no_home:
         home_option = resolved_workspace / DEFAULT_HOME_DIR
-    resolved_home = resolve_home_option(ctx, home_option, set_env_var=not no_home)
+    resolved_home = resolve_home_option(
+        ctx,
+        home_option,
+        set_env_var=not no_home and explicit_home is not None,
+    )
+    if ctx is not None and (no_home or explicit_home is None):
+        _clear_runtime_home_for_context(ctx)
     return resolved_workspace, resolved_home

@@ -1,4 +1,4 @@
-"""Built-in image generation and editing tools for OpenAI, Codex OAuth, and xAI."""
+"""Built-in image generation and editing tools for OpenAI, Codex OAuth, xAI, and Google."""
 
 from __future__ import annotations
 
@@ -51,19 +51,22 @@ IMAGE_GEN_BUILTIN_OWNER = "image_gen"
 
 DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-2.6-flare"
 DEFAULT_XAI_IMAGE_MODEL = "grok-imagine-image-2.0"
+DEFAULT_GOOGLE_IMAGE_MODEL = "gemini-nano-banana-2.1"
 DEFAULT_XAI_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+DEFAULT_GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 MAX_IMAGE_GEN_COUNT = 4
 MAX_XAI_EDIT_IMAGES = 5
+MAX_GOOGLE_EDIT_IMAGES = 14
 DEFAULT_PREVIEW_MAX_EDGE = 1568
 DEFAULT_PREVIEW_MAX_BYTES = 2 * 1024 * 1024
 INLINE_SVG_MAX_BYTES = 16 * 1024
 HTTP_TIMEOUT_SECONDS = 180.0
 
-type ImageGenBackend = Literal["openai", "codexresponses", "xai"]
+type ImageGenBackend = Literal["openai", "codexresponses", "xai", "google"]
 type ComplexityLevel = Literal["low", "medium", "high"]
-type ResolutionLevel = Literal["1k", "2k"]
+type ResolutionLevel = Literal["1k", "2k", "4k"]
 
 OPENAI_ASPECT_RATIO_TO_SIZE: dict[str, str] = {
     "auto": "auto",
@@ -89,6 +92,24 @@ XAI_ASPECT_RATIOS: tuple[str, ...] = (
     "9:20",
     "21:9",
     "5:2",
+)
+
+GOOGLE_ASPECT_RATIOS: tuple[str, ...] = (
+    "auto",
+    "1:1",
+    "1:4",
+    "1:8",
+    "2:3",
+    "3:2",
+    "3:4",
+    "4:1",
+    "4:3",
+    "4:5",
+    "5:4",
+    "8:1",
+    "9:16",
+    "16:9",
+    "21:9",
 )
 
 _EXT_TO_OPENAI_FORMAT: dict[str, str] = {
@@ -185,6 +206,8 @@ class ResolvedImageGenModel:
     def aspect_ratio_values(self) -> tuple[str, ...]:
         if self.is_openai_family:
             return tuple(OPENAI_ASPECT_RATIO_TO_SIZE.keys())
+        if self.backend == "google":
+            return GOOGLE_ASPECT_RATIOS
         return XAI_ASPECT_RATIOS
 
 
@@ -221,6 +244,16 @@ def _has_xai_credentials(settings: Settings | None) -> bool:
     config_dict = settings.model_dump() if settings is not None else {}
     try:
         return bool(ProviderKeyManager.get_optional_api_key(Provider.XAI.config_name, config_dict))
+    except Exception:
+        return False
+
+
+def _has_google_api_key(settings: Settings | None) -> bool:
+    config_dict = settings.model_dump() if settings is not None else {}
+    try:
+        return bool(
+            ProviderKeyManager.get_optional_api_key(Provider.GOOGLE.config_name, config_dict)
+        )
     except Exception:
         return False
 
@@ -264,9 +297,9 @@ def _parse_complexity(value: str | None) -> ComplexityLevel | None:
 def _parse_resolution(value: str | None) -> ResolutionLevel | None:
     if value is None:
         return None
-    if value in ("1k", "2k"):
+    if value in ("1k", "2k", "4k"):
         return value
-    raise ValueError(f"Unsupported image resolution '{value}'. Expected 1k or 2k.")
+    raise ValueError(f"Unsupported image resolution '{value}'. Expected 1k, 2k, or 4k.")
 
 
 def resolve_image_gen_model(
@@ -292,6 +325,9 @@ def resolve_image_gen_model(
         elif main_provider == Provider.XAI:
             backend = "xai"
             model = DEFAULT_XAI_IMAGE_MODEL
+        elif main_provider == Provider.GOOGLE:
+            backend = "google"
+            model = DEFAULT_GOOGLE_IMAGE_MODEL
         elif _has_codex_credentials(settings):
             backend = "codexresponses"
             model = DEFAULT_OPENAI_IMAGE_MODEL
@@ -301,11 +337,15 @@ def resolve_image_gen_model(
         elif _has_xai_credentials(settings):
             backend = "xai"
             model = DEFAULT_XAI_IMAGE_MODEL
+        elif _has_google_api_key(settings):
+            backend = "google"
+            model = DEFAULT_GOOGLE_IMAGE_MODEL
         else:
             raise ProviderKeyError(
                 "No image generation credentials found.",
                 "Sign in with `fast-agent auth provider login codex` or "
-                "`fast-agent auth provider login xai`, or set OPENAI_API_KEY / XAI_API_KEY.",
+                "`fast-agent auth provider login xai`, or set "
+                "OPENAI_API_KEY / XAI_API_KEY / GOOGLE_API_KEY.",
             )
     else:
         base_spec, query_params = _parse_spec_and_query(effective_spec)
@@ -316,12 +356,16 @@ def resolve_image_gen_model(
             backend, model = "openai", DEFAULT_OPENAI_IMAGE_MODEL
         elif lowered in {"xai", "grok"}:
             backend, model = "xai", DEFAULT_XAI_IMAGE_MODEL
+        elif lowered in {"google", "gemini", "nano-banana", "nanobanana"}:
+            backend, model = "google", DEFAULT_GOOGLE_IMAGE_MODEL
         elif "." in base_spec and base_spec.split(".", 1)[0].lower() in {
             "openai",
             "codex",
             "codexresponses",
             "xai",
             "grok",
+            "google",
+            "gemini",
         }:
             prefix, model_part = base_spec.split(".", 1)
             prefix_lower = prefix.lower()
@@ -332,10 +376,16 @@ def resolve_image_gen_model(
                 backend = "codexresponses"
             elif prefix_lower == "openai":
                 backend = "openai"
+            elif prefix_lower in {"google", "gemini"}:
+                backend = "google"
             else:
                 backend = "xai"
         elif lowered.startswith("grok-imagine"):
             backend, model = "xai", base_spec
+        elif lowered.startswith("gemini-nano-banana") or (
+            lowered.startswith("gemini-") and "-image" in lowered
+        ):
+            backend, model = "google", base_spec
         elif lowered.startswith(("gpt-image", "dall-e")):
             backend = _resolve_openai_family_backend(settings, main_provider)
             model = base_spec
@@ -343,7 +393,8 @@ def resolve_image_gen_model(
             raise ValueError(
                 f"Unrecognized image generation model '{effective_spec}'. "
                 "Use e.g. `codexresponses.gpt-image-2.6-flare`, `openai.gpt-image-2.6-sunburst`, "
-                "`xai.grok-imagine-image-2.0`, or a provider shorthand (`codex`, `openai`, `xai`)."
+                "`xai.grok-imagine-image-2.0`, `google.gemini-nano-banana-2.1`, "
+                "or a provider shorthand (`codex`, `openai`, `xai`, `google`, `nano-banana`)."
             )
 
     cfg = settings.image_gen if settings is not None else None
@@ -354,6 +405,11 @@ def resolve_image_gen_model(
         query_params.get("resolution") or (cfg.resolution if cfg is not None else None)
     )
     default_quality = query_params.get("quality")
+
+    if resolution == "4k" and backend == "xai":
+        raise ValueError(
+            "Unsupported image resolution '4k' for xAI Imagine models. Expected 1k or 2k."
+        )
 
     resolved = ResolvedImageGenModel(
         backend=backend,
@@ -422,6 +478,23 @@ def _resolve_backend_endpoint(
             else os.getenv("OPENAI_BASE_URL", DEFAULT_OPENAI_BASE_URL)
         )
         return base_url.rstrip("/"), {"Authorization": f"Bearer {api_key}"}
+
+    if resolved.backend == "google":
+        api_key = ProviderKeyManager.get_optional_api_key(Provider.GOOGLE.config_name, config_dict)
+        if not api_key:
+            raise ProviderKeyError(
+                "GOOGLE_API_KEY is required for google.* image generation.",
+                "Set GOOGLE_API_KEY or configure google.api_key in fast-agent.secrets.yaml.",
+            )
+        base_url = (
+            settings.google.base_url
+            if settings is not None and settings.google is not None and settings.google.base_url
+            else os.getenv("GOOGLE_BASE_URL", DEFAULT_GOOGLE_BASE_URL)
+        )
+        google_headers: dict[str, str] = {"x-goog-api-key": api_key}
+        if settings is not None and settings.google is not None and settings.google.default_headers:
+            google_headers = {**settings.google.default_headers, **google_headers}
+        return base_url.rstrip("/"), google_headers
 
     # xAI: API key if configured, otherwise xAI OAuth token.
     xai_key = ProviderKeyManager.get_optional_api_key(Provider.XAI.config_name, config_dict)
@@ -558,6 +631,8 @@ def build_image_gen_tools(resolved: ResolvedImageGenModel) -> list[Tool]:
     }
     if resolved.backend == "xai":
         images_prop["maxItems"] = MAX_XAI_EDIT_IMAGES
+    elif resolved.backend == "google":
+        images_prop["maxItems"] = MAX_GOOGLE_EDIT_IMAGES
 
     edit_properties: dict[str, Any] = {
         "images": images_prop,
@@ -1186,6 +1261,131 @@ class ImageGenRuntime:
                 raise RuntimeError(_extract_error_message(resp))
             return await self._decode_api_images(client, resp.json(), fallback_mime="image/jpeg")
 
+    def _decode_google_images(self, payload: dict[str, Any]) -> list[_GeneratedImageData]:
+        candidates = payload.get("candidates")
+        if not isinstance(candidates, list) or not candidates:
+            raise ValueError("Google image API returned no candidates.")
+        results: list[_GeneratedImageData] = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            content = candidate.get("content")
+            if not isinstance(content, dict):
+                continue
+            parts = content.get("parts")
+            if not isinstance(parts, list):
+                continue
+            text_notes: list[str] = []
+            candidate_images: list[tuple[bytes, str]] = []
+            for part in parts:
+                if not isinstance(part, dict):
+                    continue
+                text = part.get("text")
+                if isinstance(text, str) and text.strip():
+                    text_notes.append(text.strip())
+                inline = part.get("inlineData") or part.get("inline_data")
+                if isinstance(inline, dict):
+                    b64_data = inline.get("data")
+                    if isinstance(b64_data, str) and b64_data:
+                        raw = base64.b64decode(b64_data)
+                        mime = inline.get("mimeType") or inline.get("mime_type")
+                        mime_str = (
+                            mime if isinstance(mime, str) and mime else _sniff_image_mime(raw)
+                        )
+                        candidate_images.append((raw, mime_str or "image/jpeg"))
+            note = "\n".join(text_notes) if text_notes else None
+            for idx, (raw, mime_str) in enumerate(candidate_images):
+                results.append(
+                    _GeneratedImageData(
+                        data=raw,
+                        mime_type=mime_str,
+                        revised_prompt=note if idx == 0 else None,
+                    )
+                )
+        if not results:
+            raise ValueError("Google image API returned no usable image payloads.")
+        return results
+
+    async def _call_google_request(
+        self,
+        *,
+        parts: list[dict[str, Any]],
+        aspect_ratio: str,
+        n: int,
+    ) -> list[_GeneratedImageData]:
+        base_url, headers = _resolve_backend_endpoint(self._resolved, self._settings)
+        generation_config: dict[str, Any] = {
+            "responseModalities": ["TEXT", "IMAGE"],
+        }
+        image_config: dict[str, str] = {}
+        if aspect_ratio != "auto":
+            image_config["aspectRatio"] = aspect_ratio
+        if self._resolved.resolution:
+            image_config["imageSize"] = self._resolved.resolution.upper()
+        if image_config:
+            generation_config["imageConfig"] = image_config
+
+        body: dict[str, Any] = {
+            "contents": [{"role": "user", "parts": parts}],
+            "generationConfig": generation_config,
+        }
+        url = f"{base_url}/models/{self._resolved.model}:generateContent"
+
+        async def _single(client: httpx.AsyncClient) -> list[_GeneratedImageData]:
+            resp = await client.post(url, headers=headers, json=body)
+            if resp.status_code != 200:
+                raise RuntimeError(_extract_error_message(resp))
+            return self._decode_google_images(resp.json())
+
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+            if n == 1:
+                return await _single(client)
+            batches = await asyncio.gather(*(_single(client) for _ in range(n)))
+            return [img for batch in batches for img in batch]
+
+    async def _call_google_generate(
+        self,
+        *,
+        prompt: str,
+        aspect_ratio: str,
+        n: int,
+    ) -> list[_GeneratedImageData]:
+        return await self._call_google_request(
+            parts=[{"text": prompt}],
+            aspect_ratio=aspect_ratio,
+            n=n,
+        )
+
+    async def _call_google_edit(
+        self,
+        *,
+        images: list[str],
+        prompt: str,
+        aspect_ratio: str,
+        n: int,
+    ) -> list[_GeneratedImageData]:
+        if len(images) > MAX_GOOGLE_EDIT_IMAGES:
+            raise ValueError(
+                f"Google image editing supports at most {MAX_GOOGLE_EDIT_IMAGES} source images."
+            )
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+            loaded = [await self._load_image_bytes(client, src) for src in images]
+        parts: list[dict[str, Any]] = [
+            {
+                "inlineData": {
+                    "mimeType": mime,
+                    "data": base64.b64encode(raw).decode("ascii"),
+                }
+            }
+            for _, raw, mime in loaded
+        ]
+        parts.append({"text": prompt})
+        return await self._call_google_request(
+            parts=parts,
+            aspect_ratio=aspect_ratio,
+            n=n,
+        )
+
     def _build_result(
         self,
         generated: list[_GeneratedImageData],
@@ -1372,6 +1572,12 @@ class ImageGenRuntime:
                         transparent=transparent,
                         output_format=output_format,
                     )
+                elif self._resolved.backend == "google":
+                    generated = await self._call_google_generate(
+                        prompt=prompt,
+                        aspect_ratio=aspect_ratio,
+                        n=n,
+                    )
                 else:
                     generated = await self._call_xai_generate(
                         prompt=prompt,
@@ -1419,6 +1625,13 @@ class ImageGenRuntime:
                         n=n,
                         transparent=transparent,
                         output_format=output_format,
+                    )
+                elif self._resolved.backend == "google":
+                    generated = await self._call_google_edit(
+                        images=images,
+                        prompt=prompt,
+                        aspect_ratio=aspect_ratio,
+                        n=n,
                     )
                 else:
                     generated = await self._call_xai_edit(

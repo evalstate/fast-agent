@@ -35,6 +35,7 @@ from fast_agent.session.snapshot import (
     SessionChildLinkSnapshot,
     SessionExecutionStatus,
     SessionSnapshot,
+    SessionTerminalAttachmentSnapshot,
     capture_session_snapshot,
     clone_session_snapshot_for_fork,
     load_session_snapshot,
@@ -616,6 +617,21 @@ class Session:
             self.info.last_activity = now
             self._write_snapshot(snapshot)
 
+    def set_terminal_attachment(
+        self,
+        attachment: SessionTerminalAttachmentSnapshot | None,
+    ) -> None:
+        """Record or clear the interactive terminal attachment for this session."""
+        stamped = (
+            attachment.model_copy(update={"updated_at": datetime.now()})
+            if attachment is not None and attachment.updated_at is None
+            else attachment
+        )
+        with self._mutation_lock():
+            snapshot = self._load_snapshot_or_compatibility()
+            snapshot.execution.terminal_attachment = stamped
+            self._write_snapshot(snapshot)
+
     def _load_snapshot_or_compatibility(self) -> SessionSnapshot:
         metadata_file = self.directory / "session.json"
         try:
@@ -791,6 +807,7 @@ class SessionManager:
         self._retain_multiple = retain_multiple
         self._owner_leases: dict[str, SessionOwnerLease] = {}
         self._current_session: Session | None = None
+        self._terminal_binding: SessionTerminalAttachmentSnapshot | None = None
 
     @property
     def current_session(self) -> Session | None:
@@ -1567,6 +1584,26 @@ class SessionManager:
         self._owner_leases[session_id] = lease
         return lease
 
+    def bind_terminal(self, terminal_id: str, *, core_id: str | None = None) -> None:
+        """Bind active interactive sessions in this manager to a terminal identity."""
+        self._terminal_binding = SessionTerminalAttachmentSnapshot(
+            core_id=core_id,
+            terminal_id=terminal_id,
+            active=True,
+        )
+        current = self._current_session
+        if current is not None and self.owns_session(current.info.name):
+            current.set_terminal_attachment(self._terminal_binding)
+
+    def close_terminal_binding_cleanly(self) -> None:
+        """Mark the currently bound session cleanly closed before releasing its lease."""
+        binding = self._terminal_binding
+        current = self._current_session
+        self._terminal_binding = None
+        if binding is None or current is None or not self.owns_session(current.info.name):
+            return
+        current.set_terminal_attachment(binding.model_copy(update={"active": False}))
+
     def _activate(self, session: Session) -> None:
         current = self._current_session
         if (
@@ -1574,8 +1611,14 @@ class SessionManager:
             and current is not None
             and current.info.name != session.info.name
         ):
+            if self._terminal_binding is not None and self.owns_session(current.info.name):
+                current.set_terminal_attachment(
+                    self._terminal_binding.model_copy(update={"active": False})
+                )
             self.release_session(current.info.name)
         self._current_session = session
+        if self._terminal_binding is not None and self.owns_session(session.info.name):
+            session.set_terminal_attachment(self._terminal_binding)
 
     def owns_session(self, session_id: str) -> bool:
         """Return whether this manager retains the session owner lease."""
@@ -1584,6 +1627,96 @@ class SessionManager:
     def owned_elsewhere(self, session_id: str) -> bool:
         """Return whether another manager or process holds the session owner lease."""
         return session_id not in self._owner_leases and self._locks.is_owned(session_id)
+
+    def retire_terminal_binding(
+        self,
+        session_id: str,
+        terminal_id: str,
+        *,
+        core_id: str | None = None,
+        expected_updated_at: datetime | None = None,
+    ) -> None:
+        """Mark a previously interrupted session's terminal binding inactive without loading it."""
+        session = self.get_session(session_id)
+        if session is None:
+            return
+        acquired_here = session_id not in self._owner_leases
+        try:
+            self._acquire_owner(session_id)
+        except SessionBusyError:
+            return
+        try:
+            try:
+                snapshot = session.load_snapshot()
+            except Exception:
+                return
+            attachment = snapshot.execution.terminal_attachment
+            if attachment is None or not attachment.active or attachment.terminal_id != terminal_id:
+                return
+            if (
+                core_id is not None
+                and attachment.core_id is not None
+                and attachment.core_id != core_id
+            ):
+                return
+            if expected_updated_at is not None and attachment.updated_at != expected_updated_at:
+                return
+            session.set_terminal_attachment(
+                SessionTerminalAttachmentSnapshot(
+                    core_id=core_id if core_id is not None else attachment.core_id,
+                    terminal_id=terminal_id,
+                    active=False,
+                )
+            )
+        finally:
+            if acquired_here:
+                self.release_session(session_id)
+
+    def find_interrupted_terminal_session(
+        self,
+        terminal_id: str,
+        *,
+        core_id: str | None = None,
+    ) -> SessionInfo | None:
+        """Return the most recently bound interrupted, unlocked session for ``terminal_id``.
+
+        Orders matching resumable sessions by their terminal-binding timestamp
+        (falling back to ``last_activity``). The most recently bound session decides
+        the outcome: if still ``active`` and not owned elsewhere, return it; if it
+        closed cleanly (``active=False``), older sessions are not resurrected.
+        """
+        candidates: list[tuple[datetime, SessionInfo, bool]] = []
+        for info in self.list_sessions(include_empty=False):
+            session = self.get_session(info.name)
+            if session is None or not session.has_persisted_content():
+                continue
+            try:
+                snapshot = session.load_snapshot()
+            except Exception:
+                continue
+            if not snapshot.execution.resumable:
+                continue
+            attachment = snapshot.execution.terminal_attachment
+            if attachment is None or attachment.terminal_id != terminal_id:
+                continue
+            if (
+                core_id is not None
+                and attachment.core_id is not None
+                and attachment.core_id != core_id
+            ):
+                continue
+            order_ts = attachment.updated_at or info.last_activity
+            candidates.append((order_ts, info, attachment.active))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        for _ts, info, active in candidates:
+            if not active:
+                return None
+            if self.owned_elsewhere(info.name):
+                continue
+            return info
+        return None
 
     def release_session(self, session_id: str) -> None:
         """Release one retained session owner lease."""

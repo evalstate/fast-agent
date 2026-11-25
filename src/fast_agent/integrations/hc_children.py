@@ -19,8 +19,12 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fast_agent.utils.type_narrowing import is_str_object_dict
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 _COMMAND_TIMEOUT_SECONDS = 2.0
 _CACHE_SECONDS = 2.0
@@ -41,11 +45,28 @@ class HcChild:
 
 
 @dataclass(frozen=True, slots=True)
+class HcEnvironment:
+    """Resolved herdr-core terminal context for the current process."""
+
+    terminal_id: str
+    socket_path: str
+    executable: str
+
+
+@dataclass(frozen=True, slots=True)
 class HcAttachments:
     """Unfinished children of this terminal, by what they mean for the session."""
 
     resuming: tuple[HcChild, ...] = ()
     services: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class HcTerminalChildren:
+    """Direct local children of a terminal, read passively without acknowledging notes."""
+
+    live: tuple[HcChild, ...] = ()
+    stopped_by_restart: tuple[HcChild, ...] = ()
 
 
 _NONE = HcAttachments()
@@ -60,11 +81,39 @@ def hc_terminal_id() -> str | None:
     return terminal if terminal and os.environ.get("HC_TERMINAL_SOCKET") else None
 
 
-def _hc_json(executable: str, *args: str) -> dict[str, object] | None:
+def hc_environment() -> HcEnvironment | None:
+    """Return the active herdr-core environment when running inside an hc terminal."""
+    terminal = os.environ.get("HC_TERMINAL_ID", "").strip()
+    socket_path = os.environ.get("HC_TERMINAL_SOCKET", "").strip()
+    if not terminal or not socket_path:
+        return None
+    executable = shutil.which("hc")
+    if executable is None:
+        return None
+    return HcEnvironment(terminal_id=terminal, socket_path=socket_path, executable=executable)
+
+
+def _hc_subprocess_env(hc_env: HcEnvironment, *, strip_caller: bool) -> dict[str, str]:
+    # Pin HC_SOCKET to this terminal's core socket so an ambient HC_SOCKET/HC_SESSION
+    # never routes recovery or polling to a different core. Keep HC_SESSION intact so
+    # named sessions never fall back to the default state directory.
+    env = dict(os.environ)
+    env["HC_SOCKET"] = hc_env.socket_path
+    if strip_caller:
+        env.pop("HC_TERMINAL_ID", None)
+    return env
+
+
+def _hc_json(
+    hc_env: HcEnvironment,
+    *args: str,
+    strip_caller: bool = False,
+) -> dict[str, object] | None:
     try:
         result = subprocess.run(
-            [executable, *args],
+            [hc_env.executable, *args],
             check=False,
+            env=_hc_subprocess_env(hc_env, strip_caller=strip_caller),
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
@@ -77,13 +126,111 @@ def _hc_json(executable: str, *args: str) -> dict[str, object] | None:
     return payload if is_str_object_dict(payload) else None
 
 
+def read_hc_core_id() -> str | None:
+    """Return the current herdr-core instance ID, or None if unavailable."""
+    env = hc_environment()
+    if env is None:
+        return None
+    status = _hc_json(env, "server", "status", "--json", strip_caller=True)
+    if status is None:
+        return None
+    core = status.get("core")
+    if is_str_object_dict(core):
+        core_id = core.get("id")
+        if isinstance(core_id, str) and core_id:
+            return core_id
+    top_id = status.get("id")
+    if isinstance(top_id, str) and top_id:
+        return top_id
+    return None
+
+
+def read_hc_terminal_children(terminal_id: str | None = None) -> HcTerminalChildren | None:
+    """Passively list direct local children of ``terminal_id`` without calling ``saw``.
+
+    Returns None when hc cannot be queried so callers do not confuse a query
+    failure with an empty child set.
+    """
+    env = hc_environment()
+    if env is None:
+        return None
+    parent_id = terminal_id or env.terminal_id
+    listed = _hc_json(env, "ls", "--all", "--json", strip_caller=True)
+    terminals = listed.get("terminals") if listed is not None else None
+    if not isinstance(terminals, list):
+        return None
+
+    live: list[HcChild] = []
+    stopped_by_restart: list[HcChild] = []
+    for entry in terminals:
+        if not is_str_object_dict(entry):
+            continue
+        if entry.get("parent") != parent_id:
+            continue
+        address = entry.get("address")
+        if not isinstance(address, str) or not address or "/" in address:
+            continue
+        raw_name = entry.get("name")
+        child = HcChild(
+            address=address, name=raw_name if isinstance(raw_name, str) and raw_name else None
+        )
+        state = entry.get("state")
+        if state == "live":
+            live.append(child)
+        elif state == "finished" and entry.get("reason") == "stopped_by_restart":
+            stopped_by_restart.append(child)
+    return HcTerminalChildren(
+        live=tuple(live),
+        stopped_by_restart=tuple(stopped_by_restart),
+    )
+
+
+def remove_hc_terminals(addresses: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Remove finished local hc terminals by exact address. Returns (removed, failed)."""
+    env = hc_environment()
+    if env is None:
+        return [], list(addresses)
+    removed: list[str] = []
+    failed: list[str] = []
+    for address in addresses:
+        if not address or "/" in address:
+            failed.append(address)
+            continue
+        try:
+            result = subprocess.run(
+                [env.executable, "rm", "--json", address],
+                check=False,
+                env=_hc_subprocess_env(env, strip_caller=True),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=_COMMAND_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            failed.append(address)
+            continue
+        if result.returncode == 0:
+            removed.append(address)
+        else:
+            failed.append(address)
+    return removed, failed
+
+
 def read_hc_attachments() -> HcAttachments:
-    """Ask hc which children are unfinished. Blocking; call off the event loop."""
-    if hc_terminal_id() is None or (executable := shutil.which("hc")) is None:
+    """Ask hc which children are unfinished without acknowledging parent notices.
+
+    Passing the explicit parent terminal with caller identity stripped lets hc
+    compute real busy/ended state (including pending launch tasks and remote
+    children) while preventing ``core.saw()`` from acknowledging unseen notes.
+    Blocking; call off the event loop.
+    """
+    env = hc_environment()
+    if env is None:
         return _NONE
-    # hc's own accounting: an agent with a delivered task counts as unfinished
-    # until its turn advances, and a plain program until it exits.
-    waited = _hc_json(executable, "wait", "--children", "all", "--timeout", "0")
+    waited = _hc_json(
+        env, "wait", env.terminal_id, "--children", "all", "--timeout", "0", strip_caller=True
+    )
     children = waited.get("children") if waited is not None else None
     if not isinstance(children, list):
         return _NONE
@@ -95,7 +242,7 @@ def read_hc_attachments() -> HcAttachments:
         address = child.get("terminal")
         if not isinstance(address, str):
             continue
-        detail = _hc_json(executable, "get", address) or {}
+        detail = _hc_json(env, "get", address, strip_caller=True) or {}
         labels = detail.get("labels")
         name = detail.get("name")
         if is_str_object_dict(labels) and labels.get("role") == "service":

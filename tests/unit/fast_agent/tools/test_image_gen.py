@@ -90,6 +90,8 @@ def test_resolve_image_gen_model_fallback_precedence_and_errors(
 ) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("CODEX_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("XAI_API_KEY", "xai-test-key")
     monkeypatch.setattr(image_gen, "get_codex_access_token", lambda: None)
     monkeypatch.setattr(image_gen, "get_xai_access_token", lambda: None)
@@ -672,3 +674,156 @@ def test_copilot_fallback_chain_and_startup_banner(
     assert len(printed) == 1
     assert "Image generation enabled" in printed[0]
     assert "codexresponses.gpt-image-2.6-flare" in printed[0]
+
+
+def test_resolve_google_nano_banana_specs_and_fallbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.llm.provider_key_manager import ProviderKeyManager
+
+    for spec, expected_model, expected_res in [
+        ("google", "gemini-nano-banana-2.1", None),
+        ("gemini", "gemini-nano-banana-2.1", None),
+        ("nano-banana", "gemini-nano-banana-2.1", None),
+        ("google.gemini-nano-banana-2.1", "gemini-nano-banana-2.1", None),
+        ("gemini-nano-banana-2.1?resolution=4k", "gemini-nano-banana-2.1", "4k"),
+        ("gemini-3.1-flash-image?resolution=2k", "gemini-3.1-flash-image", "2k"),
+    ]:
+        resolved = resolve_image_gen_model(
+            spec,
+            settings=Settings(),
+            validate_credentials=False,
+        )
+        assert resolved.backend == "google"
+        assert resolved.model == expected_model
+        assert resolved.resolution == expected_res
+
+    # Auto-selects Google Nano Banana when main provider is Google
+    auto_google = resolve_image_gen_model(
+        None,
+        settings=Settings(),
+        main_provider=Provider.GOOGLE,
+        validate_credentials=False,
+    )
+    assert auto_google.backend == "google"
+    assert auto_google.model == "gemini-nano-banana-2.1"
+
+    # Falls back to Google when only GOOGLE_API_KEY is available
+    monkeypatch.setattr(
+        ProviderKeyManager,
+        "get_optional_api_key",
+        staticmethod(lambda name, _cfg: "gkey" if name == "google" else None),
+    )
+    monkeypatch.setattr(image_gen, "_has_codex_credentials", lambda _s: False)
+    fallback = resolve_image_gen_model(
+        None,
+        settings=Settings(),
+        main_provider=Provider.ANTHROPIC,
+        validate_credentials=False,
+    )
+    assert fallback.backend == "google"
+    assert fallback.model == "gemini-nano-banana-2.1"
+
+    # 4k resolution is rejected for xAI Imagine
+    with pytest.raises(ValueError, match="Unsupported image resolution '4k'"):
+        resolve_image_gen_model(
+            "xai.grok-imagine-image-2.0?resolution=4k",
+            settings=Settings(),
+            validate_credentials=False,
+        )
+
+    # Tool schemas reflect Google aspect ratios and 14-image edit limit
+    tools = {t.name: t for t in build_image_gen_tools(auto_google)}
+    gen_props = tools["generate_image"].input_schema["properties"]
+    assert gen_props["aspect_ratio"]["enum"] == list(image_gen.GOOGLE_ASPECT_RATIOS)
+    assert "quality" not in gen_props
+    assert "transparent" not in gen_props
+    edit_props = tools["edit_image"].input_schema["properties"]
+    assert edit_props["images"]["maxItems"] == image_gen.MAX_GOOGLE_EDIT_IMAGES
+
+
+@pytest.mark.asyncio
+async def test_google_nano_banana_generate_and_edit_roundtrip(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import base64
+
+    import httpx
+
+    monkeypatch.setenv("GOOGLE_API_KEY", "test-google-key")
+    img_bytes = _png_bytes((32, 32))
+    img_b64 = base64.b64encode(img_bytes).decode("ascii")
+    captured: list[tuple[str, dict[str, Any], dict[str, str]]] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8"))
+        captured.append((str(request.url), body, dict(request.headers)))
+        return httpx.Response(
+            200,
+            json={
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"text": "Generated banana."},
+                                {"inlineData": {"mimeType": "image/png", "data": img_b64}},
+                            ]
+                        }
+                    }
+                ]
+            },
+        )
+
+    real_async_client = httpx.AsyncClient
+
+    def _mock_client(*_args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        kwargs.pop("transport", None)
+        return real_async_client(transport=httpx.MockTransport(_handler), **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _mock_client)
+
+    resolved = resolve_image_gen_model(
+        "google.gemini-nano-banana-2.1?resolution=2k",
+        settings=Settings(),
+        validate_credentials=True,
+    )
+    runtime = ImageGenRuntime(
+        resolved=resolved,
+        settings=Settings(),
+        working_dir=tmp_path,
+    )
+
+    gen_res = await runtime.call_tool(
+        "generate_image",
+        {
+            "prompt": "a bright yellow banana",
+            "aspect_ratio": "16:9",
+            "n": 2,
+            "output_path": "banana.png",
+        },
+    )
+    assert not gen_res.is_error
+    assert len(captured) == 2
+    url, body, headers = captured[0]
+    assert url.endswith("/models/gemini-nano-banana-2.1:generateContent")
+    assert headers["x-goog-api-key"] == "test-google-key"
+    assert body["generationConfig"]["imageConfig"] == {"aspectRatio": "16:9", "imageSize": "2K"}
+    assert (tmp_path / "banana-1.png").exists()
+    assert (tmp_path / "banana-2.png").exists()
+
+    edit_res = await runtime.call_tool(
+        "edit_image",
+        {
+            "images": [str(tmp_path / "banana-1.png")],
+            "prompt": "make it neon green",
+            "output_path": "banana_green.png",
+        },
+    )
+    assert not edit_res.is_error
+    assert len(captured) == 3
+    edit_parts = captured[2][1]["contents"][0]["parts"]
+    assert "inlineData" in edit_parts[0]
+    assert edit_parts[0]["inlineData"]["mimeType"] == "image/png"
+    assert edit_parts[1] == {"text": "make it neon green"}
+    assert (tmp_path / "banana_green.png").exists()

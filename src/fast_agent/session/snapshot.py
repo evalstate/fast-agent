@@ -237,6 +237,17 @@ class SessionChildLinkSnapshot(BaseModel):
 type SessionExecutionStatus = Literal["running", "completed", "failed", "cancelled"]
 
 
+class SessionTerminalAttachmentSnapshot(BaseModel):
+    """Interactive terminal binding (e.g. herdr-core) for crash/reboot recovery."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    core_id: str | None = None
+    terminal_id: str
+    active: bool = True
+    updated_at: datetime | None = None
+
+
 class SessionExecutionSnapshot(BaseModel):
     """Execution lifecycle metadata for a persisted session."""
 
@@ -247,6 +258,7 @@ class SessionExecutionSnapshot(BaseModel):
     status: SessionExecutionStatus = "completed"
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    terminal_attachment: SessionTerminalAttachmentSnapshot | None = None
 
 
 class SessionSnapshot(BaseModel):
@@ -637,6 +649,7 @@ def clone_session_snapshot_for_fork(
         forked_from=snapshot.session_id,
         acp_session_id=None,
     )
+    cloned.execution.terminal_attachment = None
 
     for agent_snapshot in cloned.continuation.agents.values():
         history_file = agent_snapshot.history_file

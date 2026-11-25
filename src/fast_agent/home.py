@@ -182,12 +182,15 @@ def build_child_environment(
     """Build an environment for shell/MCP child processes.
 
     ``FAST_AGENT_RUNTIME_HOME`` is the documented runtime export.
-    In ``--no-home`` mode it is removed, including from explicit overrides.
+    ``FAST_AGENT_HOME`` is only updated when already present in ``base`` so
+    default per-workspace homes do not leak as overrides into child processes.
+    In ``--no-home`` mode both are removed, including from explicit overrides.
     """
     env = dict(os.environ if base is None else base)
     if not no_home and active_home is not None:
         home = str(Path(active_home).expanduser().resolve())
-        env["FAST_AGENT_HOME"] = home
+        if "FAST_AGENT_HOME" in env:
+            env["FAST_AGENT_HOME"] = home
         env[FAST_AGENT_RUNTIME_HOME] = home
 
     if overrides:

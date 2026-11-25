@@ -425,6 +425,28 @@ def test_hc_delivered_input_gets_a_cyan_panel_with_undimmed_text() -> None:
     )
 
 
+def test_hc_delivered_input_preserves_multiline_terminal_output() -> None:
+    display = ConsoleDisplay(config=None)
+    notice = (
+        "t1p3 worker exited (exit 0). Last lines:\n"
+        "┏━━━━━━━━┳━━━━━━━┓\n"
+        "┃ Trials ┃  Mean ┃\n"
+        "┡━━━━━━━━╇━━━━━━━┩\n"
+        "│      1 │ 1.000 │\n"
+        "└────────┴───────┘\n"
+        "Read: hc read t1p3"
+    )
+
+    with console.console.capture() as capture:
+        display.show_user_message(notice, name="hc · t1p3 exited", from_hc=True)
+
+    lines = [line.strip() for line in capture.get().splitlines()]
+    assert "┏━━━━━━━━┳━━━━━━━┓" in lines
+    assert "┃ Trials ┃  Mean ┃" in lines
+    assert "│      1 │ 1.000 │" in lines
+    assert "Read: hc read t1p3" in lines
+
+
 def test_show_assistant_message_auto_detect_renders_markdown_with_backticked_tokens() -> None:
     display = ConsoleDisplay(config=None)
     markdown_text = (

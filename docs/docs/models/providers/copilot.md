@@ -139,6 +139,13 @@ PTC tool calls were smoke-tested on November 18, 2026; structured output has not
 been verified for any Gemini 4 route. Catalog availability does not guarantee
 entitlement for every account.
 
+Gemini 4 routes use Google's implicit prompt caching (4,096-token minimum, no
+cache-write charge, exact `cached_tokens` reported in usage) rather than
+`copilot.cache_mode` / `copilot.cache_ttl`. Because implicit caching has no
+documented fixed TTL, [prompt-cache warming](../../guides/cache_warming.md)
+schedules keep-warm requests from conservative observed retentions (`neon`: 30m,
+`hydrogen`/`carbon`: 15m, `argon`: 4m) using `x-initiator: agent`.
+
 ## Structured output
 
 GPT-6 Astra/Sol/Luna and GPT-6.1 Sol/Terra use Responses JSON schema (`text.format`).

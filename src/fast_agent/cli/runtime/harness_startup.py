@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Protocol
 
 from fast_agent.core.exceptions import (
@@ -222,6 +223,21 @@ def _restore_core_resume_flag(
         args.resume_requested = original
 
 
+async def _bind_hc_terminal_session(
+    request: AgentRunRequest,
+    session_manager: "SessionManager | None",
+) -> None:
+    if not request.is_repl or request.no_home or session_manager is None:
+        return
+    from fast_agent.integrations.hc_children import hc_environment, read_hc_core_id
+
+    env = hc_environment()
+    if env is None:
+        return
+    core_id = await asyncio.to_thread(read_hc_core_id)
+    session_manager.bind_terminal(env.terminal_id, core_id=core_id)
+
+
 async def run_harness_cli_flow(
     fast: HarnessProvider,
     request: AgentRunRequest,
@@ -242,16 +258,25 @@ async def run_harness_cli_flow(
                 from fast_agent.cli.runtime.session_resume import resume_session_if_requested
 
                 await resume_session_if_requested(session.agent_app, request)
-                await _run_flow_with_usage_report(
-                    flow(
-                        session.agent_app,
-                        request,
-                        session_manager=session.env.session_manager,
-                        harness_session=session.env.harness_session,
-                    ),
-                    agent_app=session.agent_app,
-                    quiet=request.quiet,
-                )
+                await _bind_hc_terminal_session(request, session.env.session_manager)
+                try:
+                    await _run_flow_with_usage_report(
+                        flow(
+                            session.agent_app,
+                            request,
+                            session_manager=session.env.session_manager,
+                            harness_session=session.env.harness_session,
+                        ),
+                        agent_app=session.agent_app,
+                        quiet=request.quiet,
+                    )
+                except PromptExitError:
+                    if session.env.session_manager is not None:
+                        session.env.session_manager.close_terminal_binding_cleanly()
+                    raise
+                else:
+                    if session.env.session_manager is not None:
+                        session.env.session_manager.close_terminal_binding_cleanly()
     except PromptExitError as exc:
         raise SystemExit(0) from exc
     except (
@@ -310,17 +335,26 @@ async def run_harness_parallel_cli_flow(
                 from fast_agent.cli.runtime.session_resume import resume_session_if_requested
 
                 await resume_session_if_requested(session.agent_app, request)
-                await _run_flow_with_usage_report(
-                    flow(
-                        session.agent_app,
-                        request,
-                        fan_out_agent_names,
-                        session_manager=session.env.session_manager,
-                        harness_session=session.env.harness_session,
-                    ),
-                    agent_app=session.agent_app,
-                    quiet=request.quiet,
-                )
+                await _bind_hc_terminal_session(request, session.env.session_manager)
+                try:
+                    await _run_flow_with_usage_report(
+                        flow(
+                            session.agent_app,
+                            request,
+                            fan_out_agent_names,
+                            session_manager=session.env.session_manager,
+                            harness_session=session.env.harness_session,
+                        ),
+                        agent_app=session.agent_app,
+                        quiet=request.quiet,
+                    )
+                except PromptExitError:
+                    if session.env.session_manager is not None:
+                        session.env.session_manager.close_terminal_binding_cleanly()
+                    raise
+                else:
+                    if session.env.session_manager is not None:
+                        session.env.session_manager.close_terminal_binding_cleanly()
     except PromptExitError as exc:
         raise SystemExit(0) from exc
     except (

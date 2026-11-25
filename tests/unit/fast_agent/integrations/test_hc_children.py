@@ -24,11 +24,16 @@ from fast_agent.ui.interactive_prompt import _turn_end_line_text
 if TYPE_CHECKING:
     from pathlib import Path
 
-# A stand-in for the hc CLI: answers `wait --children` and `get <t>` from a JSON file.
+# A stand-in for the hc CLI: answers `wait <parent> --children` and `get <t>` from a JSON file.
 _FAKE_HC = """#!{python}
-import json, sys
+import json, os, sys
 state = json.load(open({state!r}))
-open({calls!r}, "a").write(" ".join(sys.argv[1:]) + "\\n")
+open({calls!r}, "a").write(json.dumps({{
+    "argv": sys.argv[1:],
+    "caller": os.environ.get("HC_TERMINAL_ID"),
+    "socket": os.environ.get("HC_SOCKET"),
+    "session": os.environ.get("HC_SESSION"),
+}}) + chr(10))
 if sys.argv[1] == "wait":
     print(state["wait"])
 else:
@@ -65,9 +70,9 @@ def hc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="simulated hc is a POSIX script")
 def test_unfinished_children_are_sorted_by_what_they_mean_for_the_session(hc) -> None:
-    hc(
+    calls = hc(
         {
-            "reason": "message",  # a pending message must not hide the children
+            "reason": "message",
             "children": [
                 _child("t2"),
                 _child("t3"),
@@ -86,6 +91,10 @@ def test_unfinished_children_are_sorted_by_what_they_mean_for_the_session(hc) ->
     assert read_hc_attachments() == HcAttachments(
         resuming=(HcChild("t2", "probe"), HcChild("t5")), services=1
     )
+    logged = [json.loads(line) for line in calls.read_text().splitlines()]
+    assert logged[0]["argv"][:4] == ["wait", "t1", "--children", "all"]
+    assert all(entry["caller"] is None for entry in logged)
+    assert all(entry["socket"] == "/run/hc.sock" for entry in logged)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="simulated hc is a POSIX script")

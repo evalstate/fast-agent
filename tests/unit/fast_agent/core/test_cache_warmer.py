@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
 
-def _turn(*, age_seconds: float = 0.0, cache_read: int = 990) -> TurnUsage:
+def _turn(*, age_seconds: float = 0.0, cache_read: int | None = 990) -> TurnUsage:
     return TurnUsage(
         provider=Provider.ANTHROPIC,
         usage_schema=UsageSchema.OPENAI_CHAT,
@@ -52,7 +52,7 @@ class _Agent:
         mid_turn: bool = True,
         settings: CacheWarmSettings | None = None,
         on_request: Callable[[], Awaitable[None]] | None = None,
-        cache_read: int = 990,
+        cache_read: int | None = 990,
     ) -> None:
         self.accumulator = UsageAccumulator()
         if idle_seconds is not None:
@@ -265,8 +265,9 @@ async def test_nothing_is_sent_before_the_agents_first_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cold_cache_is_reported_as_a_miss() -> None:
-    agent = _Agent(cache_read=0)
+@pytest.mark.parametrize("cache_read", [0, None])
+async def test_cold_cache_is_reported_as_a_miss(cache_read: int | None) -> None:
+    agent = _Agent(cache_read=cache_read)
     warmer = _warmer(agent)
 
     async with warmer.keep_warm("hc", automatic=True):

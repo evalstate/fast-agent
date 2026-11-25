@@ -39,6 +39,51 @@ def test_resolve_settings_start_path_uses_absolute_home_parent(
     assert resolve_settings_start_path(settings) == (tmp_path / "project").resolve()
 
 
+def test_resolve_settings_start_path_ignores_fast_agent_home_override_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    other_repo_home = tmp_path / "other-repo" / ".fast-agent"
+    other_repo_home.mkdir(parents=True)
+    (other_repo_home / "fast-agent.yaml").write_text("default_model: haiku\n", encoding="utf-8")
+
+    workspace = tmp_path / "current-workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+    monkeypatch.setenv("FAST_AGENT_HOME", str(other_repo_home))
+    config_module._settings = None
+
+    try:
+        settings = config_module.get_settings()
+        assert resolve_settings_start_path(settings) == workspace.resolve()
+    finally:
+        config_module._settings = None
+
+
+def test_resolve_settings_start_path_keeps_explicit_config_parent_with_home_override(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    override_home = tmp_path / "shared-home" / ".fast-agent"
+    override_home.mkdir(parents=True)
+    explicit_project = tmp_path / "explicit-project"
+    explicit_project.mkdir()
+    explicit_config = explicit_project / "fast-agent.yaml"
+    explicit_config.write_text("default_model: haiku\n", encoding="utf-8")
+
+    workspace = tmp_path / "elsewhere"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+    monkeypatch.setenv("FAST_AGENT_HOME", str(override_home))
+    config_module._settings = None
+
+    try:
+        settings = config_module.get_settings(explicit_config)
+        assert resolve_settings_start_path(settings) == explicit_project.resolve()
+    finally:
+        config_module._settings = None
+
+
 def test_resolve_home_dir_uses_fast_agent_home(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

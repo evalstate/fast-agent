@@ -1105,11 +1105,11 @@ image_gen:
   output_dir: .fast-agent/images
   # Optional OpenAI GPT-Image-2.6 complexity default: low | medium | high
   complexity: medium
-  # Optional xAI Imagine resolution default: 1k | 2k
+  # Optional resolution default: 1k | 2k (xAI Imagine) or 1k | 2k | 4k (Google Nano Banana)
   resolution: 2k
 ```
 
-Supported routes are OpenAI (`OPENAI_API_KEY`), OpenAI Codex OAuth (`fast-agent auth provider login codex`), and xAI (`XAI_API_KEY` or `fast-agent auth provider login xai`).
+Supported routes are OpenAI (`OPENAI_API_KEY`), OpenAI Codex OAuth (`fast-agent auth provider login codex`), xAI (`XAI_API_KEY` or `fast-agent auth provider login xai`), and Google (`GOOGLE_API_KEY`).
 
 ## LLM Retries
 

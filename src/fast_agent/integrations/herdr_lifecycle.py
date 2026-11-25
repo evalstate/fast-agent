@@ -108,6 +108,7 @@ class _HerdrLifecycleReporter:
         self._working_scope_depth = 0
         self._prompt_working = False
         self._blocked_depth = 0
+        self._startup_hold_depth = 0
         self._session_metadata: _SessionMetadata | None = None
         self._pending_session_metadata: _SessionMetadata | None = None
         self._latest_metadata_request_id: str | None = None
@@ -173,6 +174,24 @@ class _HerdrLifecycleReporter:
             ):
                 self._enqueue_locked("pane.report_agent", state=self._base_state)
 
+    def enter_startup_hold(self) -> None:
+        """Keep OSC 7501 silent until interactive startup finishes."""
+        if os.getpid() != self._creator_pid:
+            return
+        with self._lock:
+            if self._closing:
+                return
+            self._startup_hold_depth += 1
+
+    def exit_startup_hold(self) -> None:
+        """Release one startup hold level."""
+        if os.getpid() != self._creator_pid:
+            return
+        with self._lock:
+            if self._closing or self._startup_hold_depth == 0:
+                return
+            self._startup_hold_depth -= 1
+
     def report_prompt_working(
         self, working: bool, *, prompt_start: bool = False, failed: bool = False
     ) -> None:
@@ -181,7 +200,8 @@ class _HerdrLifecycleReporter:
         with self._lock:
             if self._closing:
                 return
-            self._program_status.activate()
+            if self._startup_hold_depth == 0:
+                self._program_status.activate()
             # OSC 133 A may clear the terminal's record. Republish a retained
             # failure rather than immediately erasing it when the prompt returns.
             if not prompt_start or self._base_state != "error":
@@ -203,7 +223,7 @@ class _HerdrLifecycleReporter:
         with self._lock:
             if self._closing:
                 return
-            if activate:
+            if activate and self._startup_hold_depth == 0:
                 # Before the first prompt (startup questions) nothing has
                 # activated status output yet; callers check for a TTY session.
                 self._program_status.activate()
@@ -223,7 +243,7 @@ class _HerdrLifecycleReporter:
                     else self._base_state
                 )
                 self._enqueue_locked("pane.report_agent", state=state)
-                if state == "unknown":
+                if state == "unknown" and self._startup_hold_depth == 0:
                     # A startup question was answered before any prompt exists.
                     self._program_status.clear_state()
 
@@ -369,7 +389,7 @@ class _HerdrLifecycleReporter:
         force_program_status: bool = False,
         kind: BlockedKind | None = None,
     ) -> None:
-        if state in ("idle", "working", "blocked", "error"):
+        if self._startup_hold_depth == 0 and state in ("idle", "working", "blocked", "error"):
             self._program_status.report_state(state, force=force_program_status, kind=kind)
         if self._environment is not None:
             # The legacy Herdr socket protocol has no error state. Keep its
@@ -739,6 +759,36 @@ def herdr_working():
                 reporter.exit_working()
             except Exception:
                 pass
+
+
+def enter_startup_hold() -> None:
+    """Suppress OSC 7501 activation/emission until the interactive prompt is ready."""
+    try:
+        reporter = _active_reporter()
+        if reporter is not None:
+            reporter.enter_startup_hold()
+    except Exception:
+        pass
+
+
+def exit_startup_hold() -> None:
+    """Release a prior ``enter_startup_hold()`` call."""
+    try:
+        reporter = _active_reporter()
+        if reporter is not None:
+            reporter.exit_startup_hold()
+    except Exception:
+        pass
+
+
+@contextmanager
+def herdr_startup_hold():
+    """Keep OSC 7501 silent across startup recovery, cleanup, and hydration."""
+    enter_startup_hold()
+    try:
+        yield
+    finally:
+        exit_startup_hold()
 
 
 @contextmanager

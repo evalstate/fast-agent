@@ -16,6 +16,7 @@ from fast_agent.constants import (
     REASONING,
 )
 from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.prompt_cache import copilot_gemini_observed_cache_ttl
 from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.models import CopilotModelSpec, get_copilot_model
 from fast_agent.llm.provider.copilot.openai_client import create_openai_client
@@ -123,6 +124,11 @@ class CopilotChatCompletionsLLM(OpenAILLM):
 
     def supports_files_api(self) -> bool:
         return False
+
+    @property
+    def cache_retention_seconds(self) -> int | None:
+        model = self.default_request_params.model
+        return copilot_gemini_observed_cache_ttl(model) if model else None
 
     def _fallback_to_non_streaming_on_empty_stream(self, model: str) -> bool:
         # Copilot Gemini serves empty completions identically on non-streaming after a long

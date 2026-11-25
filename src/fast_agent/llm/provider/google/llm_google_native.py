@@ -28,6 +28,10 @@ from fast_agent.constants import (
 from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.prompt_cache import (
+    GOOGLE_GEMINI_OBSERVED_CACHE_TTL_SECONDS,
+    uses_google_implicit_cache,
+)
 from fast_agent.llm.provider.google._stream_capture import (
     save_stream_chunk,
     save_stream_request,
@@ -172,6 +176,13 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         self._converter = GoogleConverter()
         self._init_reasoning(kwargs)
         self._configure_service_tier()
+
+    @property
+    def cache_retention_seconds(self) -> int | None:
+        model = self.default_request_params.model
+        if model and uses_google_implicit_cache(model):
+            return GOOGLE_GEMINI_OBSERVED_CACHE_TTL_SECONDS
+        return None
 
     @property
     def web_search_supported(self) -> bool:

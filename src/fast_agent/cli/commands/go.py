@@ -1043,7 +1043,14 @@ def go(
         timeout_seconds=timeout,
     )
 
-    _maybe_offer_recommended_plugins(ctx, request)
+    from fast_agent.cli.runtime.hc_recovery import should_check_hc_recovery
+    from fast_agent.integrations.herdr_lifecycle import herdr_startup_hold
+
+    if should_check_hc_recovery(request):
+        with herdr_startup_hold():
+            _maybe_offer_recommended_plugins(ctx, request)
+    else:
+        _maybe_offer_recommended_plugins(ctx, request)
     update_notice = _resolve_request_update_notice(
         ctx=ctx,
         request=request,

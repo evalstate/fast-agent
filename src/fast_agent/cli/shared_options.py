@@ -277,7 +277,8 @@ class CommonAgentOptions:
             "--image-gen-model",
             help=(
                 "Image generation model spec (e.g. codexresponses.gpt-image-2.6-flare, "
-                "xai.grok-imagine-image-2.0, openai, xai); also enables --image-gen."
+                "xai.grok-imagine-image-2.0, google.gemini-nano-banana-2.1, openai, xai, google); "
+                "also enables --image-gen."
             ),
         )
 
