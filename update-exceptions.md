@@ -15,31 +15,30 @@ When upgrading any dependency listed below:
 
 ## `prompt-toolkit`
 
-- **CPR & resize recovery (`src/fast_agent/ui/prompt/keybindings.py`, `src/fast_agent/ui/prompt/input_runtime.py`)**
-  - Uses private `Renderer._waiting_for_cpr_futures`, `Renderer._min_available_height`,
-    `Renderer.cpr_support`, `Renderer.cpr_not_supported_callback`, and wraps
-    `Application._on_resize` on the `PromptSession.app` instance.
-  - Why: in `prompt_toolkit 3.0.53`, a dropped Cursor Position Request (`\x1b[6n`)
-    reply leaves unresolved futures in `_waiting_for_cpr_futures` and latches
-    `cpr_support = NOT_SUPPORTED` for the rest of the turn; `Renderer.clear()`
-    also omits scroll-region reset (`\x1b[r`) and fires a redundant `\x1b[6n`
-    after `cursor_goto(0, 0)`.
-  - Check on upgrade: verify those attributes/methods still exist and have the
-    same semantics (`_on_resize` still looked up dynamically by
-    `attach_winch_signal_handler` and `_poll_output_size`), and check whether
-    upstream fixed CPR timeout cleanup, `NOT_SUPPORTED` recovery, or `clear()`.
-  - Tests: `tests/unit/fast_agent/ui/test_prompt_keybindings.py`,
-    `tests/unit/fast_agent/ui/test_prompt_input_runtime.py`.
-
-- **Dynamic completion-menu height (`src/fast_agent/ui/prompt/input_runtime.py`)**
-  - Subclasses `PromptSession` (`_DynamicMenuPromptSession`) and overrides
-    private `_get_default_buffer_control_height()` so `reserve_space_for_menu`
-    is only applied when `default_buffer.complete_state.completions` is
-    non-empty (instead of always reserving 8 rows while `complete_while_typing`
-    is enabled).
-  - Check on upgrade: verify `PromptSession._create_layout()` still wires
-    `default_buffer_window` to `self._get_default_buffer_control_height`.
-  - Tests: `tests/unit/fast_agent/ui/test_prompt_input_runtime.py`.
+- **Inline toolbar, dynamic menu height, CPR drain, and resize debounce (`src/fast_agent/ui/prompt/input_runtime.py`, `src/fast_agent/ui/prompt/keybindings.py`)**
+  - `_configure_inline_toolbar()` sets `renderer.cpr_support = CPR_Support.NOT_SUPPORTED`,
+    zeros `renderer._min_available_height`, wraps `renderer.render` to reset
+    `renderer._last_screen = None` (repainting from `(0, 0)` with `erase_down`
+    inside DEC Mode 2026 synchronized output on `Vt100_Output`), replaces the
+    `class:bottom-toolbar` `ConditionalContainer.filter` to drop
+    `renderer_height_is_known`, and overrides
+    `session._get_default_buffer_control_height` / `current_window.height` so
+    `reserve_space_for_menu` only applies when `complete_state.completions` is
+    non-empty.
+  - `_install_resilient_resize_handler()` wraps `session.app._on_resize` with an
+    80 ms debounce, draining `renderer._waiting_for_cpr_futures` and zeroing
+    `renderer._min_available_height`.
+  - `reset_renderer_cpr_state()` drains `renderer._waiting_for_cpr_futures` and
+    optionally resets `renderer.cpr_support`; `_clear_terminal_screen()` resets
+    scroll region/SGR and scrolls the visible viewport into scrollback on
+    `Vt100_Output` before clearing.
+  - Check on upgrade: verify `Renderer._waiting_for_cpr_futures`,
+    `Renderer.cpr_support`, `Renderer._min_available_height`,
+    `Renderer._last_screen`, `Renderer.render`, `Application._on_resize`,
+    `PromptSession._get_default_buffer_control_height`, and the
+    `class:bottom-toolbar` `ConditionalContainer` layout structure.
+  - Tests: `tests/unit/fast_agent/ui/test_prompt_input_runtime.py`,
+    `tests/unit/fast_agent/ui/test_prompt_keybindings.py`.
 
 - **Typeahead replay (`src/fast_agent/ui/prompt/turn_input.py`)**
   - Uses `prompt_toolkit.input.typeahead.get_typeahead`, `store_typeahead`, and

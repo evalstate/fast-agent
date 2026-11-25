@@ -17,7 +17,6 @@ from fast_agent.ui.prompt.keybindings import (
     _cycle_completion,
     create_keybindings,
     paste_clipboard_image_attachment_into_buffer,
-    reset_renderer_cpr_state,
 )
 
 
@@ -338,91 +337,77 @@ async def test_ctrl_y_skips_tool_only_assistant_turns_when_falling_back_to_histo
 
 
 @pytest.mark.asyncio
-async def test_ctrl_l_resets_cpr_state_scroll_region_and_seeds_height() -> None:
+async def test_clear_terminal_screen_resets_scroll_region_and_drains_cpr() -> None:
     import asyncio
     import io
+    from collections import deque
 
     from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.output import DummyOutput
     from prompt_toolkit.output.vt100 import Vt100_Output
-    from prompt_toolkit.renderer import CPR_Support, Renderer
-    from prompt_toolkit.styles import Style
 
-    class _FakeStdout:
-        encoding = "utf-8"
+    from fast_agent.ui.prompt.keybindings import _clear_terminal_screen
 
+    pending = asyncio.get_running_loop().create_future()
+    buf = io.StringIO()
+    vt_output = Vt100_Output(buf, lambda: Size(rows=24, columns=80))
+    invalidated = 0
+    erased = 0
+
+    class _VtRenderer:
         def __init__(self) -> None:
-            self._buf = io.StringIO()
+            self._waiting_for_cpr_futures = deque([pending])
+            self._min_available_height = 30
+            self.output = vt_output
 
-        def isatty(self) -> bool:
-            return True
+        def erase(self, *, leave_alternate_screen: bool = True) -> None:
+            nonlocal erased
+            assert leave_alternate_screen is False
+            erased += 1
 
-        def write(self, data: str) -> int:
-            return self._buf.write(data)
-
-        def flush(self) -> None:
-            self._buf.flush()
-
-        def getvalue(self) -> str:
-            return self._buf.getvalue()
-
-    buf = _FakeStdout()
-    output = Vt100_Output(cast("Any", buf), lambda: Size(rows=30, columns=100), enable_cpr=True)
-    renderer = Renderer(style=Style([]), output=output)
-
-    stale_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-    renderer._waiting_for_cpr_futures.append(stale_future)
-    renderer.cpr_support = CPR_Support.NOT_SUPPORTED
-
-    invalidated = False
-
-    class _App:
-        def __init__(self) -> None:
-            self.renderer = renderer
+    class _VtApp:
+        renderer = _VtRenderer()
 
         def invalidate(self) -> None:
             nonlocal invalidated
-            invalidated = True
+            invalidated += 1
 
-    app = _App()
-    kb = create_keybindings(app=app)
-    binding = _binding_for(kb, Keys.ControlL)
-    binding.handler(SimpleNamespace(current_buffer=Buffer(), app=app))
+    vt_app = _VtApp()
+    _clear_terminal_screen(SimpleNamespace(app=vt_app), None)
 
-    emitted = buf.getvalue()
-    assert stale_future.cancelled()
-    assert not renderer._waiting_for_cpr_futures
-    assert renderer.cpr_support == CPR_Support.UNKNOWN
-    assert "\x1b[r" in emitted
-    assert "\x1b[2J" in emitted
-    assert "\x1b[6n" not in emitted
-    assert renderer.height_is_known is True
-    assert renderer.cpr_not_supported_callback is None
-    assert invalidated is True
+    raw = buf.getvalue()
+    assert pending.done()
+    assert erased == 1
+    assert "\x1b[r\x1b[0m" in raw
+    assert "\x1b[24;1H" + "\n" * 24 in raw
+    assert "\x1b[2J" in raw
+    assert "\x1b[6n" not in raw
+    assert vt_app.renderer._min_available_height == 0
+    assert invalidated == 1
 
+    # Non-VT100 outputs delegate to renderer.clear() without emitting raw ANSI.
+    cleared = 0
+    dummy_invalidated = 0
 
-def test_reset_renderer_cpr_state_preserves_not_supported_when_output_disables_cpr() -> None:
-    from prompt_toolkit.data_structures import Size
-    from prompt_toolkit.output.vt100 import Vt100_Output
-    from prompt_toolkit.renderer import CPR_Support, Renderer
-    from prompt_toolkit.styles import Style
+    class _DummyRenderer:
+        def __init__(self) -> None:
+            self._waiting_for_cpr_futures: deque[asyncio.Future[None]] = deque()
+            self._min_available_height = 12
+            self.output = DummyOutput()
 
-    class _FakeStdout:
-        encoding = "utf-8"
+        def clear(self) -> None:
+            nonlocal cleared
+            cleared += 1
 
-        def isatty(self) -> bool:
-            return True
+    class _DummyApp:
+        renderer = _DummyRenderer()
 
-        def write(self, data: str) -> int:
-            return len(data)
+        def invalidate(self) -> None:
+            nonlocal dummy_invalidated
+            dummy_invalidated += 1
 
-        def flush(self) -> None:
-            pass
-
-    output = Vt100_Output(
-        cast("Any", _FakeStdout()), lambda: Size(rows=24, columns=80), enable_cpr=False
-    )
-    renderer = Renderer(style=Style([]), output=output)
-
-    assert renderer.cpr_support == CPR_Support.NOT_SUPPORTED
-    reset_renderer_cpr_state(renderer)
-    assert renderer.cpr_support == CPR_Support.NOT_SUPPORTED
+    dummy_app = _DummyApp()
+    _clear_terminal_screen(SimpleNamespace(app=dummy_app), None)
+    assert cleared == 1
+    assert dummy_app.renderer._min_available_height == 0
+    assert dummy_invalidated == 1

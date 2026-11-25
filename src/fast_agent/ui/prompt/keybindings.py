@@ -221,57 +221,41 @@ def _toggle_multiline_mode(
         on_toggle_multiline(session_state.in_multiline_mode)
 
 
-_VT100_RESET_SCROLL_REGION = "\x1b[r"
-
-
-def reset_renderer_cpr_state(renderer: Renderer) -> None:
-    """Drain stuck CPR futures and re-enable CPR probing after dropped replies.
-
-    When a terminal proxy (such as herdr-core) drops a Cursor Position Request
-    reply during disconnect/reconnect or resize, prompt_toolkit can leave
-    unresolved futures in ``_waiting_for_cpr_futures`` and latch
-    ``cpr_support`` to ``NOT_SUPPORTED``.
-    """
-    futures = renderer._waiting_for_cpr_futures
-    while futures:
-        futures.popleft().cancel()
-
-    if renderer.cpr_support == CPR_Support.NOT_SUPPORTED and renderer.output.responds_to_cpr:
+def reset_renderer_cpr_state(renderer: Renderer, *, reset_cpr_support: bool = False) -> None:
+    """Drain stale CPR futures left behind by terminal disconnects or resizes."""
+    waiting = renderer._waiting_for_cpr_futures
+    while waiting:
+        fut = waiting.popleft()
+        if not fut.done():
+            fut.set_result(None)
+    if reset_cpr_support and renderer.cpr_support == CPR_Support.NOT_SUPPORTED:
         renderer.cpr_support = CPR_Support.UNKNOWN
-        # Suppress repeated unsupported-CPR warnings if subsequent re-probes also time out.
-        renderer.cpr_not_supported_callback = None
-
-
-def _clear_renderer_screen(renderer: Renderer) -> None:
-    """Clear the terminal screen without leaving stale CPR state behind."""
-    reset_renderer_cpr_state(renderer)
-    output = renderer.output
-    if not isinstance(output, Vt100_Output):
-        renderer.clear()
-        return
-
-    renderer.erase()
-    output.write_raw(_VT100_RESET_SCROLL_REGION)
-    output.erase_screen()
-    output.cursor_goto(0, 0)
-    output.flush()
-
-    # The cursor is now at row 1, so the available height is the full terminal
-    # height without needing a redundant CPR round-trip.
-    renderer._min_available_height = output.get_size().rows
 
 
 def _clear_terminal_screen(event: Any, fallback_app: Any | None) -> None:
     app_ref = _event_or_fallback_app(event, fallback_app)
     if not app_ref:
         return
-    renderer = getattr(app_ref, "renderer", None)
-    if isinstance(renderer, Renderer):
-        _clear_renderer_screen(renderer)
-        app_ref.invalidate()
-    elif renderer is not None:
+    renderer = app_ref.renderer
+    reset_renderer_cpr_state(renderer)
+    output = renderer.output
+    if isinstance(output, Vt100_Output):
+        # Erase the active prompt first so it isn't pushed into scrollback,
+        # reset scroll region/SGR, then scroll the visible viewport into
+        # scrollback so the previous message isn't lost on erase_screen().
+        renderer.erase(leave_alternate_screen=False)
+        output.write_raw("\x1b[r\x1b[0m")
+        rows = output.get_size().rows
+        if rows > 0:
+            output.write_raw(f"\x1b[{rows};1H" + "\n" * rows)
+        output.erase_screen()
+        output.cursor_goto(0, 0)
+        output.flush()
+    else:
         renderer.clear()
-        app_ref.invalidate()
+    reset_renderer_cpr_state(renderer)
+    renderer._min_available_height = 0
+    app_ref.invalidate()
 
 
 async def _edit_current_buffer_in_editor(event: Any) -> None:

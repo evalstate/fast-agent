@@ -129,189 +129,113 @@ async def test_run_prompt_once_converts_eof_to_eof_command() -> None:
     assert isinstance(result, EOFCommand)
 
 
-class _FakeVt100Stdout:
-    encoding = "utf-8"
-
-    def __init__(self) -> None:
-        self._chunks: list[str] = []
-
-    def isatty(self) -> bool:
-        return True
-
-    def write(self, data: str) -> int:
-        self._chunks.append(data)
-        return len(data)
-
-    def flush(self) -> None:
-        pass
-
-    def getvalue(self) -> str:
-        return "".join(self._chunks)
-
-    def clear(self) -> None:
-        self._chunks.clear()
-
-
 @pytest.mark.asyncio
-async def test_resilient_resize_recovers_after_dropped_cpr_without_submit_stall(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    import asyncio
-    import time
+async def test_inline_toolbar_renders_compactly_and_clears_below() -> None:
+    import io
 
-    from prompt_toolkit import PromptSession
+    from prompt_toolkit.application.current import set_app
+    from prompt_toolkit.buffer import CompletionState
+    from prompt_toolkit.completion import Completion, WordCompleter
     from prompt_toolkit.data_structures import Size
-    from prompt_toolkit.input.defaults import create_pipe_input
+    from prompt_toolkit.document import Document
+    from prompt_toolkit.history import InMemoryHistory
     from prompt_toolkit.output.vt100 import Vt100_Output
     from prompt_toolkit.renderer import CPR_Support
 
-    buf = _FakeVt100Stdout()
-    output = Vt100_Output(cast("TextIO", buf), lambda: Size(rows=24, columns=80), enable_cpr=True)
+    buf = io.StringIO()
+    out = Vt100_Output(buf, get_size=lambda: Size(rows=40, columns=100))
+    session = input_runtime.create_prompt_session(
+        history=InMemoryHistory(),
+        completer=WordCompleter(["/help", "/clear"]),
+        lexer=None,
+        multiline_filter=False,
+        toolbar=lambda: " NORMAL | model ",
+        style=input_runtime.build_prompt_style(),
+    )
+    session.app.renderer.output = out
+    session.message = "❯ "
+    session.reserve_space_for_menu = 6
 
-    with create_pipe_input() as pipe:
-        session: PromptSession[str] = PromptSession(
-            bottom_toolbar="TOOLBAR",
-            erase_when_done=True,
-            input=pipe,
-            output=output,
+    assert session.app.renderer.cpr_support == CPR_Support.NOT_SUPPORTED
+
+    with set_app(session.app):
+        session.app.renderer.render(session.app, session.app.layout)
+        raw = buf.getvalue()
+        assert session.app.renderer._last_screen is not None
+        assert session.app.renderer._last_screen.height == 2
+        assert "\x1b[6n" not in raw
+        assert "\x1b[?2026h" in raw
+        assert "\x1b[?2026l" in raw
+        assert "\x1b[J" in raw
+        assert "NORMAL | model" in raw
+
+        # Empty CompletionState (in-flight threaded completion) must not expand height.
+        buf.seek(0)
+        buf.truncate(0)
+        session.default_buffer.text = "hello"
+        session.default_buffer.complete_state = CompletionState(Document("hello"), [])
+        session.app.renderer.render(session.app, session.app.layout)
+        assert session.app.renderer._last_screen.height == 2
+        assert "\x1b[J" in buf.getvalue()
+
+        # Non-empty completions expand to reserve menu space + toolbar.
+        session.default_buffer.text = "/"
+        session.default_buffer.complete_state = CompletionState(
+            Document("/"), [Completion("/help")]
         )
-        input_runtime._install_resilient_resize_handler(session, debounce_seconds=0.0)
-        renderer = session.app.renderer
-        monkeypatch.setattr(renderer, "CPR_TIMEOUT", 0.05)
+        session.app.renderer.render(session.app, session.app.layout)
+        assert session.app.renderer._last_screen.height == 7
 
-        async def _drive() -> float:
-            try:
-                # Let initial CPR time out so cpr_support latches to NOT_SUPPORTED
-                # with a stale pending future.
-                await asyncio.sleep(0.1)
-                assert renderer.cpr_support == CPR_Support.NOT_SUPPORTED
-                assert len(renderer._waiting_for_cpr_futures) == 1
-
-                # A resize that also times out must not spam repeated CPR warnings.
-                buf.clear()
-                session.app._on_resize()
-                assert "\x1b[6n" in buf.getvalue()
-                await asyncio.sleep(0.1)
-                assert renderer.cpr_support == CPR_Support.NOT_SUPPORTED
-                assert "WARNING:" not in buf.getvalue()
-
-                # Next resize re-probes; reply arrives -> toolbar renders and queue drains.
-                buf.clear()
-                session.app._on_resize()
-                assert "\x1b[6n" in buf.getvalue()
-                pipe.send_text("\x1b[5;1R")
-                await asyncio.sleep(0.05)
-                assert renderer.cpr_support == CPR_Support.SUPPORTED
-                assert not renderer._waiting_for_cpr_futures
-                assert "TOOLBAR" in buf.getvalue()
-
-                # Once SUPPORTED, rapid resizes preserve in-flight CPR replies until
-                # both arrive instead of draining prematurely.
-                session.app._on_resize()
-                session.app._on_resize()
-                pipe.send_text("\x1b[5;1R\x1b[5;1R")
-                await asyncio.sleep(0.05)
-                assert not renderer._waiting_for_cpr_futures
-
-                return time.perf_counter()
-            finally:
-                pipe.send_text("\r")
-
-        driver = asyncio.create_task(_drive())
-        try:
-            result = await asyncio.wait_for(session.prompt_async("> "), timeout=5.0)
-        finally:
-            submitted_at = await driver
-        elapsed = time.perf_counter() - submitted_at
-
-    assert result == ""
-    assert elapsed < 0.5
+        # Closing completions shrinks back to 2 and erases below.
+        buf.seek(0)
+        buf.truncate(0)
+        session.default_buffer.complete_state = None
+        session.app.renderer.render(session.app, session.app.layout)
+        assert session.app.renderer._last_screen.height == 2
+        assert "\x1b[J" in buf.getvalue()
 
 
 @pytest.mark.asyncio
-async def test_resilient_resize_coalesces_rapid_resize_burst() -> None:
+async def test_resilient_resize_handler_debounces_bursts() -> None:
     import asyncio
+    from types import SimpleNamespace
 
-    from prompt_toolkit import PromptSession
-    from prompt_toolkit.data_structures import Size
-    from prompt_toolkit.input.defaults import create_pipe_input
-    from prompt_toolkit.output.vt100 import Vt100_Output
+    erases = 0
+    redraws = 0
 
-    buf = _FakeVt100Stdout()
-    output = Vt100_Output(cast("TextIO", buf), lambda: Size(rows=24, columns=80), enable_cpr=True)
+    from collections import deque
 
-    with create_pipe_input() as pipe:
-        session: PromptSession[str] = PromptSession(
-            bottom_toolbar="TOOLBAR",
-            erase_when_done=True,
-            input=pipe,
-            output=output,
-        )
-        input_runtime._install_resilient_resize_handler(session, debounce_seconds=0.03)
-        renderer = session.app.renderer
+    class _Renderer:
+        def __init__(self) -> None:
+            self._waiting_for_cpr_futures: deque[asyncio.Future[None]] = deque()
+            self._min_available_height = 20
 
-        async def _drive() -> None:
-            try:
-                await asyncio.sleep(0.03)
-                pipe.send_text("\x1b[5;1R")
-                await asyncio.sleep(0.03)
-                buf.clear()
+        def erase(self, *, leave_alternate_screen: bool = True) -> None:
+            nonlocal erases
+            assert leave_alternate_screen is False
+            erases += 1
 
-                # Burst of 5 rapid resizes should coalesce into a single redraw/CPR probe.
-                for _ in range(5):
-                    session.app._on_resize()
-                assert buf.getvalue() == ""
+    class _App:
+        is_running = True
+        is_done = False
+        renderer = _Renderer()
 
-                await asyncio.sleep(0.06)
-                assert buf.getvalue().count("\x1b[6n") == 1
-                assert len(renderer._waiting_for_cpr_futures) == 1
+        def _on_resize(self) -> None:
+            nonlocal redraws
+            redraws += 1
 
-                pipe.send_text("\x1b[5;1R")
-                await asyncio.sleep(0.03)
-                assert not renderer._waiting_for_cpr_futures
-            finally:
-                pipe.send_text("\r")
-
-        driver = asyncio.create_task(_drive())
-        try:
-            result = await asyncio.wait_for(session.prompt_async("> "), timeout=5.0)
-        finally:
-            await driver
-
-    assert result == ""
-
-
-def test_dynamic_menu_prompt_session_reserves_height_only_with_visible_completions() -> None:
-    from prompt_toolkit.completion import Completion, WordCompleter
-    from prompt_toolkit.data_structures import Size
-    from prompt_toolkit.input.defaults import create_pipe_input
-    from prompt_toolkit.output.vt100 import Vt100_Output
-
-    output = Vt100_Output(
-        cast("TextIO", _FakeVt100Stdout()),
-        lambda: Size(rows=24, columns=80),
-        enable_cpr=True,
+    session = SimpleNamespace(app=_App())
+    input_runtime._install_resilient_resize_handler(
+        cast("PromptSession", session),
+        debounce_seconds=0.02,
     )
-    with create_pipe_input() as pipe:
-        session = input_runtime._DynamicMenuPromptSession(
-            completer=WordCompleter(["/help", "/status"]),
-            complete_while_typing=True,
-            reserve_space_for_menu=8,
-            input=pipe,
-            output=output,
-        )
 
-        # Idle with complete_while_typing=True: 1 prompt line + 1 buffer line above status bar.
-        assert session._get_default_buffer_control_height().min == 2
+    session.app._on_resize()
+    session.app._on_resize()
+    session.app._on_resize()
+    assert erases == 1
+    assert redraws == 0
 
-        # Pending background completion with empty completions list: still compact.
-        session.default_buffer._set_completions([])
-        assert session._get_default_buffer_control_height().min == 2
-
-        # Visible completions: expands to reserve_space_for_menu.
-        session.default_buffer._set_completions([Completion("/help")])
-        assert session._get_default_buffer_control_height().min == 8
-
-        # Cleared completions: returns to compact height.
-        session.default_buffer.cancel_completion()
-        assert session._get_default_buffer_control_height().min == 2
+    await asyncio.sleep(0.05)
+    assert redraws == 1
+    assert session.app.renderer._min_available_height == 0
