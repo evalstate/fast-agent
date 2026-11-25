@@ -1,6 +1,6 @@
 """Opt-in end-to-end tests for hc reboot/restart recovery against a real isolated herdr-core.
 
-Run: FAST_AGENT_TEST_HC=1 uv run pytest tests/integration/ui/test_hc_recovery.py -v
+Run: FAST_AGENT_TEST_HC=1 uv run pytest tests/integration/ui/test_hc_recovery_e2e.py -v
 
 Each test owns a dedicated scratch HC_SESSION and scratch XDG_* / fast-agent home
 directories. It never attaches to, stops, or restarts the user's live core.

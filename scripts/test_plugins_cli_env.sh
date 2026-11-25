@@ -153,7 +153,7 @@ YAML
   assert_file_exists "$USER_HOME/.fast-agent/plugins/finder/plugin.yaml"
   assert_contains "finder" "$USER_HOME/.fast-agent/fast-agent.yaml"
 
-  run_fast_agent plugins --registry "$PACK_REPO/marketplace.json" add finder
+  run_fast_agent plugins --registry "$PACK_REPO/marketplace.json" add finder --project
   assert_file_exists "$PROJECT_ENV/plugins/finder/plugin.yaml"
   assert_contains "finder" fast-agent.yaml
 
@@ -201,12 +201,12 @@ git -C "$PACK_REPO" commit -m "update finder plugin" >/dev/null
 
 (
   cd "$PROJECT_DIR"
-  run_fast_agent plugins update > "$WORK_DIR/plugins.update"
+  run_fast_agent plugins update --project --check > "$WORK_DIR/plugins.update"
   assert_contains "update available" "$WORK_DIR/plugins.update" || {
     cat "$WORK_DIR/plugins.update"
     exit 1
   }
-  run_fast_agent plugins update finder
+  run_fast_agent plugins update --project finder
   assert_contains "finder v2" "$PROJECT_ENV/plugins/finder/commands.py"
 )
 

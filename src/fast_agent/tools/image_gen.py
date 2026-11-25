@@ -25,12 +25,6 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.event_progress import ProgressAction
 from fast_agent.io.path_uri import local_file_url_path
-from fast_agent.llm.provider.openai.codex_oauth import (
-    get_codex_access_token,
-    parse_chatgpt_account_id,
-)
-from fast_agent.llm.provider.openai.codex_responses import CODEX_BASE_URL
-from fast_agent.llm.provider.openai.xai_oauth import get_xai_access_token
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.tool_result_metadata import set_tool_result_media_preview
@@ -43,6 +37,23 @@ if TYPE_CHECKING:
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 
 logger = get_logger(__name__)
+
+
+def get_codex_access_token() -> str | None:
+    from fast_agent.llm.provider.openai.codex_oauth import (
+        get_codex_access_token as _get_codex_access_token,
+    )
+
+    return _get_codex_access_token()
+
+
+def get_xai_access_token() -> str | None:
+    from fast_agent.llm.provider.openai.xai_oauth import (
+        get_xai_access_token as _get_xai_access_token,
+    )
+
+    return _get_xai_access_token()
+
 
 GENERATE_IMAGE_TOOL_NAME = "generate_image"
 EDIT_IMAGE_TOOL_NAME = "edit_image"
@@ -440,6 +451,9 @@ def _resolve_backend_endpoint(
     config_dict = settings.model_dump() if settings is not None else {}
 
     if resolved.backend == "codexresponses":
+        from fast_agent.llm.provider.openai.codex_oauth import parse_chatgpt_account_id
+        from fast_agent.llm.provider.openai.codex_responses import CODEX_BASE_URL
+
         codex_key = ProviderKeyManager.get_optional_api_key(
             Provider.CODEX_RESPONSES.config_name, config_dict
         )
