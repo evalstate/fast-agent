@@ -89,15 +89,18 @@ def _inline_code_ranges(
         return []
 
     ranges: list[tuple[int, int]] = []
-    pattern = f"`{code_content}`"
-    start = 0
-    while True:
-        pos = content.find(pattern, start)
-        if pos == -1:
-            return ranges
-        if not _is_protected_position(pos, protected_ranges):
-            ranges.append((pos, pos + len(pattern)))
-        start = pos + len(pattern)
+    # Markdown removes one surrounding space from a padded code span's content.
+    for body in (code_content, f" {code_content} "):
+        pattern = f"`{body}`"
+        start = 0
+        while True:
+            pos = content.find(pattern, start)
+            if pos == -1:
+                break
+            if not _is_protected_position(pos, protected_ranges):
+                ranges.append((pos, pos + len(pattern)))
+            start = pos + len(pattern)
+    return ranges
 
 
 def _incomplete_fence_range(
