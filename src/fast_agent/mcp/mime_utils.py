@@ -1,6 +1,7 @@
 # mime_utils.py
 
 import mimetypes
+from pathlib import Path
 
 from fast_agent.utils.text import strip_casefold
 
@@ -68,6 +69,30 @@ def guess_mime_type(file_path: str) -> str:
     """
     mime_type, _ = mimetypes.guess_type(file_path)
     return mime_type or "application/octet-stream"
+
+
+def guess_file_mime_type(path: Path) -> str:
+    """
+    Guess the MIME type of a local file from its extension, then from its content.
+
+    Many source and config files (.go, .tsx, .yaml, ...) have no registered extension,
+    so the extension alone says application/octet-stream. Such a file is text/plain
+    if its content is UTF-8 text.
+    """
+    mime_type = guess_mime_type(str(path))
+    if mime_type == "application/octet-stream" and _is_utf8_text(path.read_bytes()):
+        return "text/plain"
+    return mime_type
+
+
+def _is_utf8_text(data: bytes) -> bool:
+    if b"\x00" in data:
+        return False
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
 
 
 def is_text_mime_type(mime_type: str) -> bool:

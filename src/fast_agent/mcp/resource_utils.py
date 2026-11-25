@@ -53,7 +53,7 @@ def load_resource_content(resource_path: str, prompt_files: list[Path]) -> Resou
         raise FileNotFoundError(f"Resource not found: {resource_path}")
 
     # Determine mime type
-    mime_type = mime_utils.guess_mime_type(str(resource_file))
+    mime_type = mime_utils.guess_file_mime_type(resource_file)
     is_binary = mime_utils.is_binary_content(mime_type)
 
     if is_binary:

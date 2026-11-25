@@ -24,6 +24,7 @@ from mcp_types import (
 
 from fast_agent.mcp.message_roles import MessageRole
 from fast_agent.mcp.mime_utils import (
+    guess_file_mime_type,
     guess_mime_type,
     is_binary_content,
     is_image_mime_type,
@@ -130,7 +131,7 @@ def MCPFile(
     uri = f"file://{path.absolute()}"
 
     if not mime_type:
-        mime_type = guess_mime_type(str(path))
+        mime_type = guess_file_mime_type(path)
 
     # Determine if this is text or binary content
     is_binary = is_binary_content(mime_type)
