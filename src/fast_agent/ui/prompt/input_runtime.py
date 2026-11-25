@@ -78,15 +78,39 @@ def build_prompt_style() -> Style:
     )
 
 
-def _install_resilient_resize_handler(session: PromptSession[Any]) -> None:
-    """Allow SIGWINCH / resize redraws to recover if CPR latched to NOT_SUPPORTED."""
+_RESIZE_DEBOUNCE_SECONDS = 0.05
+
+
+def _install_resilient_resize_handler(
+    session: PromptSession[Any],
+    *,
+    debounce_seconds: float = _RESIZE_DEBOUNCE_SECONDS,
+) -> None:
+    """Coalesce rapid SIGWINCH bursts and recover if CPR latched to NOT_SUPPORTED."""
     app = session.app
     original_on_resize = app._on_resize
+    pending_handle: asyncio.TimerHandle | None = None
 
-    def _resilient_on_resize() -> None:
+    def _flush_resize() -> None:
+        nonlocal pending_handle
+        pending_handle = None
+        if app.is_done or not app.is_running:
+            return
         if app.renderer.cpr_support == CPR_Support.NOT_SUPPORTED:
             reset_renderer_cpr_state(app.renderer)
         original_on_resize()
+
+    def _resilient_on_resize() -> None:
+        nonlocal pending_handle
+        loop = app.loop
+        if loop is None or debounce_seconds <= 0:
+            if app.renderer.cpr_support == CPR_Support.NOT_SUPPORTED:
+                reset_renderer_cpr_state(app.renderer)
+            original_on_resize()
+            return
+        if pending_handle is not None:
+            pending_handle.cancel()
+        pending_handle = loop.call_later(debounce_seconds, _flush_resize)
 
     app._on_resize = _resilient_on_resize
 

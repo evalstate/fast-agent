@@ -175,7 +175,7 @@ async def test_resilient_resize_recovers_after_dropped_cpr_without_submit_stall(
             input=pipe,
             output=output,
         )
-        input_runtime._install_resilient_resize_handler(session)
+        input_runtime._install_resilient_resize_handler(session, debounce_seconds=0.0)
         renderer = session.app.renderer
         monkeypatch.setattr(renderer, "CPR_TIMEOUT", 0.05)
 
@@ -226,3 +226,56 @@ async def test_resilient_resize_recovers_after_dropped_cpr_without_submit_stall(
 
     assert result == ""
     assert elapsed < 0.5
+
+
+@pytest.mark.asyncio
+async def test_resilient_resize_coalesces_rapid_resize_burst() -> None:
+    import asyncio
+
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.input.defaults import create_pipe_input
+    from prompt_toolkit.output.vt100 import Vt100_Output
+
+    buf = _FakeVt100Stdout()
+    output = Vt100_Output(cast("TextIO", buf), lambda: Size(rows=24, columns=80), enable_cpr=True)
+
+    with create_pipe_input() as pipe:
+        session: PromptSession[str] = PromptSession(
+            bottom_toolbar="TOOLBAR",
+            erase_when_done=True,
+            input=pipe,
+            output=output,
+        )
+        input_runtime._install_resilient_resize_handler(session, debounce_seconds=0.03)
+        renderer = session.app.renderer
+
+        async def _drive() -> None:
+            try:
+                await asyncio.sleep(0.03)
+                pipe.send_text("\x1b[5;1R")
+                await asyncio.sleep(0.03)
+                buf.clear()
+
+                # Burst of 5 rapid resizes should coalesce into a single redraw/CPR probe.
+                for _ in range(5):
+                    session.app._on_resize()
+                assert buf.getvalue() == ""
+
+                await asyncio.sleep(0.06)
+                assert buf.getvalue().count("\x1b[6n") == 1
+                assert len(renderer._waiting_for_cpr_futures) == 1
+
+                pipe.send_text("\x1b[5;1R")
+                await asyncio.sleep(0.03)
+                assert not renderer._waiting_for_cpr_futures
+            finally:
+                pipe.send_text("\r")
+
+        driver = asyncio.create_task(_drive())
+        try:
+            result = await asyncio.wait_for(session.prompt_async("> "), timeout=5.0)
+        finally:
+            await driver
+
+    assert result == ""
