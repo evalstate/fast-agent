@@ -334,3 +334,80 @@ async def test_ctrl_y_skips_tool_only_assistant_turns_when_falling_back_to_histo
     await binding.handler(SimpleNamespace(current_buffer=Buffer(), app=_App()))
 
     assert copied == ["earlier answer"]
+
+
+@pytest.mark.asyncio
+async def test_clear_terminal_screen_resets_scroll_region_and_drains_cpr() -> None:
+    import asyncio
+    import io
+    from collections import deque
+
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.output import DummyOutput
+    from prompt_toolkit.output.vt100 import Vt100_Output
+
+    from fast_agent.ui.prompt.keybindings import _clear_terminal_screen
+
+    pending = asyncio.get_running_loop().create_future()
+    buf = io.StringIO()
+    vt_output = Vt100_Output(buf, lambda: Size(rows=24, columns=80))
+    invalidated = 0
+    erased = 0
+
+    class _VtRenderer:
+        def __init__(self) -> None:
+            self._waiting_for_cpr_futures = deque([pending])
+            self._min_available_height = 30
+            self.output = vt_output
+
+        def erase(self, *, leave_alternate_screen: bool = True) -> None:
+            nonlocal erased
+            assert leave_alternate_screen is False
+            erased += 1
+
+    class _VtApp:
+        renderer = _VtRenderer()
+
+        def invalidate(self) -> None:
+            nonlocal invalidated
+            invalidated += 1
+
+    vt_app = _VtApp()
+    _clear_terminal_screen(SimpleNamespace(app=vt_app), None)
+
+    raw = buf.getvalue()
+    assert pending.done()
+    assert erased == 1
+    assert "\x1b[r\x1b[0m" in raw
+    assert "\x1b[24;1H" + "\n" * 24 in raw
+    assert "\x1b[2J" in raw
+    assert "\x1b[6n" not in raw
+    assert vt_app.renderer._min_available_height == 0
+    assert invalidated == 1
+
+    # Non-VT100 outputs delegate to renderer.clear() without emitting raw ANSI.
+    cleared = 0
+    dummy_invalidated = 0
+
+    class _DummyRenderer:
+        def __init__(self) -> None:
+            self._waiting_for_cpr_futures: deque[asyncio.Future[None]] = deque()
+            self._min_available_height = 12
+            self.output = DummyOutput()
+
+        def clear(self) -> None:
+            nonlocal cleared
+            cleared += 1
+
+    class _DummyApp:
+        renderer = _DummyRenderer()
+
+        def invalidate(self) -> None:
+            nonlocal dummy_invalidated
+            dummy_invalidated += 1
+
+    dummy_app = _DummyApp()
+    _clear_terminal_screen(SimpleNamespace(app=dummy_app), None)
+    assert cleared == 1
+    assert dummy_app.renderer._min_available_height == 0
+    assert dummy_invalidated == 1

@@ -10,14 +10,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.filters import Condition, is_done
 from prompt_toolkit.formatted_text import StyleAndTextTuples, to_formatted_text
+from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, Window
+from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.output.vt100 import Vt100_Output
+from prompt_toolkit.renderer import CPR_Support
+from prompt_toolkit.shortcuts.prompt import CompleteStyle
 from prompt_toolkit.styles import Style
 from rich.markup import escape as escape_markup
 
 from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.command_payloads import CommandPayload, EOFCommand, InterruptCommand
 from fast_agent.ui.console import rich_print
-from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
+from fast_agent.ui.prompt.keybindings import PromptInputInterrupt, reset_renderer_cpr_state
 from fast_agent.ui.prompt.turn_input import acknowledge_replayed_input
 from fast_agent.ui.prompt_marks import emit_prompt_mark, prompt_mark_sequence
 from fast_agent.ui.terminal_streams import is_tty_stream
@@ -77,11 +83,122 @@ def build_prompt_style() -> Style:
     )
 
 
+def _configure_inline_toolbar(session: PromptSession[str]) -> None:
+    """Pin the toolbar directly below the prompt and clear any stale lines below it."""
+    # 1. Disable CPR-based full-height stretching so the prompt never pads blank
+    #    rows down to the bottom of the terminal (and never hangs on CPR replies).
+    renderer = session.app.renderer
+    renderer.cpr_support = CPR_Support.NOT_SUPPORTED
+    renderer._min_available_height = 0
+
+    original_render = renderer.render
+
+    def _inline_render(app: Any, layout: Any, is_done: bool = False) -> None:
+        renderer._min_available_height = 0
+        output = renderer.output
+        if not is_done:
+            # Always repaint from (0, 0) with erase_down() so anything below
+            # the inline toolbar is cleared on every redraw.
+            renderer._last_screen = None
+        if isinstance(output, Vt100_Output):
+            # Wrap in DEC synchronized output (mode 2026) and flush once so
+            # erase_down + 2-line redraw renders atomically without flicker.
+            original_flush = output.flush
+            output.write_raw("\x1b[?2026h")
+            output.flush = lambda: None
+            try:
+                original_render(app, layout, is_done=is_done)
+            finally:
+                output.flush = original_flush
+                output.write_raw("\x1b[?2026l")
+                original_flush()
+        else:
+            original_render(app, layout, is_done=is_done)
+
+    renderer.render = _inline_render
+
+    # 2. Remove `renderer_height_is_known` from the bottom_toolbar container so it
+    #    renders immediately below the prompt without waiting for CPR.
+    root = session.layout.container
+    if isinstance(root, HSplit):
+        for child in root.children:
+            if (
+                isinstance(child, ConditionalContainer)
+                and isinstance(child.content, Window)
+                and child.content.style == "class:bottom-toolbar"
+            ):
+                child.filter = Condition(lambda: session.bottom_toolbar is not None) & ~is_done
+                break
+
+    # 3. Only reserve completion-menu lines when there are actual completions to
+    #    display (Buffer.start_completion creates an empty CompletionState while
+    #    completing in a thread, which would otherwise flicker the toolbar down).
+    def _inline_default_buffer_control_height() -> Dimension:
+        if session.completer is not None and session.complete_style != CompleteStyle.READLINE_LIKE:
+            space = session.reserve_space_for_menu
+        else:
+            space = 0
+
+        if space and not session.app.is_done:
+            complete_state = session.default_buffer.complete_state
+            if complete_state is not None and complete_state.completions:
+                return Dimension(min=space)
+
+        return Dimension()
+
+    session._get_default_buffer_control_height = _inline_default_buffer_control_height
+    current_window = session.layout.current_window
+    if isinstance(current_window, Window):
+        current_window.height = _inline_default_buffer_control_height
+
+
+def _install_resilient_resize_handler(
+    session: PromptSession[str],
+    *,
+    debounce_seconds: float = 0.08,
+) -> None:
+    app = session.app
+    original_on_resize = app._on_resize
+    pending_handle: asyncio.TimerHandle | None = None
+
+    def _finish_resize() -> None:
+        nonlocal pending_handle
+        pending_handle = None
+        if app.is_done or not app.is_running:
+            return
+        renderer = app.renderer
+        reset_renderer_cpr_state(renderer)
+        renderer._min_available_height = 0
+        original_on_resize()
+
+    def _resilient_on_resize() -> None:
+        nonlocal pending_handle
+        renderer = app.renderer
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            reset_renderer_cpr_state(renderer)
+            renderer._min_available_height = 0
+            original_on_resize()
+            return
+
+        if pending_handle is None:
+            reset_renderer_cpr_state(renderer)
+            renderer._min_available_height = 0
+            renderer.erase(leave_alternate_screen=False)
+        else:
+            pending_handle.cancel()
+
+        pending_handle = loop.call_later(debounce_seconds, _finish_resize)
+
+    app._on_resize = _resilient_on_resize
+
+
 def create_prompt_session(
     *, history, completer, lexer, multiline_filter, toolbar, style
 ) -> PromptSession:
     """Create a configured PromptSession for enhanced input."""
-    return PromptSession(
+    session = PromptSession(
         history=history,
         completer=completer,
         lexer=lexer,
@@ -93,6 +210,9 @@ def create_prompt_session(
         style=style,
         erase_when_done=True,
     )
+    _configure_inline_toolbar(session)
+    _install_resilient_resize_handler(session)
+    return session
 
 
 @contextlib.contextmanager
@@ -153,6 +273,10 @@ async def _prompt_async_result(
     prompt_end_state: dict[str, bool],
 ) -> tuple[str | CommandPayload, float | None]:
     try:
+        if isinstance(session, PromptSession):
+            renderer = session.app.renderer
+            reset_renderer_cpr_state(renderer)
+            renderer._min_available_height = 0
         with _prompt_start_guard("A"):
             result = await session.prompt_async(
                 lambda: _prompt_text_with_end_mark(resolve_prompt_text, prompt_end_state),

@@ -14,6 +14,8 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.lexers import Lexer
+from prompt_toolkit.output.vt100 import Vt100_Output
+from prompt_toolkit.renderer import CPR_Support, Renderer
 from rich.file_proxy import FileProxy
 from rich.text import Text
 
@@ -219,14 +221,41 @@ def _toggle_multiline_mode(
         on_toggle_multiline(session_state.in_multiline_mode)
 
 
+def reset_renderer_cpr_state(renderer: Renderer, *, reset_cpr_support: bool = False) -> None:
+    """Drain stale CPR futures left behind by terminal disconnects or resizes."""
+    waiting = renderer._waiting_for_cpr_futures
+    while waiting:
+        fut = waiting.popleft()
+        if not fut.done():
+            fut.set_result(None)
+    if reset_cpr_support and renderer.cpr_support == CPR_Support.NOT_SUPPORTED:
+        renderer.cpr_support = CPR_Support.UNKNOWN
+
+
 def _clear_terminal_screen(event: Any, fallback_app: Any | None) -> None:
     app_ref = _event_or_fallback_app(event, fallback_app)
     if not app_ref:
         return
-    renderer = getattr(app_ref, "renderer", None)
-    if renderer:
+    renderer = app_ref.renderer
+    reset_renderer_cpr_state(renderer)
+    output = renderer.output
+    if isinstance(output, Vt100_Output):
+        # Erase the active prompt first so it isn't pushed into scrollback,
+        # reset scroll region/SGR, then scroll the visible viewport into
+        # scrollback so the previous message isn't lost on erase_screen().
+        renderer.erase(leave_alternate_screen=False)
+        output.write_raw("\x1b[r\x1b[0m")
+        rows = output.get_size().rows
+        if rows > 0:
+            output.write_raw(f"\x1b[{rows};1H" + "\n" * rows)
+        output.erase_screen()
+        output.cursor_goto(0, 0)
+        output.flush()
+    else:
         renderer.clear()
-        app_ref.invalidate()
+    reset_renderer_cpr_state(renderer)
+    renderer._min_available_height = 0
+    app_ref.invalidate()
 
 
 async def _edit_current_buffer_in_editor(event: Any) -> None:
