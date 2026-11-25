@@ -279,3 +279,39 @@ async def test_resilient_resize_coalesces_rapid_resize_burst() -> None:
             await driver
 
     assert result == ""
+
+
+def test_dynamic_menu_prompt_session_reserves_height_only_with_visible_completions() -> None:
+    from prompt_toolkit.completion import Completion, WordCompleter
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.input.defaults import create_pipe_input
+    from prompt_toolkit.output.vt100 import Vt100_Output
+
+    output = Vt100_Output(
+        cast("TextIO", _FakeVt100Stdout()),
+        lambda: Size(rows=24, columns=80),
+        enable_cpr=True,
+    )
+    with create_pipe_input() as pipe:
+        session = input_runtime._DynamicMenuPromptSession(
+            completer=WordCompleter(["/help", "/status"]),
+            complete_while_typing=True,
+            reserve_space_for_menu=8,
+            input=pipe,
+            output=output,
+        )
+
+        # Idle with complete_while_typing=True: 1 prompt line + 1 buffer line above status bar.
+        assert session._get_default_buffer_control_height().min == 2
+
+        # Pending background completion with empty completions list: still compact.
+        session.default_buffer._set_completions([])
+        assert session._get_default_buffer_control_height().min == 2
+
+        # Visible completions: expands to reserve_space_for_menu.
+        session.default_buffer._set_completions([Completion("/help")])
+        assert session._get_default_buffer_control_height().min == 8
+
+        # Cleared completions: returns to compact height.
+        session.default_buffer.cancel_completion()
+        assert session._get_default_buffer_control_height().min == 2

@@ -11,7 +11,9 @@ from typing import TYPE_CHECKING, Any, TextIO
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import StyleAndTextTuples, to_formatted_text
+from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.renderer import CPR_Support
+from prompt_toolkit.shortcuts.prompt import CompleteStyle
 from prompt_toolkit.styles import Style
 from rich.markup import escape as escape_markup
 
@@ -115,11 +117,38 @@ def _install_resilient_resize_handler(
     app._on_resize = _resilient_on_resize
 
 
+_IDLE_PROMPT_MIN_HEIGHT = 2  # 1 prompt line + 1 blank buffer line above the status bar
+
+
+class _DynamicMenuPromptSession(PromptSession[str]):
+    """Reserve completion-menu height only when completions are actually visible.
+
+    Stock PromptSession reserves ``reserve_space_for_menu`` rows whenever
+    ``complete_while_typing`` is enabled, keeping ~8 blank rows below the
+    prompt even while idle. Waiting for non-empty ``complete_state.completions``
+    keeps the idle prompt compact (leaving one buffer line above the status
+    bar) while still expanding automatically when a completion menu opens.
+    """
+
+    def _get_default_buffer_control_height(self) -> Dimension:
+        if self.app.is_done:
+            return Dimension()
+        if (
+            self.completer is not None
+            and self.complete_style != CompleteStyle.READLINE_LIKE
+            and self.reserve_space_for_menu
+        ):
+            complete_state = self.default_buffer.complete_state
+            if complete_state is not None and complete_state.completions:
+                return Dimension(min=self.reserve_space_for_menu)
+        return Dimension(min=_IDLE_PROMPT_MIN_HEIGHT)
+
+
 def create_prompt_session(
     *, history, completer, lexer, multiline_filter, toolbar, style
 ) -> PromptSession:
     """Create a configured PromptSession for enhanced input."""
-    session = PromptSession(
+    session = _DynamicMenuPromptSession(
         history=history,
         completer=completer,
         lexer=lexer,

@@ -31,6 +31,16 @@ When upgrading any dependency listed below:
   - Tests: `tests/unit/fast_agent/ui/test_prompt_keybindings.py`,
     `tests/unit/fast_agent/ui/test_prompt_input_runtime.py`.
 
+- **Dynamic completion-menu height (`src/fast_agent/ui/prompt/input_runtime.py`)**
+  - Subclasses `PromptSession` (`_DynamicMenuPromptSession`) and overrides
+    private `_get_default_buffer_control_height()` so `reserve_space_for_menu`
+    is only applied when `default_buffer.complete_state.completions` is
+    non-empty (instead of always reserving 8 rows while `complete_while_typing`
+    is enabled).
+  - Check on upgrade: verify `PromptSession._create_layout()` still wires
+    `default_buffer_window` to `self._get_default_buffer_control_height`.
+  - Tests: `tests/unit/fast_agent/ui/test_prompt_input_runtime.py`.
+
 - **Typeahead replay (`src/fast_agent/ui/prompt/turn_input.py`)**
   - Uses `prompt_toolkit.input.typeahead.get_typeahead`, `store_typeahead`, and
     `prompt_toolkit.application.current.get_app_session` to capture and replay
