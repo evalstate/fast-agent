@@ -10,7 +10,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TextIO
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.filters import Condition, is_done
 from prompt_toolkit.formatted_text import StyleAndTextTuples, to_formatted_text
+from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, Window
+from prompt_toolkit.layout.dimension import Dimension
+from prompt_toolkit.output.vt100 import Vt100_Output
+from prompt_toolkit.renderer import CPR_Support
+from prompt_toolkit.shortcuts.prompt import CompleteStyle
 from prompt_toolkit.styles import Style
 from rich.markup import escape as escape_markup
 
@@ -77,50 +83,43 @@ def build_prompt_style() -> Style:
     )
 
 
-def _configure_inline_toolbar(session: PromptSession) -> None:
+def _configure_inline_toolbar(session: PromptSession[str]) -> None:
     """Pin the toolbar directly below the prompt and clear any stale lines below it."""
-    from prompt_toolkit.filters import Condition, is_done
-    from prompt_toolkit.layout.containers import ConditionalContainer, HSplit, Window
-    from prompt_toolkit.layout.dimension import Dimension
-    from prompt_toolkit.renderer import CPR_Support
-    from prompt_toolkit.shortcuts.prompt import CompleteStyle
-
     # 1. Disable CPR-based full-height stretching so the prompt never pads blank
     #    rows down to the bottom of the terminal (and never hangs on CPR replies).
-    renderer = getattr(getattr(session, "app", None), "renderer", None)
-    if renderer is not None:
-        renderer.cpr_support = CPR_Support.NOT_SUPPORTED
+    renderer = session.app.renderer
+    renderer.cpr_support = CPR_Support.NOT_SUPPORTED
+    renderer._min_available_height = 0
+
+    original_render = renderer.render
+
+    def _inline_render(app: Any, layout: Any, is_done: bool = False) -> None:
         renderer._min_available_height = 0
-
-        original_render = renderer.render
-
-        def _inline_render(app: Any, layout: Any, is_done: bool = False) -> None:
-            renderer._min_available_height = 0
-            output = getattr(renderer, "output", None)
-            if not is_done:
-                # Always repaint from (0, 0) with erase_down() so anything below
-                # the inline toolbar is cleared on every redraw.
-                renderer._last_screen = None
-            if output is not None:
-                # Wrap in DEC synchronized output (mode 2026) and flush once so
-                # erase_down + 2-line redraw renders atomically without flicker.
-                original_flush = output.flush
-                output.write_raw("\x1b[?2026h")
-                output.flush = lambda: None
-                try:
-                    original_render(app, layout, is_done=is_done)
-                finally:
-                    output.flush = original_flush
-                    output.write_raw("\x1b[?2026l")
-                    original_flush()
-            else:
+        output = renderer.output
+        if not is_done:
+            # Always repaint from (0, 0) with erase_down() so anything below
+            # the inline toolbar is cleared on every redraw.
+            renderer._last_screen = None
+        if isinstance(output, Vt100_Output):
+            # Wrap in DEC synchronized output (mode 2026) and flush once so
+            # erase_down + 2-line redraw renders atomically without flicker.
+            original_flush = output.flush
+            output.write_raw("\x1b[?2026h")
+            output.flush = lambda: None
+            try:
                 original_render(app, layout, is_done=is_done)
+            finally:
+                output.flush = original_flush
+                output.write_raw("\x1b[?2026l")
+                original_flush()
+        else:
+            original_render(app, layout, is_done=is_done)
 
-        renderer.render = _inline_render
+    renderer.render = _inline_render
 
     # 2. Remove `renderer_height_is_known` from the bottom_toolbar container so it
     #    renders immediately below the prompt without waiting for CPR.
-    root = getattr(getattr(session, "layout", None), "container", None)
+    root = session.layout.container
     if isinstance(root, HSplit):
         for child in root.children:
             if (
@@ -128,19 +127,14 @@ def _configure_inline_toolbar(session: PromptSession) -> None:
                 and isinstance(child.content, Window)
                 and child.content.style == "class:bottom-toolbar"
             ):
-                child.filter = (
-                    Condition(lambda: session.bottom_toolbar is not None) & ~is_done
-                )
+                child.filter = Condition(lambda: session.bottom_toolbar is not None) & ~is_done
                 break
 
     # 3. Only reserve completion-menu lines when there are actual completions to
     #    display (Buffer.start_completion creates an empty CompletionState while
     #    completing in a thread, which would otherwise flicker the toolbar down).
     def _inline_default_buffer_control_height() -> Dimension:
-        if (
-            session.completer is not None
-            and session.complete_style != CompleteStyle.READLINE_LIKE
-        ):
+        if session.completer is not None and session.complete_style != CompleteStyle.READLINE_LIKE:
             space = session.reserve_space_for_menu
         else:
             space = 0
@@ -153,53 +147,49 @@ def _configure_inline_toolbar(session: PromptSession) -> None:
         return Dimension()
 
     session._get_default_buffer_control_height = _inline_default_buffer_control_height
-    current_window = getattr(getattr(session, "layout", None), "current_window", None)
+    current_window = session.layout.current_window
     if isinstance(current_window, Window):
         current_window.height = _inline_default_buffer_control_height
 
 
 def _install_resilient_resize_handler(
-    session: PromptSession,
+    session: PromptSession[str],
     *,
     debounce_seconds: float = 0.08,
 ) -> None:
-    app = getattr(session, "app", None)
-    original_on_resize = getattr(app, "_on_resize", None)
-    if app is None or not callable(original_on_resize):
-        return
-
-    pending_handle: dict[str, asyncio.TimerHandle | None] = {"handle": None}
+    app = session.app
+    original_on_resize = app._on_resize
+    pending_handle: asyncio.TimerHandle | None = None
 
     def _finish_resize() -> None:
-        pending_handle["handle"] = None
-        if not getattr(app, "is_running", True):
+        nonlocal pending_handle
+        pending_handle = None
+        if app.is_done or not app.is_running:
             return
-        renderer = getattr(app, "renderer", None)
-        if renderer is not None:
-            reset_renderer_cpr_state(renderer)
-            renderer._min_available_height = 0
+        renderer = app.renderer
+        reset_renderer_cpr_state(renderer)
+        renderer._min_available_height = 0
         original_on_resize()
 
     def _resilient_on_resize() -> None:
-        renderer = getattr(app, "renderer", None)
+        nonlocal pending_handle
+        renderer = app.renderer
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            if renderer is not None:
-                reset_renderer_cpr_state(renderer)
-                renderer._min_available_height = 0
+            reset_renderer_cpr_state(renderer)
+            renderer._min_available_height = 0
             original_on_resize()
             return
 
-        if pending_handle["handle"] is None:
-            if renderer is not None:
-                reset_renderer_cpr_state(renderer)
-                renderer._min_available_height = 0
-                renderer.erase(leave_alternate_screen=False)
+        if pending_handle is None:
+            reset_renderer_cpr_state(renderer)
+            renderer._min_available_height = 0
+            renderer.erase(leave_alternate_screen=False)
         else:
-            pending_handle["handle"].cancel()
+            pending_handle.cancel()
 
-        pending_handle["handle"] = loop.call_later(debounce_seconds, _finish_resize)
+        pending_handle = loop.call_later(debounce_seconds, _finish_resize)
 
     app._on_resize = _resilient_on_resize
 
@@ -283,8 +273,8 @@ async def _prompt_async_result(
     prompt_end_state: dict[str, bool],
 ) -> tuple[str | CommandPayload, float | None]:
     try:
-        renderer = getattr(getattr(session, "app", None), "renderer", None)
-        if renderer is not None:
+        if isinstance(session, PromptSession):
+            renderer = session.app.renderer
             reset_renderer_cpr_state(renderer)
             renderer._min_available_height = 0
         with _prompt_start_guard("A"):

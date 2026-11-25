@@ -203,9 +203,12 @@ async def test_resilient_resize_handler_debounces_bursts() -> None:
     erases = 0
     redraws = 0
 
+    from collections import deque
+
     class _Renderer:
-        _waiting_for_cpr_futures = None
-        _min_available_height = 20
+        def __init__(self) -> None:
+            self._waiting_for_cpr_futures: deque[asyncio.Future[None]] = deque()
+            self._min_available_height = 20
 
         def erase(self, *, leave_alternate_screen: bool = True) -> None:
             nonlocal erases
@@ -214,6 +217,7 @@ async def test_resilient_resize_handler_debounces_bursts() -> None:
 
     class _App:
         is_running = True
+        is_done = False
         renderer = _Renderer()
 
         def _on_resize(self) -> None:
