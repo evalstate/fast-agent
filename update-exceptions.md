@@ -17,14 +17,12 @@ When upgrading any dependency listed below:
 
 - **Inline toolbar, dynamic menu height, CPR drain, and resize debounce (`src/fast_agent/ui/prompt/input_runtime.py`, `src/fast_agent/ui/prompt/keybindings.py`)**
   - `_configure_inline_toolbar()` sets `renderer.cpr_support = CPR_Support.NOT_SUPPORTED`,
-    zeros `renderer._min_available_height`, wraps `renderer.render` to reset
-    `renderer._last_screen = None` (repainting from `(0, 0)` with `erase_down`
-    inside DEC Mode 2026 synchronized output on `Vt100_Output`), replaces the
-    `class:bottom-toolbar` `ConditionalContainer.filter` to drop
-    `renderer_height_is_known`, and overrides
-    `session._get_default_buffer_control_height` / `current_window.height` so
-    `reserve_space_for_menu` only applies when `complete_state.completions` is
-    non-empty.
+    zeros `renderer._min_available_height`, wraps `renderer.render` in DEC Mode 2026
+    synchronized output on `Vt100_Output`, replaces the `class:bottom-toolbar`
+    `ConditionalContainer.filter` to drop `renderer_height_is_known`, and overrides
+    `session._get_default_buffer_control_height` / `current_window.height` to keep
+    one blank line below the prompt (`Dimension(min=2)`) and expand to
+    `reserve_space_for_menu` only when `complete_state.completions` is non-empty.
   - `_install_resilient_resize_handler()` wraps `session.app._on_resize` with an
     80 ms debounce, draining `renderer._waiting_for_cpr_futures` and zeroing
     `renderer._min_available_height`.
