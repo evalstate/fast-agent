@@ -44,6 +44,7 @@ Commands apply to the active agent.
 | --- | --- |
 | `/warm` | Warm at the idle prompt for `cache_warm.max_minutes` (default 30 minutes). |
 | `/warm <minutes>` | Set an idle-prompt warming window from now, e.g. `/warm 60`. |
+| `/warm ping` | Send one keep-warm request immediately, report hit/miss, and refresh the cache window. |
 | `/warm off` | Stop the explicit idle-prompt window. Automatic warming remains controlled by `cache_warm.auto`. |
 | `/warm status` | Show settings, schedule, and recent keep-warm requests. |
 

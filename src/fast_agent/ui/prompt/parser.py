@@ -297,11 +297,11 @@ def _parse_warm_command(remainder: str) -> CommandPayload:
     argument = strip_casefold(remainder)
     if not argument:
         return WarmCommand()
-    if argument in ("off", "status"):
+    if argument in ("off", "status", "ping"):
         return WarmCommand(action=argument)
     if argument.isdecimal() and 1 <= int(argument) <= 24 * 60:
         return WarmCommand(minutes=int(argument))
-    return WarmCommand(error="Usage: /warm [minutes|off|status] (minutes: 1-1440)")
+    return WarmCommand(error="Usage: /warm [minutes|off|status|ping] (minutes: 1-1440)")
 
 
 def _parse_compact_command(remainder: str) -> CommandPayload:

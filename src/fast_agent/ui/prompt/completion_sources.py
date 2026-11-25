@@ -538,6 +538,7 @@ def _warm_command_completions(
         {
             "off": "Stop warming at the idle prompt",
             "status": "Show settings and recent keep-warm requests",
+            "ping": "Send one keep-warm request now and refresh the cache window",
         },
     )
 
