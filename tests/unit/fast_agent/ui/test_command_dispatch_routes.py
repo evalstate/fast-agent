@@ -89,7 +89,7 @@ async def test_shell_output_to_prompt_intent_survives_dispatch() -> None:
 @pytest.fixture
 def patched_context(monkeypatch: pytest.MonkeyPatch) -> list[CommandOutcome]:
     emitted: list[CommandOutcome] = []
-    context = SimpleNamespace(settings=None)
+    context = SimpleNamespace(settings=None, resolve_session_manager=lambda: None)
     monkeypatch.setattr(
         command_dispatch,
         "build_command_context",

@@ -19,15 +19,38 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
 _COMMAND_TIMEOUT_SECONDS = 2.0
+_LIST_COMMAND_TIMEOUT_SECONDS = 4.5
 _CACHE_SECONDS = 2.0
+_RESTART_EXIT_REASONS = frozenset(
+    {"stopped_by_restart", "holder_lost", "server_stop", "host_shutdown"}
+)
+_CORE_ID_CACHE: dict[tuple[str, str], str] = {}
 _HC_MESSAGE = re.compile(
     r"\s*<hc(?:\s+from=\"(?P<sender>[^\"]*)\"[^>]*|\s[^>]*)?>(?P<body>.*)", re.S
 )
-_HC_NOTICE = re.compile(r"\s*(?P<terminal>\S+)(?:\s+\S+)?\s+(?P<event>exited|blocked|error)\b")
+_HC_BLOCK = re.compile(
+    r"<hc(?:\s+from=\"(?P<sender>[^\"]*)\"[^>]*|\s[^>]*)?>(?P<body>.*?)</hc>", re.S
+)
+_HC_NOTICE = re.compile(
+    r"\s*(?P<terminal>\S+)(?:\s+\S+)?\s+(?P<event>exited|is blocked|blocked|hit an error|error)\b"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class HcSelfInfo:
+    """Passive metadata for the current ``hc`` terminal."""
+
+    terminal_id: str
+    parent: str | None = None
+    name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,11 +64,28 @@ class HcChild:
 
 
 @dataclass(frozen=True, slots=True)
+class HcEnvironment:
+    """Resolved herdr-core terminal context for the current process."""
+
+    terminal_id: str
+    socket_path: str
+    executable: str
+
+
+@dataclass(frozen=True, slots=True)
 class HcAttachments:
     """Unfinished children of this terminal, by what they mean for the session."""
 
     resuming: tuple[HcChild, ...] = ()
     services: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class HcTerminalChildren:
+    """Direct local children of a terminal, read passively without acknowledging notes."""
+
+    live: tuple[HcChild, ...] = ()
+    stopped_by_restart: tuple[HcChild, ...] = ()
 
 
 _NONE = HcAttachments()
@@ -60,16 +100,45 @@ def hc_terminal_id() -> str | None:
     return terminal if terminal and os.environ.get("HC_TERMINAL_SOCKET") else None
 
 
-def _hc_json(executable: str, *args: str) -> dict[str, object] | None:
+def hc_environment() -> HcEnvironment | None:
+    """Return the active herdr-core environment when running inside an hc terminal."""
+    terminal = os.environ.get("HC_TERMINAL_ID", "").strip()
+    socket_path = os.environ.get("HC_TERMINAL_SOCKET", "").strip()
+    if not terminal or not socket_path:
+        return None
+    executable = shutil.which("hc")
+    if executable is None:
+        return None
+    return HcEnvironment(terminal_id=terminal, socket_path=socket_path, executable=executable)
+
+
+def _hc_subprocess_env(hc_env: HcEnvironment, *, strip_caller: bool) -> dict[str, str]:
+    # Pin HC_SOCKET to this terminal's core socket so an ambient HC_SOCKET/HC_SESSION
+    # never routes recovery or polling to a different core. Keep HC_SESSION intact so
+    # named sessions never fall back to the default state directory.
+    env = dict(os.environ)
+    env["HC_SOCKET"] = hc_env.socket_path
+    if strip_caller:
+        env.pop("HC_TERMINAL_ID", None)
+    return env
+
+
+def _hc_json(
+    hc_env: HcEnvironment,
+    *args: str,
+    strip_caller: bool = False,
+    timeout_seconds: float = _COMMAND_TIMEOUT_SECONDS,
+) -> dict[str, object] | None:
     try:
         result = subprocess.run(
-            [executable, *args],
+            [hc_env.executable, *args],
             check=False,
+            env=_hc_subprocess_env(hc_env, strip_caller=strip_caller),
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             encoding="utf-8",
-            timeout=_COMMAND_TIMEOUT_SECONDS,
+            timeout=timeout_seconds,
         )
         payload = json.loads(result.stdout)
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -77,13 +146,141 @@ def _hc_json(executable: str, *args: str) -> dict[str, object] | None:
     return payload if is_str_object_dict(payload) else None
 
 
+def read_hc_self_info() -> HcSelfInfo | None:
+    """Passively query ``hc get $HC_TERMINAL_ID`` for this terminal's parent and name."""
+    env = hc_environment()
+    if env is None:
+        return None
+    detail = _hc_json(env, "get", env.terminal_id, strip_caller=True)
+    if not detail:
+        return None
+    raw_parent = detail.get("parent")
+    raw_name = detail.get("name")
+    return HcSelfInfo(
+        terminal_id=env.terminal_id,
+        parent=raw_parent.strip() if isinstance(raw_parent, str) and raw_parent.strip() else None,
+        name=raw_name.strip() if isinstance(raw_name, str) and raw_name.strip() else None,
+    )
+
+
+def read_hc_core_id() -> str | None:
+    """Return the current herdr-core instance ID, or None if unavailable."""
+    env = hc_environment()
+    if env is None:
+        return None
+    cache_key = (env.executable, env.socket_path)
+    cached = _CORE_ID_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+    status = _hc_json(env, "server", "status", "--json", strip_caller=True)
+    if status is None:
+        return None
+    core = status.get("core")
+    if is_str_object_dict(core):
+        core_id = core.get("id")
+        if isinstance(core_id, str) and core_id:
+            _CORE_ID_CACHE[cache_key] = core_id
+            return core_id
+    top_id = status.get("id")
+    if isinstance(top_id, str) and top_id:
+        _CORE_ID_CACHE[cache_key] = top_id
+        return top_id
+    return None
+
+
+def read_hc_terminal_children(terminal_id: str | None = None) -> HcTerminalChildren | None:
+    """Passively list direct local children of ``terminal_id`` without calling ``saw``.
+
+    Returns None when hc cannot be queried so callers do not confuse a query
+    failure with an empty child set.
+    """
+    env = hc_environment()
+    if env is None:
+        return None
+    parent_id = terminal_id or env.terminal_id
+    listed = _hc_json(
+        env,
+        "ls",
+        "--all",
+        "--json",
+        strip_caller=True,
+        timeout_seconds=_LIST_COMMAND_TIMEOUT_SECONDS,
+    )
+    terminals = listed.get("terminals") if listed is not None else None
+    if not isinstance(terminals, list):
+        return None
+
+    live: list[HcChild] = []
+    stopped_by_restart: list[HcChild] = []
+    for entry in terminals:
+        if not is_str_object_dict(entry):
+            continue
+        if entry.get("parent") != parent_id:
+            continue
+        address = entry.get("address")
+        if not isinstance(address, str) or not address or "/" in address:
+            continue
+        raw_name = entry.get("name")
+        child = HcChild(
+            address=address, name=raw_name if isinstance(raw_name, str) and raw_name else None
+        )
+        state = entry.get("state")
+        if state == "live":
+            live.append(child)
+        elif state == "finished" and entry.get("reason") in _RESTART_EXIT_REASONS:
+            stopped_by_restart.append(child)
+    return HcTerminalChildren(
+        live=tuple(live),
+        stopped_by_restart=tuple(stopped_by_restart),
+    )
+
+
+def remove_hc_terminals(addresses: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Remove finished local hc terminals by exact address. Returns (removed, failed)."""
+    env = hc_environment()
+    if env is None:
+        return [], list(addresses)
+    removed: list[str] = []
+    failed: list[str] = []
+    for address in addresses:
+        if not address or "/" in address:
+            failed.append(address)
+            continue
+        try:
+            result = subprocess.run(
+                [env.executable, "rm", "--json", address],
+                check=False,
+                env=_hc_subprocess_env(env, strip_caller=True),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=_COMMAND_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            failed.append(address)
+            continue
+        if result.returncode == 0:
+            removed.append(address)
+        else:
+            failed.append(address)
+    return removed, failed
+
+
 def read_hc_attachments() -> HcAttachments:
-    """Ask hc which children are unfinished. Blocking; call off the event loop."""
-    if hc_terminal_id() is None or (executable := shutil.which("hc")) is None:
+    """Ask hc which children are unfinished without acknowledging parent notices.
+
+    Passing the explicit parent terminal with caller identity stripped lets hc
+    compute real busy/ended state (including pending launch tasks and remote
+    children) while preventing ``core.saw()`` from acknowledging unseen notes.
+    Blocking; call off the event loop.
+    """
+    env = hc_environment()
+    if env is None:
         return _NONE
-    # hc's own accounting: an agent with a delivered task counts as unfinished
-    # until its turn advances, and a plain program until it exits.
-    waited = _hc_json(executable, "wait", "--children", "all", "--timeout", "0")
+    waited = _hc_json(
+        env, "wait", env.terminal_id, "--children", "all", "--timeout", "0", strip_caller=True
+    )
     children = waited.get("children") if waited is not None else None
     if not isinstance(children, list):
         return _NONE
@@ -95,7 +292,7 @@ def read_hc_attachments() -> HcAttachments:
         address = child.get("terminal")
         if not isinstance(address, str):
             continue
-        detail = _hc_json(executable, "get", address) or {}
+        detail = _hc_json(env, "get", address, strip_caller=True) or {}
         labels = detail.get("labels")
         name = detail.get("name")
         if is_str_object_dict(labels) and labels.get("role") == "service":
@@ -200,8 +397,36 @@ def is_hc_message(text: str) -> bool:
     return _HC_MESSAGE.match(text) is not None
 
 
+def _parse_hc_blocks(text: str) -> list[re.Match[str]]:
+    """Parse one or more newline-joined ``<hc>...</hc>`` blocks."""
+    stripped = text.strip()
+    if not stripped:
+        return []
+    blocks: list[re.Match[str]] = []
+    pos = 0
+    for match in _HC_BLOCK.finditer(stripped):
+        if stripped[pos : match.start()].strip():
+            return []
+        blocks.append(match)
+        pos = match.end()
+    if blocks and not stripped[pos:].strip():
+        return blocks
+    return []
+
+
+def _normalize_notice_event(raw: str) -> str:
+    if raw == "is blocked":
+        return "blocked"
+    if raw == "hit an error":
+        return "error"
+    return raw
+
+
 def unwrap_hc_message(text: str) -> str:
     """The body of an hc message without its envelope, for display only."""
+    blocks = _parse_hc_blocks(text)
+    if blocks:
+        return "\n\n".join(block.group("body").strip() for block in blocks)
     match = _HC_MESSAGE.match(text)
     if match is None:
         return text
@@ -210,14 +435,25 @@ def unwrap_hc_message(text: str) -> str:
 
 def hc_message_heading(texts: list[str]) -> str | None:
     """A panel heading for input that hc delivered, or None if a person typed it."""
-    matches = [_HC_MESSAGE.match(text) for text in texts]
-    if not matches or any(match is None for match in matches):
+    all_blocks: list[re.Match[str]] = []
+    for text in texts:
+        blocks = _parse_hc_blocks(text)
+        if blocks:
+            all_blocks.extend(blocks)
+            continue
+        match = _HC_MESSAGE.match(text)
+        if match is None:
+            return None
+        all_blocks.append(match)
+    if not all_blocks:
         return None
-    if len(texts) > 1:
-        return f"hc · {len(texts)} messages"
-    match = matches[0]
-    assert match is not None
+    if len(all_blocks) > 1:
+        return f"hc · {len(all_blocks)} messages"
+    match = all_blocks[0]
     if sender := match.group("sender"):
         return f"hc · {sender}"
     notice = _HC_NOTICE.match(match.group("body"))
-    return f"hc · {notice.group('terminal')} {notice.group('event')}" if notice else "hc"
+    if notice:
+        event = _normalize_notice_event(notice.group("event"))
+        return f"hc · {notice.group('terminal')} {event}"
+    return "hc"

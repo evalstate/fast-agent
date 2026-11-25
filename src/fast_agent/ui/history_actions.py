@@ -339,9 +339,11 @@ async def display_history_turn(
         update={
             "logger": replay_config.logger.model_copy(
                 update={
+                    "show_chat": True,
+                    "show_tools": True,
                     "tool_display": replay_config.logger.tool_display.model_copy(
                         update={"layout": "full"}
-                    )
+                    ),
                 }
             )
         }

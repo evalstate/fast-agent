@@ -2489,6 +2489,7 @@ def test_get_completions_for_plugins_remove() -> None:
                 "plugins": PluginsSettings(),
             }
         )
+        override._fast_agent_global_plugin_home = str(home_root)
         update_global_settings(override)
         try:
             completer = AgentCompleter(agents=["agent1"])
@@ -2540,6 +2541,48 @@ def test_get_completions_for_plugins_update_only_managed() -> None:
             assert "3" in names
         finally:
             update_global_settings(old_settings)
+
+
+def test_get_completions_for_plugins_remove_uses_selected_scope_and_local_indices(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    global_home = tmp_path / "global-home"
+    project_home = tmp_path / "project-env"
+    _write_plugin(project_home / "plugins", "project-a")
+    _write_plugin(global_home / "plugins", "global-b")
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"default_model: passthrough\nhome: '{project_home.as_posix()}'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+
+    old_settings = get_settings()
+    get_settings(config_path=str(config_path))
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+
+        default_doc = Document("/plugins remove ", cursor_position=len("/plugins remove "))
+        default_names = [c.text for c in completer.get_completions(default_doc, None)]
+        assert "global-b" in default_names
+        assert "project-a" not in default_names
+        assert "1" in default_names
+
+        project_doc = Document(
+            "/plugins remove --project ",
+            cursor_position=len("/plugins remove --project "),
+        )
+        project_names = [c.text for c in completer.get_completions(project_doc, None)]
+        assert "project-a" in project_names
+        assert "global-b" not in project_names
+        assert "1" in project_names
+
+        option_doc = Document("/plugins remove --", cursor_position=len("/plugins remove --"))
+        option_names = [c.text for c in completer.get_completions(option_doc, None)]
+        assert {"--global", "--project"} <= set(option_names)
+    finally:
+        update_global_settings(old_settings)
 
 
 def test_get_completions_for_plugins_update_includes_global_and_disambiguates_names(

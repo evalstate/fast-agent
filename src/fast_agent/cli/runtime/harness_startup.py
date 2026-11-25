@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Protocol
 
 from fast_agent.core.exceptions import (
@@ -27,7 +28,9 @@ if TYPE_CHECKING:
     from fast_agent.cli.runtime.run_request import AgentRunRequest
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.harness import AgentHarness, HarnessSession
+    from fast_agent.core.harness_app import HarnessAppSession
     from fast_agent.session.session_manager import Session, SessionManager
+    from fast_agent.session.terminal_pointers import HcParentSessionTarget
     from fast_agent.tools.environment_registry import EnvironmentSelection
 
 
@@ -36,6 +39,7 @@ class HarnessProvider(Protocol):
         self,
         *,
         environment: EnvironmentSelection = None,
+        hc_parent: HcParentSessionTarget | None = None,
     ) -> AbstractAsyncContextManager[AgentHarness]: ...
 
     def _handle_error(self, e: Exception, error_type: str | None = None) -> None: ...
@@ -72,11 +76,26 @@ class ParallelCliFlow(Protocol):
     ) -> None: ...
 
 
-def _display_cli_usage_report(agent_app: object, *, quiet: bool) -> None:
+def _display_cli_usage_report(
+    agent_app: object,
+    *,
+    quiet: bool,
+    session_manager: SessionManager | None = None,
+) -> None:
     """Display usage before a harness-backed CLI session disposes its agents."""
+    from fast_agent.session.session_manager import SessionManager
+    from fast_agent.session.subagent_runs import collect_hc_child_usage_rollups
+    from fast_agent.ui.usage_display import usage_rows_from_hc_rollups
+
+    extra_rows = (
+        usage_rows_from_hc_rollups(collect_hc_child_usage_rollups(session_manager))
+        if isinstance(session_manager, SessionManager)
+        else ()
+    )
     finalize_usage_report(
         collect_agents_from_provider(agent_app),
         show=not quiet,
+        extra_rows=extra_rows,
     )
 
 
@@ -85,14 +104,15 @@ async def _run_flow_with_usage_report(
     *,
     agent_app: object,
     quiet: bool,
+    session_manager: SessionManager | None = None,
 ) -> None:
     """Render usage for normal and user-requested exits, but not failures."""
     try:
         await operation
     except PromptExitError:
-        _display_cli_usage_report(agent_app, quiet=quiet)
+        _display_cli_usage_report(agent_app, quiet=quiet, session_manager=session_manager)
         raise
-    _display_cli_usage_report(agent_app, quiet=quiet)
+    _display_cli_usage_report(agent_app, quiet=quiet, session_manager=session_manager)
 
 
 def should_use_harness_startup(request: AgentRunRequest) -> bool:
@@ -222,17 +242,53 @@ def _restore_core_resume_flag(
         args.resume_requested = original
 
 
-async def run_harness_cli_flow(
+def _close_hc_terminal_binding(session_manager: "SessionManager | None") -> None:
+    from fast_agent.session.session_manager import SessionManager as ConcreteSessionManager
+
+    if isinstance(session_manager, ConcreteSessionManager):
+        session_manager.close_terminal_binding_cleanly()
+
+
+async def _bind_hc_terminal_session(
+    request: AgentRunRequest,
+    session_manager: "SessionManager | None",
+) -> None:
+    from fast_agent.session.session_manager import SessionManager as ConcreteSessionManager
+
+    if (
+        not request.is_repl
+        or request.no_home
+        or not isinstance(session_manager, ConcreteSessionManager)
+    ):
+        return
+    from fast_agent.integrations.hc_children import hc_environment, read_hc_core_id
+
+    env = hc_environment()
+    if env is None:
+        return
+    core_id = await asyncio.to_thread(read_hc_core_id)
+    session_manager.bind_terminal(env.terminal_id, core_id=core_id)
+
+
+async def _run_harness_session(
     fast: HarnessProvider,
     request: AgentRunRequest,
     *,
-    flow: CliFlow,
+    invoke_flow: Callable[[HarnessAppSession], Awaitable[None]],
     prepare: Callable[[], None] | None = None,
 ) -> None:
+    from fast_agent.cli.runtime.hc_recovery import resolve_hc_parent_session
+
     session_id = initial_harness_session_id(request)
+    hc_parent = await asyncio.to_thread(resolve_hc_parent_session, request)
     disabled_resume, original_resume = _disable_core_resume_for_harness_startup(fast)
     try:
-        async with fast.harness(environment=request.environment) as harness:
+        harness_cm = (
+            fast.harness(environment=request.environment, hc_parent=hc_parent)
+            if hc_parent is not None
+            else fast.harness(environment=request.environment)
+        )
+        async with harness_cm as harness:
             if prepare is not None:
                 prepare()
             app = harness.app()
@@ -242,16 +298,19 @@ async def run_harness_cli_flow(
                 from fast_agent.cli.runtime.session_resume import resume_session_if_requested
 
                 await resume_session_if_requested(session.agent_app, request)
-                await _run_flow_with_usage_report(
-                    flow(
-                        session.agent_app,
-                        request,
+                await _bind_hc_terminal_session(request, session.env.session_manager)
+                try:
+                    await _run_flow_with_usage_report(
+                        invoke_flow(session),
+                        agent_app=session.agent_app,
+                        quiet=request.quiet,
                         session_manager=session.env.session_manager,
-                        harness_session=session.env.harness_session,
-                    ),
-                    agent_app=session.agent_app,
-                    quiet=request.quiet,
-                )
+                    )
+                except PromptExitError:
+                    _close_hc_terminal_binding(session.env.session_manager)
+                    raise
+                else:
+                    _close_hc_terminal_binding(session.env.session_manager)
     except PromptExitError as exc:
         raise SystemExit(0) from exc
     except (
@@ -269,6 +328,26 @@ async def run_harness_cli_flow(
         raise SystemExit(1) from exc
     finally:
         _restore_core_resume_flag(fast, disabled_resume, original_resume)
+
+
+async def run_harness_cli_flow(
+    fast: HarnessProvider,
+    request: AgentRunRequest,
+    *,
+    flow: CliFlow,
+    prepare: Callable[[], None] | None = None,
+) -> None:
+    await _run_harness_session(
+        fast,
+        request,
+        prepare=prepare,
+        invoke_flow=lambda session: flow(
+            session.agent_app,
+            request,
+            session_manager=session.env.session_manager,
+            harness_session=session.env.harness_session,
+        ),
+    )
 
 
 async def run_cli_flow(
@@ -299,45 +378,17 @@ async def run_harness_parallel_cli_flow(
     *,
     flow: ParallelCliFlow,
 ) -> None:
-    session_id = initial_harness_session_id(request)
-    disabled_resume, original_resume = _disable_core_resume_for_harness_startup(fast)
-    try:
-        async with fast.harness(environment=request.environment) as harness:
-            app = harness.app()
-            async with app.open(
-                AppOpenRequest(session_id=session_id, agent=request.target_agent_name)
-            ) as session:
-                from fast_agent.cli.runtime.session_resume import resume_session_if_requested
-
-                await resume_session_if_requested(session.agent_app, request)
-                await _run_flow_with_usage_report(
-                    flow(
-                        session.agent_app,
-                        request,
-                        fan_out_agent_names,
-                        session_manager=session.env.session_manager,
-                        harness_session=session.env.harness_session,
-                    ),
-                    agent_app=session.agent_app,
-                    quiet=request.quiet,
-                )
-    except PromptExitError as exc:
-        raise SystemExit(0) from exc
-    except (
-        ServerConfigError,
-        ProviderKeyError,
-        AgentConfigError,
-        ServerInitializationError,
-        EnvironmentStartupError,
-        ModelConfigError,
-        CircularDependencyError,
-        UnknownEnvironmentError,
-        SessionBusyError,
-    ) as exc:
-        fast._handle_error(exc)
-        raise SystemExit(1) from exc
-    finally:
-        _restore_core_resume_flag(fast, disabled_resume, original_resume)
+    await _run_harness_session(
+        fast,
+        request,
+        invoke_flow=lambda session: flow(
+            session.agent_app,
+            request,
+            fan_out_agent_names,
+            session_manager=session.env.session_manager,
+            harness_session=session.env.harness_session,
+        ),
+    )
 
 
 async def run_parallel_cli_flow(

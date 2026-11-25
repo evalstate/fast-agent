@@ -808,6 +808,8 @@ def go(
     no_shell: bool = CommonAgentOptions.no_shell(),
     subagents: bool | None = CommonAgentOptions.subagents(),
     subagent_model: str | None = CommonAgentOptions.subagent_model(),
+    image_gen: bool | None = CommonAgentOptions.image_gen(),
+    image_gen_model: str | None = CommonAgentOptions.image_gen_model(),
     ptc: bool | None = CommonAgentOptions.ptc(),
     ptc_all: bool = CommonAgentOptions.ptc_all(),
     ptc_search: bool = CommonAgentOptions.ptc_search(),
@@ -854,6 +856,8 @@ def go(
             "--skills-dir": skills_dir is not None,
             "--subagents": subagents is True,
             "--subagent-model": subagent_model is not None,
+            "--image-gen": image_gen is True,
+            "--image-gen-model": image_gen_model is not None,
             "--resume": resume is not None,
             "--reload": reload,
             "--watch": watch,
@@ -1025,6 +1029,8 @@ def go(
         no_shell=no_shell,
         subagents=subagents,
         subagent_model=subagent_model,
+        image_gen=image_gen,
+        image_gen_model=image_gen_model,
         ptc=ptc,
         ptc_all=ptc_all,
         force_model_picker=force_model_picker,
@@ -1037,7 +1043,14 @@ def go(
         timeout_seconds=timeout,
     )
 
-    _maybe_offer_recommended_plugins(ctx, request)
+    from fast_agent.cli.runtime.hc_recovery import should_check_hc_recovery
+    from fast_agent.integrations.herdr_lifecycle import herdr_startup_hold
+
+    if should_check_hc_recovery(request):
+        with herdr_startup_hold():
+            _maybe_offer_recommended_plugins(ctx, request)
+    else:
+        _maybe_offer_recommended_plugins(ctx, request)
     update_notice = _resolve_request_update_notice(
         ctx=ctx,
         request=request,

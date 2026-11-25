@@ -139,12 +139,13 @@ the machine's Python. Only `print()` output and the final expression value come 
 (capped at about {output_limit}; longer output loses its middle): compute counts, sorts, \
 filters, and compact per-item summaries in code rather than printing raw dumps.
 {input_note}\
-- Sandbox Python: the only importable modules are asyncio, base64, binascii, bisect, \
-collections, copy, csv, dataclasses, datetime, decimal, fnmatch, functools, hashlib, itertools, json, \
-math, os, os.path, pathlib, random, re, sys, time, tomllib, typing and unicodedata. No other \
-standard library (difflib, heapq, io, string, struct, subprocess, ...), no packages, no \
-environment variables. Unsupported syntax: class inheritance, `@staticmethod`/`@classmethod`/\
-`@property`, `yield`, `del`, `async with`/`async for`, `except*`, `import *`.
+- Sandbox Python: the only importable modules are annotationlib, asyncio, base64, binascii, bisect, \
+collections, colorsys, copy, csv, dataclasses, datetime, decimal, fnmatch, functools, hashlib, \
+itertools, json, keyword, math, os, os.path, pathlib, random, re, stat, statistics, sys, time, \
+tomllib, typing and unicodedata. No other standard library (difflib, heapq, io, string, struct, \
+subprocess, ...), no packages, no environment variables. Unsupported syntax: `super()`, \
+subclassing built-ins (except `object`), `@staticmethod`/`@classmethod`/`@property`, `yield`, \
+`del`, `async with`/`async for`, `except*`.
 - Python string syntax only: use `'...'`, `"..."`, or `'''...'''`/`\"\"\"...\"\"\"`, never \
 backticks (`` `...` ``); avoid nesting the same triple-quote delimiter inside a string \
 (write multi-line scripts to a file instead of embedding heredocs).
@@ -152,7 +153,7 @@ backticks (`` `...` ``); avoid nesting the same triple-quote delimiter inside a 
 {functions_note}\
 {search_note}\
 - Independent calls can run concurrently: `a, b = await asyncio.gather(f(x=1), g(y=2))` \
-(asyncio, collections, datetime, itertools, json, math and re are pre-imported). `settle(aw)` returns an exception instead of raising, so \
+(asyncio, collections, datetime, itertools, json, math, os, pathlib and re are pre-imported). `settle(aw)` returns an exception instead of raising, so \
 `await asyncio.gather(*[settle(f(x=x)) for x in xs])` collects every result \
 (`return_exceptions=` is unsupported).
 {shell_batch_note}\
@@ -175,7 +176,19 @@ import datetime
 import itertools
 import json
 import math
+import os
+import pathlib
 import re
+
+
+_builtin_sorted = sorted
+
+
+def sorted(iterable, /, *, key=None, reverse=False):
+    items = list(iterable)
+    if key is None and items and all(isinstance(item, pathlib.Path) for item in items):
+        return _builtin_sorted(items, key=lambda p: p.parts, reverse=reverse)
+    return _builtin_sorted(items, key=key, reverse=reverse)
 
 
 async def settle(awaitable):
@@ -256,7 +269,7 @@ _READ_LIMITS_ADVICE = (
 _COMMANDS_NOTE = " Commands and the network go through the functions, {how}."
 # Sandbox errors from trying to do I/O directly instead of through tool functions.
 _DIRECT_IO_ERROR = re.compile(
-    r"PermissionError|`open` used when not defined|Module `os` has no member"
+    r"PermissionError|Module `os` has no member"
     r"|Cannot resolve imported module `(?:subprocess|shutil|glob|io|socket|urllib|http|requests)"
 )
 # The same, when file operations are served by tools: only processes and other I/O are missing.
@@ -280,7 +293,7 @@ _GATHER_HINT = (
     "\nHint: in `asyncio.gather(*[f(x) for x in [...]])` the comprehension needs its own `]` "
     "before `)`. Binding the list first (`items = [...]`) avoids this."
 )
-# pydantic-monty (1.3, 1.4) runs os.walk, os.scandir and map, but its type-checker stubs omit them.
+# pydantic-monty (through 1.7) runs os.walk, os.scandir and map, but its type-checker stubs omit them.
 _STUB_GAP = re.compile(
     r"Module `os` has no member `(?:walk|scandir)`|Name `map` used when not defined"
 )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
+from dataclasses import replace
 from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
@@ -15,17 +16,17 @@ from fast_agent.llm.compaction_support import CompactionSupport
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM, CacheTTL
 from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.broker import CopilotEndpoint, copilot_settings
-from fast_agent.llm.provider.copilot.images import CopilotImageUploads
+from fast_agent.llm.provider.copilot.images import MAX_MESSAGES_URL_IMAGES, CopilotImageUploads
 from fast_agent.llm.provider.copilot.models import get_copilot_model
-from fast_agent.llm.provider.copilot.policy import apply_policy, reject_overrides
+from fast_agent.llm.provider.copilot.policy import apply_policy, contains_type, reject_overrides
+from fast_agent.llm.provider.request_images import ImageBudget, ImageFitReport, request_bytes
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
     from anthropic.types.beta import BetaMessageParam
 
-    from fast_agent.llm.provider.anthropic.llm_anthropic import _AnthropicCompletionRequest
     from fast_agent.llm.structured_output_mode import StructuredOutputMode
-    from fast_agent.types import PromptMessageExtended, RequestParams
+    from fast_agent.types import RequestParams
 
 
 class CopilotMessagesLLM(AnthropicLLM):
@@ -100,26 +101,82 @@ class CopilotMessagesLLM(AnthropicLLM):
         client._custom_headers = headers
         return client
 
-    async def _prepare_anthropic_completion_request(
-        self,
-        anthropic: Any,
-        message_param: BetaMessageParam,
-        request_params: RequestParams | None,
-        pre_messages: list[BetaMessageParam] | None,
-        history: list[PromptMessageExtended] | None,
-        current_extended: PromptMessageExtended | None,
-    ) -> _AnthropicCompletionRequest:
-        request = await super()._prepare_anthropic_completion_request(
-            anthropic, message_param, request_params, pre_messages, history, current_extended
+    def _anthropic_image_budget(self) -> ImageBudget:
+        return replace(
+            super()._anthropic_image_budget(),
+            url_image_slots=MAX_MESSAGES_URL_IMAGES,
+            max_url_images=MAX_MESSAGES_URL_IMAGES,
         )
+
+    def _anthropic_413_retry_budget(self, sent_bytes: int) -> ImageBudget:
+        return replace(
+            super()._anthropic_413_retry_budget(sent_bytes),
+            url_image_slots=MAX_MESSAGES_URL_IMAGES,
+            max_url_images=MAX_MESSAGES_URL_IMAGES,
+        )
+
+    async def _upload_messages_with_fallback(
+        self,
+        arguments: dict[str, Any],
+        budget: ImageBudget,
+    ) -> tuple[dict[str, Any], int]:
         endpoint = self._copilot_endpoint.get()
         normalized = await self._image_uploads.normalize(
-            {"messages": request.messages},
+            {"messages": arguments["messages"]},
             endpoint,
             on_progress=partial(self._log_upload_progress, model=endpoint.model_id, noun="image"),
         )
-        request.messages = cast("list[BetaMessageParam]", normalized["messages"])
-        return request
+        updated = {**arguments, "messages": cast("list[BetaMessageParam]", normalized["messages"])}
+        if (
+            budget.max_request_bytes is not None
+            and request_bytes(updated) > budget.max_request_bytes
+        ):
+            updated, fallback = self._image_fitter.fit(
+                updated,
+                replace(budget, url_image_slots=0),
+                update_watermark=False,
+            )
+            return updated, fallback.omitted
+        return updated, 0
+
+    async def _fit_anthropic_request_images(
+        self,
+        base_args: dict[str, Any],
+        *,
+        model: str,
+    ) -> tuple[dict[str, Any], ImageFitReport]:
+        fitted, report = await super()._fit_anthropic_request_images(base_args, model=model)
+        if not report.images:
+            return fitted, report
+        fitted, fallback_omitted = await self._upload_messages_with_fallback(
+            fitted, self._anthropic_image_budget()
+        )
+        if fallback_omitted:
+            report.omitted += fallback_omitted
+            report.request_bytes_after = request_bytes(fitted)
+        return fitted, report
+
+    async def _prepare_anthropic_413_retry_arguments(
+        self,
+        arguments: dict[str, Any],
+        retry_budget: ImageBudget,
+        omitted: int,
+    ) -> tuple[dict[str, Any], int]:
+        arguments, fallback_omitted = await self._upload_messages_with_fallback(
+            arguments, retry_budget
+        )
+        omitted += fallback_omitted
+        extra_headers = arguments.get("extra_headers")
+        if (
+            isinstance(extra_headers, dict)
+            and "copilot-vision-request" in extra_headers
+            and not contains_type(arguments.get("messages"), {"image", "input_image", "image_url"})
+        ):
+            updated_headers = {
+                k: v for k, v in extra_headers.items() if k != "copilot-vision-request"
+            }
+            arguments = {**arguments, "extra_headers": updated_headers}
+        return arguments, omitted
 
     def supports_files_api(self) -> bool:
         return False

@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from fast_agent.session.identity import SessionSaveIdentity
     from fast_agent.session.session_manager import Session, SessionInfo
 
-SESSION_SNAPSHOT_SCHEMA_VERSION = 7
+SESSION_SNAPSHOT_SCHEMA_VERSION = 8
 
 type JsonScalar = None | bool | int | float | str
 type JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]
@@ -186,13 +186,18 @@ class SessionContinuationSnapshot(BaseModel):
 
 
 class SessionUsageSummarySnapshot(BaseModel):
-    """Small persisted usage summary for inspection."""
+    """Small persisted usage summary for inspection and child rollup."""
 
     model_config = ConfigDict(extra="forbid")
 
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    provider_attempts: int | None = None
+    tool_calls: int | None = None
+    model: str | None = None
+    cost_usd: float | None = None
 
 
 class SessionTimingSummarySnapshot(BaseModel):
@@ -231,10 +236,23 @@ class SessionChildLinkSnapshot(BaseModel):
     parent_session_id: str
     parent_agent_name: str
     parent_tool_call_id: str | None = None
-    tool_name: Literal["subagent"] = "subagent"
+    tool_name: Literal["subagent", "hc"] = "subagent"
+    hc_terminal_id: str | None = None
+    hc_name: str | None = None
 
 
 type SessionExecutionStatus = Literal["running", "completed", "failed", "cancelled"]
+
+
+class SessionTerminalAttachmentSnapshot(BaseModel):
+    """Interactive terminal binding (e.g. herdr-core) for crash/reboot recovery."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    core_id: str | None = None
+    terminal_id: str
+    active: bool = True
+    updated_at: datetime | None = None
 
 
 class SessionExecutionSnapshot(BaseModel):
@@ -247,6 +265,7 @@ class SessionExecutionSnapshot(BaseModel):
     status: SessionExecutionStatus = "completed"
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    terminal_attachment: SessionTerminalAttachmentSnapshot | None = None
 
 
 class SessionSnapshot(BaseModel):
@@ -258,7 +277,7 @@ class SessionSnapshot(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal[7] = SESSION_SNAPSHOT_SCHEMA_VERSION
+    schema_version: Literal[8] = SESSION_SNAPSHOT_SCHEMA_VERSION
     session_id: str
     created_at: datetime
     last_activity: datetime
@@ -356,6 +375,9 @@ def load_session_snapshot(payload: object) -> SessionSnapshot:
         raw_schema_version = 6
     if raw_schema_version == 6:
         payload_mapping = _migrate_v6_session_snapshot(payload_mapping)
+        raw_schema_version = 7
+    if raw_schema_version == 7:
+        payload_mapping = _migrate_v7_session_snapshot(payload_mapping)
         raw_schema_version = SESSION_SNAPSHOT_SCHEMA_VERSION
     if raw_schema_version != SESSION_SNAPSHOT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported session snapshot schema version: {raw_schema_version!r}")
@@ -421,6 +443,14 @@ def _migrate_v6_session_snapshot(payload: Mapping[str, object]) -> dict[str, obj
 
     Older sessions have none, so they resume with the PTC setting resolved at startup.
     """
+
+    migrated = dict(payload)
+    migrated["schema_version"] = 7
+    return migrated
+
+
+def _migrate_v7_session_snapshot(payload: Mapping[str, object]) -> dict[str, object]:
+    """Add terminal attachment, hc child links, and usage rollup fields in v8."""
 
     migrated = dict(payload)
     migrated["schema_version"] = SESSION_SNAPSHOT_SCHEMA_VERSION
@@ -551,7 +581,7 @@ def capture_session_snapshot(
         resolved_prompts=resolved_prompts,
     )
     snapshot.analysis = SessionAnalysisSnapshot(
-        usage_summary=_capture_usage_summary(active_agent),
+        usage_summary=_capture_usage_summary(active_agent, agent_registry=agent_registry),
     )
     return snapshot
 
@@ -637,6 +667,7 @@ def clone_session_snapshot_for_fork(
         forked_from=snapshot.session_id,
         acp_session_id=None,
     )
+    cloned.execution = SessionExecutionSnapshot()
 
     for agent_snapshot in cloned.continuation.agents.values():
         history_file = agent_snapshot.history_file
@@ -1233,17 +1264,88 @@ def _capture_model_overlay_refs(agent: "AgentProtocol") -> list[SessionModelOver
     return [SessionModelOverlayRef(ref=str(overlay.manifest_path.expanduser().resolve()))]
 
 
-def _capture_usage_summary(agent: "AgentProtocol") -> SessionUsageSummarySnapshot | None:
-    usage_accumulator = agent.usage_accumulator
-    if not isinstance(usage_accumulator, UsageAccumulator):
+def _capture_usage_summary(
+    agent: "AgentProtocol",
+    *,
+    agent_registry: Mapping[str, "AgentProtocol"] | None = None,
+) -> SessionUsageSummarySnapshot | None:
+    candidates: list[AgentProtocol] = list(agent_registry.values()) if agent_registry else [agent]
+    if agent not in candidates:
+        candidates.insert(0, agent)
+
+    accumulators: list[UsageAccumulator] = []
+    seen_ids: set[int] = set()
+    for candidate in candidates:
+        acc = candidate.usage_accumulator
+        if isinstance(acc, UsageAccumulator) and id(acc) not in seen_ids:
+            seen_ids.add(id(acc))
+            accumulators.append(acc)
+
+    if not accumulators:
         return None
 
-    summary = usage_accumulator.summary
+    prompt_total = 0
+    prompt_complete = True
+    completion_total = 0
+    completion_complete = True
+    cache_read_total = 0
+    cache_read_complete = True
+    provider_attempts = 0
+    tool_calls = 0
+    models: set[str] = set()
+    cost_total = 0.0
+    cost_complete = True
+    any_turns = False
 
+    for acc in accumulators:
+        summary = acc.summary
+        if summary.provider_attempts <= 0:
+            continue
+        any_turns = True
+        provider_attempts += summary.provider_attempts
+        tool_calls += summary.tool_calls
+        if summary.prompt.total is None:
+            prompt_complete = False
+        else:
+            prompt_total += summary.prompt.total
+        if summary.completion.total is None:
+            completion_complete = False
+        else:
+            completion_total += summary.completion.total
+        if summary.prompt.cache_read is None:
+            cache_read_complete = False
+        else:
+            cache_read_total += summary.prompt.cache_read
+        for turn in acc.turns:
+            if turn.model:
+                models.add(turn.model)
+            if turn.cost_usd is None:
+                cost_complete = False
+            else:
+                cost_total += turn.cost_usd
+
+    if not any_turns:
+        return None
+
+    resolved_prompt = prompt_total if prompt_complete else None
+    resolved_completion = completion_total if completion_complete else None
+    resolved_total = (
+        resolved_prompt + resolved_completion
+        if resolved_prompt is not None and resolved_completion is not None
+        else None
+    )
+    resolved_model = (
+        next(iter(models)) if len(models) == 1 else ("multiple" if len(models) > 1 else None)
+    )
     snapshot = SessionUsageSummarySnapshot(
-        prompt_tokens=summary.prompt.total,
-        completion_tokens=summary.completion.total,
-        total_tokens=summary.total,
+        prompt_tokens=resolved_prompt,
+        completion_tokens=resolved_completion,
+        total_tokens=resolved_total,
+        cache_read_tokens=cache_read_total if cache_read_complete else None,
+        provider_attempts=provider_attempts,
+        tool_calls=tool_calls,
+        model=resolved_model,
+        cost_usd=cost_total if cost_complete else None,
     )
     return snapshot if snapshot.model_dump(exclude_none=True) else None
 

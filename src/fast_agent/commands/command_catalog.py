@@ -241,14 +241,14 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
             CommandActionSpec(
                 action="update",
                 aliases=("refresh", "upgrade"),
-                help="Check or apply skill updates",
-                usage="/skills update [<number|name|all>] [--skills-dir path] [--force] [--yes]",
-                examples=("/skills update all --yes",),
+                help="Apply or check skill updates",
+                usage="/skills update [<number|name|all>] [--skills-dir path] [--check] [--force]",
+                examples=("/skills update", "/skills update --check"),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
                         value_name="number|name|all",
-                        summary="Skill name, index, or 'all'. Omit to run an update check.",
+                        summary="Skill name, index, or 'all'. Omit to update all.",
                     ),
                 ),
                 options=(
@@ -258,12 +258,16 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                         summary="Override the managed skills directory for this invocation.",
                     ),
                     CommandOptionSpec(
+                        name="--check",
+                        summary="Check for updates without applying.",
+                    ),
+                    CommandOptionSpec(
                         name="--force",
                         summary="Overwrite local modifications.",
                     ),
                     CommandOptionSpec(
                         name="--yes",
-                        summary="Confirm multi-skill apply.",
+                        summary="Accepted for compatibility; updates apply immediately.",
                     ),
                 ),
             ),
@@ -364,19 +368,25 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
             CommandActionSpec(
                 action="update",
                 aliases=("refresh", "upgrade"),
-                help="Check or apply card pack updates",
-                usage="/packs update [<number|name|all>] [--force] [--yes]",
-                examples=("/packs update all --yes",),
+                help="Apply or check card pack updates",
+                usage="/packs update [<number|name|all>] [--check] [--force]",
+                examples=("/packs update", "/packs update --check"),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
                         value_name="number|name|all",
-                        summary="Card pack name, index, or 'all'. Omit to run an update check.",
+                        summary="Card pack name, index, or 'all'. Omit to update all.",
                     ),
                 ),
                 options=(
+                    CommandOptionSpec(
+                        name="--check", summary="Check for updates without applying."
+                    ),
                     CommandOptionSpec(name="--force", summary="Overwrite local modifications."),
-                    CommandOptionSpec(name="--yes", summary="Confirm multi-pack apply."),
+                    CommandOptionSpec(
+                        name="--yes",
+                        summary="Accepted for compatibility; updates apply immediately.",
+                    ),
                 ),
             ),
             CommandActionSpec(
@@ -439,7 +449,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         examples=(
             "/packs add <number|name>",
             "/packs readme <number|name>",
-            "/packs update all --yes",
+            "/packs update",
             "/packs registry",
         ),
     ),
@@ -563,7 +573,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 help="Install a plugin",
                 usage=("/plugins add [<number|name>] [--global|--project] [--registry url]"),
                 examples=(
-                    "/plugins add <number|name> --global",
+                    "/plugins add <number|name>",
                     "/plugins add <number|name> --project",
                 ),
                 arguments=(
@@ -576,7 +586,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 options=(
                     CommandOptionSpec(
                         name="--global",
-                        summary="Install and enable across projects.",
+                        summary="Install and enable across projects (default).",
                     ),
                     CommandOptionSpec(
                         name="--project",
@@ -594,8 +604,11 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                 action="remove",
                 aliases=("rm", "delete", "uninstall"),
                 help="Remove an installed plugin",
-                usage="/plugins remove [<number|name>]",
-                examples=("/plugins remove <number|name>",),
+                usage="/plugins remove [<number|name>] [--global|--project]",
+                examples=(
+                    "/plugins remove <number|name>",
+                    "/plugins remove <number|name> --project",
+                ),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
@@ -603,23 +616,34 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                         summary="Installed plugin name or index.",
                     ),
                 ),
+                options=(
+                    CommandOptionSpec(
+                        name="--global",
+                        summary="Remove from globally installed plugins (default).",
+                    ),
+                    CommandOptionSpec(
+                        name="--project",
+                        summary="Remove only from the active project.",
+                    ),
+                ),
             ),
             CommandActionSpec(
                 action="update",
                 aliases=("refresh", "upgrade"),
-                help="Check or apply plugin updates",
+                help="Apply or check plugin updates",
                 usage=(
-                    "/plugins update [<number|name|all>] [--global|--project] [--force] [--yes]"
+                    "/plugins update [<number|name|all>] [--global|--project] [--check] [--force]"
                 ),
                 examples=(
-                    "/plugins update all --yes",
-                    "/plugins update all --global --yes",
+                    "/plugins update",
+                    "/plugins update --check",
+                    "/plugins update --global",
                 ),
                 arguments=(
                     CommandArgumentSpec(
                         name="selector",
                         value_name="number|name|all",
-                        summary="Plugin name, index, or 'all'. Omit to run an update check.",
+                        summary="Plugin name, index, or 'all'. Omit to update all.",
                     ),
                 ),
                 options=(
@@ -631,8 +655,15 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
                         name="--project",
                         summary="Check or update only project plugins.",
                     ),
+                    CommandOptionSpec(
+                        name="--check",
+                        summary="Check for updates without applying.",
+                    ),
                     CommandOptionSpec(name="--force", summary="Overwrite local modifications."),
-                    CommandOptionSpec(name="--yes", summary="Confirm multi-plugin apply."),
+                    CommandOptionSpec(
+                        name="--yes",
+                        summary="Accepted for compatibility; updates apply immediately.",
+                    ),
                 ),
             ),
             CommandActionSpec(
@@ -661,7 +692,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
             "/plugins add <number|name> --global",
             "/plugins add <number|name> --project",
             "/plugins remove <number|name>",
-            "/plugins update all --yes",
+            "/plugins update",
             "/plugins registry",
         ),
     ),

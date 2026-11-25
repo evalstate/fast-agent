@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import base64
+import io
 from importlib.metadata import version
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from openai import AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
+from PIL import Image, UnidentifiedImageError
 
 from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.io.path_uri import local_file_url_path
 from fast_agent.llm.provider.openai.codex_oauth import parse_chatgpt_account_id
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_cache import is_tool_continuation
@@ -20,6 +23,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     header_value,
     merge_headers_case_insensitive,
 )
+from fast_agent.llm.provider.request_images import ImageBudget
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.mime_utils import guess_mime_type
 
@@ -45,6 +49,11 @@ CODEX_SESSION_HEADERS = ("session-id", "thread-id", "x-client-request-id")
 CODEX_TURN_STATE_HEADER = "x-codex-turn-state"
 # GPT-6.2 catalog entries require client >= 0.166.0; matches normalized Codex 0.171.0-alpha.12.
 CODEX_PROTOCOL_VERSION = "0.171.0"
+_CODEX_IMAGE_MAX_DIMENSION: Final = 2048
+_CODEX_IMAGE_REENCODE_MIN_BYTES: Final = 200_000
+_CODEX_MAX_IMAGE_BYTES: Final = 20 * 1024 * 1024
+_CODEX_MAX_REQUEST_BYTES: Final = 56 * 1024 * 1024
+_CODEX_LOW_WATER_REQUEST_BYTES: Final = 32 * 1024 * 1024
 
 
 class CodexResponsesLLM(ResponsesLLM):
@@ -278,6 +287,45 @@ class CodexResponsesLLM(ResponsesLLM):
             client_metadata = arguments.setdefault("client_metadata", {})
             if isinstance(client_metadata, dict):
                 client_metadata.update(metadata)
+
+    def _responses_image_budget(self, *, overhead_bytes: int = 0) -> ImageBudget:
+        # Codex accepts ~65 MiB WebSocket frames before server keepalive timeouts
+        # and ~95 MiB SSE bodies; batch-rotate inline images safely below both.
+        return ImageBudget(
+            max_dimension=_CODEX_IMAGE_MAX_DIMENSION,
+            reencode_min_bytes=_CODEX_IMAGE_REENCODE_MIN_BYTES,
+            max_request_bytes=max(0, _CODEX_MAX_REQUEST_BYTES - overhead_bytes),
+            low_water_request_bytes=max(0, _CODEX_LOW_WATER_REQUEST_BYTES - overhead_bytes),
+            max_image_bytes=_CODEX_MAX_IMAGE_BYTES,
+        )
+
+    async def _normalize_input_image_part(
+        self,
+        client: AsyncOpenAI,
+        part: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool]:
+        del client
+        image_url = part.get("image_url")
+        if not isinstance(image_url, str):
+            return part, False
+        local_path = local_file_url_path(image_url)
+        if local_path is None:
+            return part, False
+        raw_bytes = local_path.read_bytes()
+        mime_type = guess_mime_type(local_path.name)
+        if not mime_type.startswith("image/"):
+            try:
+                with Image.open(io.BytesIO(raw_bytes)) as opened:
+                    fmt = (opened.format or "").upper()
+            except (UnidentifiedImageError, OSError):
+                fmt = ""
+            mime_type = Image.MIME.get(fmt) or (f"image/{fmt.lower()}" if fmt else "image/png")
+        encoded_data = base64.b64encode(raw_bytes).decode("ascii")
+        return {
+            **part,
+            "type": "input_image",
+            "image_url": f"data:{mime_type};base64,{encoded_data}",
+        }, True
 
     async def _normalize_input_file_part(
         self,

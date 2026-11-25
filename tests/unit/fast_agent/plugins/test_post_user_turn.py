@@ -149,6 +149,7 @@ async def test_structured_post_user_turn_result_renders_images(
     handlers = load_plugin_post_user_turn_handlers(
         [PluginPostUserTurnSpec("mermaid", f"{plugin_file}:display")]
     )
+    events: list[str] = []
     displayed: list[str] = []
     rendered_images: list[list[PluginCommandActionImage]] = []
 
@@ -158,10 +159,17 @@ async def test_structured_post_user_turn_result_renders_images(
         turn_usage=(),
         session_usage=(),
         config={},
-        display=displayed.append,
-        display_images=lambda imgs: rendered_images.append(list(imgs)),
+        display=lambda line: (events.append("display"), displayed.append(line)) and None,
+        display_images=lambda imgs: (
+            (
+                events.append("images"),
+                rendered_images.append(list(imgs)),
+            )
+            and None
+        ),
     )
 
+    assert events == ["images", "display"]
     assert displayed == ["Diagram rendered"]
     assert rendered_images == [
         [PluginCommandActionImage(source="/tmp/diagram.png", label="Flowchart")]

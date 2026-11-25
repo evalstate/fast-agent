@@ -161,6 +161,19 @@ def validate_subagent_conflicts(
         )
 
 
+def validate_image_gen_conflicts(
+    *,
+    image_gen: bool | None,
+    image_gen_model: str | None,
+) -> None:
+    """Reject an explicit disable paired with an explicit image generation model."""
+    if image_gen is False and image_gen_model is not None:
+        raise typer.BadParameter(
+            "Cannot combine --image-gen-model with --no-image-gen.",
+            param_hint="--image-gen-model",
+        )
+
+
 def validate_execution_mode_inputs(
     *,
     message: str | None,
@@ -532,6 +545,8 @@ def build_agent_run_request(
     workspace: Path | None = None,
     subagents: bool | None = None,
     subagent_model: str | None = None,
+    image_gen: bool | None = None,
+    image_gen_model: str | None = None,
     model_base_url: str | None = None,
     ptc: bool | None = None,
     ptc_all: bool = False,
@@ -557,6 +572,7 @@ def build_agent_run_request(
     )
     validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
     validate_subagent_conflicts(subagents=subagents, subagent_model=subagent_model)
+    validate_image_gen_conflicts(image_gen=image_gen, image_gen_model=image_gen_model)
     execution_mode = validate_execution_mode_inputs(
         message=message,
         prompt_file=prompt_file,
@@ -585,6 +601,7 @@ def build_agent_run_request(
     if isolated:
         no_shell = True
         subagents = False
+        image_gen = False
     if no_home or isolated:
         merged_agent_cards = normalize_explicit_card_sources(agent_cards)
         merged_card_tools = normalize_explicit_card_sources(card_tools)
@@ -657,6 +674,8 @@ def build_agent_run_request(
         missing_shell_cwd_policy=missing_shell_cwd_policy,
         subagents=True if subagent_model is not None else subagents,
         subagent_model=subagent_model,
+        image_gen=True if image_gen_model is not None else image_gen,
+        image_gen_model=image_gen_model,
         model_base_url=model_base_url,
         ptc=True if (ptc_all or ptc_search) else ptc,
         ptc_search=False if ptc_all else (True if ptc_search else None),
@@ -728,6 +747,8 @@ def build_command_run_request(
     workspace: Path | None = None,
     subagents: bool | None = None,
     subagent_model: str | None = None,
+    image_gen: bool | None = None,
+    image_gen_model: str | None = None,
     model_base_url: str | None = None,
     ptc: bool | None = None,
     ptc_all: bool = False,
@@ -742,6 +763,7 @@ def build_command_run_request(
     )
     validate_shell_conflicts(shell_enabled=shell_enabled, no_shell=no_shell)
     validate_subagent_conflicts(subagents=subagents, subagent_model=subagent_model)
+    validate_image_gen_conflicts(image_gen=image_gen, image_gen_model=image_gen_model)
 
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     resolved_instruction = resolve_instruction_option(
@@ -800,6 +822,8 @@ def build_command_run_request(
         missing_shell_cwd_policy=missing_shell_cwd_policy,
         subagents=subagents,
         subagent_model=subagent_model,
+        image_gen=image_gen,
+        image_gen_model=image_gen_model,
         model_base_url=model_base_url,
         ptc=ptc,
         ptc_all=ptc_all,

@@ -309,7 +309,7 @@ class AgentCompleter(Completer):
                 "(or /history show|detail|save|load|clear|rewind|fix)"
             ),
             "compact": "Compact history into a checkpoint summary (/compact preview|prompt)",
-            "warm": "Keep the prompt cache warm while idle (/warm [minutes|off|status])",
+            "warm": "Keep the prompt cache warm while idle (/warm [minutes|off|status|ping])",
             "tool": "Show one tool's input and structured output JSON schemas",
             "tools": "List tools or show one tool's JSON schemas",
             "model": _catalog_command_description("model"),
@@ -1033,14 +1033,31 @@ class AgentCompleter(Completer):
         from fast_agent.paths import resolve_home_paths
         from fast_agent.plugins.configuration import installed_plugin_roots
         from fast_agent.plugins.operations import list_local_plugins
+        from fast_agent.utils.text import strip_to_none
 
         settings = get_settings()
         home_paths = resolve_home_paths(settings)
-        roots = (
-            installed_plugin_roots(settings, project_plugins=home_paths.plugins)
-            if all_scopes or scope is not None
-            else [("project", home_paths.plugins)]
-        )
+        all_roots = installed_plugin_roots(settings, project_plugins=home_paths.plugins)
+        shared_global_root: Path | None = None
+        if all_scopes:
+            roots = all_roots
+            if scope == "global" and all(root_scope != "global" for root_scope, _ in roots):
+                global_home_value = strip_to_none(settings._fast_agent_global_plugin_home)
+                if global_home_value is not None:
+                    shared_global_root = (
+                        Path(global_home_value).expanduser() / "plugins"
+                    ).resolve()
+        else:
+            roots_by_scope = dict(all_roots)
+            target_scope = scope or ("global" if "global" in roots_by_scope else "project")
+            target_root = roots_by_scope.get(target_scope)
+            if target_root is None and target_scope == "global":
+                global_home_value = strip_to_none(settings._fast_agent_global_plugin_home)
+                if global_home_value is not None:
+                    target_root = Path(global_home_value).expanduser() / "plugins"
+            if target_root is None:
+                return
+            roots = [(target_scope, target_root)]
         scoped_plugins = [
             (root_scope, plugin)
             for root_scope, root in roots
@@ -1059,7 +1076,12 @@ class AgentCompleter(Completer):
                 aliases=(entry.plugin_dir.name,),
             )
             for index, (entry_scope, entry) in enumerate(scoped_plugins, 1)
-            if scope is None or entry_scope == scope
+            if scope is None
+            or entry_scope == scope
+            or (
+                shared_global_root is not None
+                and entry.plugin_dir.parent.resolve() == shared_global_root
+            )
         )
         yield from self._managed_item_completions(
             entries,

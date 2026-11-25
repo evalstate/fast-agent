@@ -117,3 +117,29 @@ def test_console_display_normalizes_partial_logger_config() -> None:
     assert display.logger_settings.code_word_wrap is True
     assert display.logger_settings.render_fences_with_syntax is True
     assert config.logger is display.logger_settings
+
+
+def test_update_logger_settings_does_not_mutate_shared_config() -> None:
+    shared_config = Settings(logger=LoggerSettings(show_chat=True, show_tools=True))
+    first = ConsoleDisplay(config=shared_config)
+
+    first_original = first.logger_settings
+    first.update_logger_settings(
+        first_original.model_copy(update={"show_chat": False, "show_tools": False})
+    )
+
+    # A second display initialized while the first is suppressed must still see
+    # the unmodified shared config (mirrors overlapping parallel subagents).
+    second = ConsoleDisplay(config=shared_config)
+    second_original = second.logger_settings
+    second.update_logger_settings(
+        second_original.model_copy(update={"show_chat": False, "show_tools": False})
+    )
+
+    first.update_logger_settings(first_original)
+    second.update_logger_settings(second_original)
+
+    assert shared_config.logger.show_chat is True
+    assert shared_config.logger.show_tools is True
+    assert first.logger_settings.show_chat is True
+    assert second.logger_settings.show_chat is True

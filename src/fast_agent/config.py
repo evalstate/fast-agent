@@ -2587,6 +2587,22 @@ def _migrate_legacy_mcp_settings_values(values: Any) -> Any:
 DEFAULT_SESSION_HISTORY_WINDOW: Final = 30
 
 
+class ImageGenSettings(BaseModel):
+    """Settings for the built-in image generation and editing tools."""
+
+    model: str | None = None
+    """Default image generation model spec (e.g. codexresponses.gpt-image-2.6-flare, xai.grok-imagine-image-2.0, google.gemini-nano-banana-2.1)."""
+
+    output_dir: str | None = None
+    """Directory where auto-saved images are written (defaults to <environment_dir>/images)."""
+
+    complexity: Literal["low", "medium", "high"] | None = None
+    """Default image complexity for OpenAI GPT-Image-2.6 models."""
+
+    resolution: Literal["1k", "2k", "4k"] | None = None
+    """Default image resolution for xAI Imagine (1k/2k) and Google Nano Banana (1k/2k/4k) models."""
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -2641,6 +2657,9 @@ class Settings(BaseSettings):
 
     acp: ACPSettings = Field(default_factory=ACPSettings)
     """ACP (Agent Client Protocol) server settings."""
+
+    image_gen: ImageGenSettings = Field(default_factory=ImageGenSettings)
+    """Built-in image generation and editing tool settings."""
 
     harness_app: HarnessAppSettings = Field(default_factory=HarnessAppSettings)
     """Harness application boundary configuration."""

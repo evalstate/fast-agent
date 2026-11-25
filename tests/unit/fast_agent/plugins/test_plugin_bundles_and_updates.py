@@ -165,7 +165,7 @@ def test_update_notice_agrees_with_plugins_update_and_respects_requirements(
     notice = check()
     assert notice is not None
     assert "alpha[/cyan] 0.1.0 → 0.2.0" in notice and "beta" not in notice
-    assert "plugins update all" in notice
+    assert "fast-agent plugins update" in notice
     authoritative = check_plugin_updates_in_roots(destination_roots=[root])
     assert [u.name for u in authoritative if is_update_applicable(u.status)] == ["alpha"]
 
@@ -173,7 +173,7 @@ def test_update_notice_agrees_with_plugins_update_and_respects_requirements(
     notice = check()
     assert notice is not None
     assert "needs fast-agent >=0.11.0" in notice
-    assert "plugins update all" not in notice
+    assert "fast-agent plugins update" not in notice
 
 
 def test_recommended_offer_installs_once_and_retries_failed_fetch(
@@ -225,7 +225,7 @@ def test_declined_offer_is_not_repeated(repo: Path, tmp_path: Path) -> None:
 
     assert len(prompts) == 1
     assert not (global_home / "plugins").exists()
-    assert "plugins add --bundle recommended --global" in messages[0]
+    assert "plugins add --bundle recommended" in messages[0]
 
 
 @pytest.mark.parametrize(

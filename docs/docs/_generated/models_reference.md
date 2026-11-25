@@ -86,6 +86,7 @@
 | `glm53flash` | `hf` | Text, Vision | `json` (object) | effort: `low`, `high`, `max`<br>Example: `glm53flash?reasoning=max` | — | — |
 | `glm5` | `hf` | Text | `json` (schema) | toggle: `on`, `off`<br>Example: `glm5?reasoning=off` | — | — |
 | `glm` | `hf` | Text | `json` (object) | effort: `low`, `high`, `max`<br>Example: `glm?reasoning=max` | — | — |
+| `google/gemma-4-26b-a4b-it` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `google/gemma-4-26b-a4b-it?reasoning=off` | — | — |
 | `google/gemma-4-31b-it` | `hf` | Text, Vision | `json` (schema) | toggle: `on`, `off`<br>Example: `google/gemma-4-31b-it?reasoning=off` | — | — |
 | `gpt-oss-20b` | `hf` | Text | `json` (schema) | — | — | — |
 | `gpt-oss` | `hf` | Text | `json` (schema) | — | — | — |
@@ -108,6 +109,7 @@
 | `qwen/qwen3.8-27b` | `hf` | Text, Vision, Video | `json` (object) | effort: `low`, `medium`, `xhigh`, `off`<br>Example: `qwen/qwen3.8-27b?reasoning=medium` | — | — |
 | `qwen35` | `hf` | Text, Vision | `json` (object) | toggle: `on`, `off`<br>Example: `qwen35?reasoning=off` | — | — |
 | `qwen36` | `hf` | Text | — | toggle: `on`, `off`<br>Example: `qwen36?reasoning=off` | — | — |
+| `thinkingmachines/inkling-2-mini` | `hf` | Text, Vision | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`, `max`<br>Example: `thinkingmachines/inkling-2-mini?reasoning=high` | — | — |
 | `Muse Spark 1.1` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.1?reasoning=medium` | — | — |
 | `Muse Spark 1.2 (Contributor)` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.2 (Contributor)?reasoning=medium` | — | — |
 | `Muse Spark 1.2` | `metaai` | Text, Vision, Document, Video | `json` (schema) | effort: `minimal`, `low`, `medium`, `high`, `xhigh`<br>Example: `Muse Spark 1.2?reasoning=medium` | — | — |

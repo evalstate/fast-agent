@@ -608,6 +608,9 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
         prompt_tokens=100,
         completion_tokens=25,
         total_tokens=125,
+        provider_attempts=1,
+        tool_calls=0,
+        model="test",
     )
 
 
@@ -1023,6 +1026,11 @@ async def test_save_history_writes_captured_snapshot_payload(tmp_path: Path) -> 
         "prompt_tokens": 11,
         "completion_tokens": 7,
         "total_tokens": 18,
+        "cache_read_tokens": None,
+        "provider_attempts": 1,
+        "tool_calls": 0,
+        "model": "test",
+        "cost_usd": None,
     }
 
 

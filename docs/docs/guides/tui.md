@@ -535,8 +535,8 @@ Unsupported controls are omitted.
 
 Use `/help` for the command list and `/` with completion to find a command.
 
-- [`/warm [minutes|off|status]`](cache_warming.md): keep the prompt cache warm
-  while idle, stop the explicit window, or inspect recent keep-warm requests.
+- [`/warm [minutes|off|status|ping]`](cache_warming.md): keep the prompt cache warm
+  while idle, send an immediate keep-warm ping, stop the explicit window, or inspect recent keep-warm requests.
 
 ## Prompt Shortcuts
 

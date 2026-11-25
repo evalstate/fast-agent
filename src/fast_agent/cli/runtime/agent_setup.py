@@ -1085,6 +1085,26 @@ def _apply_cli_subagent_overrides(fast: Any, request: AgentRunRequest) -> None:
         )
 
 
+def _apply_cli_image_gen_overrides(fast: Any, request: AgentRunRequest) -> None:
+    """Apply CLI --image-gen / --image-gen-model overrides to registered agents."""
+    from fast_agent.agents.agent_types import AgentConfig
+
+    if request.image_gen is None and request.image_gen_model is None:
+        return
+
+    override: bool | str = (
+        request.image_gen_model if request.image_gen_model is not None else bool(request.image_gen)
+    )
+    fast._cli_image_gen_override = override
+    for agent_data in fast.agents.values():
+        config = agent_data.get("config")
+        if not isinstance(config, AgentConfig):
+            continue
+        if bool(agent_data.get("tool_only", False)):
+            continue
+        config.image_gen = override
+
+
 def _build_fast_agent(request: AgentRunRequest):
     from fast_agent import FastAgent
     from fast_agent.constants import NONINTERACTIVE_ENVIRONMENT_INSTRUCTION
@@ -1126,6 +1146,8 @@ def _apply_fast_args(
     fast.args.card_tools = request.card_tools
     fast.args.subagents = request.subagents
     fast.args.subagent_model = request.subagent_model
+    fast.args.image_gen = request.image_gen
+    fast.args.image_gen_model = request.image_gen_model
     fast.args.agent = request.target_agent_name or request.agent_name or "agent"
 
 
@@ -1529,6 +1551,7 @@ async def _run_initialized_agent_request(
         _validate_target_agent_name(fast, request)
 
     _apply_cli_subagent_overrides(fast, request)
+    _apply_cli_image_gen_overrides(fast, request)
 
     if request.mode == "serve":
         await fast.app.initialize()
@@ -1646,8 +1669,19 @@ def _classify_cli_mcp_failure(
 
 async def run_agent_request(request: AgentRunRequest) -> None:
     """Run the normalized CLI request."""
+    from fast_agent.cli.runtime.hc_recovery import (
+        resolve_hc_startup_recovery,
+        should_check_hc_recovery,
+    )
+    from fast_agent.integrations.herdr_lifecycle import herdr_startup_hold
+
     try:
+        if should_check_hc_recovery(request):
+            with herdr_startup_hold():
+                await resolve_hc_startup_recovery(request)
         startup_model_source_override = await _select_startup_model_if_needed(request)
+    except PromptExitError as exc:
+        raise SystemExit(0) from exc
     except SessionCheckpointBusyError as exc:
         typer.echo(str(exc), err=True)
         raise SystemExit(1) from exc

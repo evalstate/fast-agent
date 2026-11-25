@@ -17,7 +17,7 @@ from fast_agent.utils.time import format_two_unit_duration
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
 
-WarmAction = Literal["start", "off", "status"]
+WarmAction = Literal["start", "off", "status", "ping"]
 
 # Shown with the estimate: what a keep-warm request costs relative to the prompt.
 _CACHE_READ_PRICE = "about 0.1x the input price"
@@ -108,6 +108,49 @@ async def handle_warm(
     if action == "status":
         outcome.add_message(
             Text("\n").join(Text(line) for line in _status_lines(agent, warmer)),
+            channel="info",
+            title="Cache warming",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    if action == "ping":
+        previous = warmer.status()
+        was_expired = previous.lapses_at is not None and previous.lapses_at <= time.time()
+        ping = await warmer.ping("/warm")
+        if ping.error is not None:
+            outcome.add_message(
+                Text(format_ping(ping)),
+                channel="warning",
+                title="Cache warming",
+                agent_name=agent_name,
+            )
+            return outcome
+        current = warmer.status()
+        lines = [format_ping(ping)]
+        if ping.outcome == "miss":
+            lines.append("Cache had already expired (cold miss; cache refreshed).")
+        elif ping.outcome == "hit":
+            if was_expired:
+                lines.append("Cache was still warm on the provider (hit past expected expiry).")
+            else:
+                lines.append("Cache was still warm (hit).")
+        elif was_expired:
+            lines.append(
+                "Keep-warm request sent after expected expiry "
+                "(provider does not report cache hits)."
+            )
+        else:
+            lines.append("Keep-warm request sent (provider does not report cache hits).")
+        if current.lapses_at is not None:
+            lines.append(
+                f"New cache window: expected to last until {_clock(current.lapses_at)} "
+                f"({_retention_label(warmer.retention_seconds)})."
+            )
+        if (armed_until := warmer.armed_until) is not None:
+            lines.append(f"Idle prompt warming remains on until {_clock(armed_until)}.")
+        outcome.add_message(
+            Text("\n").join(Text(line) for line in lines),
             channel="info",
             title="Cache warming",
             agent_name=agent_name,

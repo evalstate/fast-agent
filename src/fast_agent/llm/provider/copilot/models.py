@@ -43,6 +43,7 @@ def _responses_model(
     web_search: bool = True,
     websocket: bool = True,
     native_compaction: bool = True,
+    max_prompt_images: int | None = None,
 ) -> CopilotModelSpec:
     return CopilotModelSpec(
         model_id,
@@ -51,6 +52,7 @@ def _responses_model(
         ("sse", "websocket") if websocket else ("sse",),
         supports_web_search=web_search,
         supports_native_compaction=native_compaction,
+        max_prompt_images=max_prompt_images,
     )
 
 
@@ -65,10 +67,10 @@ COPILOT_PICKER_MODELS: Final = (
         _responses_model(model_id, websocket=False, web_search=False, native_compaction=False)
         for model_id in ("gpt-6.2-astra", "gpt-6.2-sol")
     ),
+    _responses_model("gpt-6-astra", max_prompt_images=50),
     *(
         _responses_model(model_id)
         for model_id in (
-            "gpt-6-astra",
             "gpt-6.1-sol",
             "gpt-6.1-terra",
             "gpt-6-luna",

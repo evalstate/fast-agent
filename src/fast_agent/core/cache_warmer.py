@@ -252,6 +252,23 @@ class CacheWarmer:
         if self._state != "active":
             self._state, self._detail = "off", None
 
+    async def ping(
+        self,
+        reason: WarmReason = "/warm",
+        *,
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> WarmPing:
+        """Send one keep-warm request now and record its outcome."""
+        ping = await self._ping(reason, request_params, tools)
+        self._pings.append(ping)
+        logger.info("Cache keep-warm request", agent_name=self._agent.name, data=asdict(ping))
+        if ping.error is not None:
+            self._state, self._next_ping_at, self._detail = "failed", None, ping.error
+        elif self._state == "failed":
+            self._state, self._detail = "off", None
+        return ping
+
     def status(self) -> WarmStatus:
         last = self._last_request_started_at()
         retention = self.retention_seconds
@@ -441,7 +458,7 @@ class CacheWarmer:
             reason=reason,
             duration_seconds=time.time() - started,
             prompt_tokens=usage.prompt.total,
-            cache_read_tokens=usage.prompt.cache_read if reports_cache_use else None,
+            cache_read_tokens=(usage.prompt.cache_read or 0) if reports_cache_use else None,
             cache_write_tokens=usage.prompt.cache_write if reports_cache_use else None,
             output_tokens=usage.completion.total,
             cost_usd=usage.cost_usd,

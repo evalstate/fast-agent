@@ -87,6 +87,26 @@ or as YAML-only files:
 Markdown cards are usually easier to read because the frontmatter contains
 configuration and the body contains the instruction prompt.
 
+## Configure built-in image generation
+
+Enable the built-in `generate_image` and `edit_image` tools on a card with
+`image_gen: true` (auto-resolves from config, the agent's provider, or
+available credentials) or pin a specific model/provider shorthand:
+
+```md
+---
+name: designer
+model: sonnet
+image_gen: xai.grok-imagine-image-2.0
+---
+
+Generate and iterate on visual assets.
+```
+
+Both tools save full-resolution images to disk (defaulting to
+`<environment_dir>/images/`) and return bounded image previews alongside the
+saved file paths so follow-up `edit_image` calls can iterate directly on them.
+
 ## Configure built-in subagents
 
 The built-in `subagent` tool is disabled unless the card sets

@@ -500,7 +500,7 @@ def test_plugins_list_marks_active_duplicate(
         update_global_settings(old_settings)
 
 
-def test_plugins_remove_without_selector_shows_only_project_plugins(
+def test_plugins_remove_without_selector_defaults_to_global_plugins(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -521,15 +521,15 @@ def test_plugins_remove_without_selector_shows_only_project_plugins(
         result = CliRunner().invoke(plugins_command.app, ["remove"])
 
         assert result.exit_code == 0, result.output
-        assert "project plugins directory" in result.output
-        assert "global plugins directory" not in result.output
-        assert "project-helper" in result.output
-        assert "global-finder" not in result.output
+        assert "global plugins directory" in result.output
+        assert "project plugins directory" not in result.output
+        assert "global-finder" in result.output
+        assert "project-helper" not in result.output
     finally:
         update_global_settings(old_settings)
 
 
-def test_plugins_remove_global_without_selector_shows_only_global_plugins(
+def test_plugins_remove_project_without_selector_shows_only_project_plugins(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -547,13 +547,13 @@ def test_plugins_remove_global_without_selector_shows_only_global_plugins(
     old_settings = get_settings()
     get_settings(config_path=str(config_path))
     try:
-        result = CliRunner().invoke(plugins_command.app, ["remove", "--global"])
+        result = CliRunner().invoke(plugins_command.app, ["remove", "--project"])
 
         assert result.exit_code == 0, result.output
-        assert "global plugins directory" in result.output
-        assert "project plugins directory" not in result.output
-        assert "global-finder" in result.output
-        assert "project-helper" not in result.output
+        assert "project plugins directory" in result.output
+        assert "global plugins directory" not in result.output
+        assert "project-helper" in result.output
+        assert "global-finder" not in result.output
     finally:
         update_global_settings(old_settings)
 
@@ -627,7 +627,7 @@ def test_plugins_load_enabled_by_manifest_name_when_directory_differs(tmp_path: 
     try:
         result = CliRunner().invoke(
             plugins_command.app,
-            ["--registry", marketplace_path.as_posix(), "add", "finder"],
+            ["--registry", marketplace_path.as_posix(), "add", "finder", "--project"],
         )
         assert result.exit_code == 0, result.output
         assert (home_root / "plugins" / "finder-plugin" / "plugin.yaml").exists()
@@ -676,7 +676,7 @@ def test_plugins_local_repo_ref_installs_requested_revision(tmp_path: Path) -> N
     try:
         result = CliRunner().invoke(
             plugins_command.app,
-            ["--registry", marketplace_path.as_posix(), "add", "finder"],
+            ["--registry", marketplace_path.as_posix(), "add", "finder", "--project"],
         )
 
         assert result.exit_code == 0, result.output
@@ -688,7 +688,7 @@ def test_plugins_local_repo_ref_installs_requested_revision(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
+async def test_plugins_slash_add_list_and_remove(tmp_path: Path, monkeypatch) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)
     _write_plugin(repo, "finder")
@@ -696,6 +696,7 @@ async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
     marketplace_path = tmp_path / "marketplace.json"
     _write_marketplace(marketplace_path, repo)
 
+    global_home = tmp_path / "global-home"
     home_root = tmp_path / ".fast-agent"
     config_path = tmp_path / "fast-agent.yaml"
     config_path.write_text(
@@ -705,6 +706,7 @@ async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
         f"  marketplace_url: '{marketplace_path.as_posix()}'\n",
         encoding="utf-8",
     )
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
 
     old_settings = get_settings()
     settings = get_settings(config_path=str(config_path))
@@ -724,9 +726,10 @@ async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
             interactive=False,
         )
         assert add_outcome.messages
-        assert (home_root / "plugins" / "finder" / "plugin.yaml").exists()
-        assert "finder" in config_path.read_text(encoding="utf-8")
-        assert "scope: project" in str(add_outcome.messages[-1].text)
+        assert (global_home / "plugins" / "finder" / "plugin.yaml").exists()
+        global_config = global_home / "fast-agent.yaml"
+        assert "finder" in global_config.read_text(encoding="utf-8")
+        assert "scope: global" in str(add_outcome.messages[-1].text)
         assert provider.plugin_commands is not None
         assert "finder" in provider.plugin_commands
         assert provider.plugin_command_base_path == config_path.parent
@@ -747,8 +750,8 @@ async def test_plugins_slash_add_list_and_remove(tmp_path: Path) -> None:
             argument="finder",
         )
         assert remove_outcome.messages
-        assert not (home_root / "plugins" / "finder").exists()
-        assert "finder" not in config_path.read_text(encoding="utf-8")
+        assert not (global_home / "plugins" / "finder").exists()
+        assert "finder" not in global_config.read_text(encoding="utf-8")
     finally:
         update_global_settings(old_settings)
 
@@ -842,6 +845,168 @@ async def test_plugins_slash_add_is_disabled_in_no_home_mode(tmp_path: Path) -> 
         "Plugin installs are disabled in no_home mode."
     ]
     assert not home_root.exists()
+
+
+@pytest.mark.asyncio
+async def test_plugins_slash_remove_and_update_are_disabled_in_no_home_mode(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    global_home = tmp_path / "global-home"
+    _write_plugin(global_home, "finder")
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+    settings = get_settings().model_copy(update={"home": (tmp_path / "project-env").as_posix()})
+    settings._fast_agent_global_plugin_home = global_home.as_posix()
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_CapturingIO(),
+        settings=settings,
+        no_home=True,
+    )
+
+    remove_outcome = await plugins_handlers.handle_plugins_command(
+        ctx,
+        agent_name="main",
+        action="remove",
+        argument="finder",
+        interactive=False,
+    )
+    update_outcome = await plugins_handlers.handle_plugins_command(
+        ctx,
+        agent_name="main",
+        action="update",
+        argument=None,
+        interactive=False,
+    )
+
+    assert [str(m.text) for m in remove_outcome.messages] == [
+        "Plugin removal is disabled in no_home mode."
+    ]
+    assert [str(m.text) for m in update_outcome.messages] == [
+        "Plugin updates are disabled in no_home mode."
+    ]
+    assert (global_home / "plugins" / "finder" / "plugin.yaml").exists()
+
+
+@pytest.mark.asyncio
+async def test_plugins_slash_remove_noninteractive_without_selector_returns_guidance(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    global_home = tmp_path / "global-home"
+    project_home = tmp_path / "project-env"
+    _write_plugin(global_home, "global-finder")
+    _write_plugin(project_home, "project-helper")
+    config_path = tmp_path / "fast-agent.yaml"
+    config_path.write_text(
+        f"default_model: passthrough\nhome: '{project_home.as_posix()}'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+
+    old_settings = get_settings()
+    settings = get_settings(config_path=str(config_path))
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_CapturingIO(),
+        settings=settings,
+    )
+    try:
+        outcome = await plugins_handlers.handle_plugins_command(
+            ctx,
+            agent_name="main",
+            action="remove",
+            argument="--project",
+            interactive=False,
+        )
+        rendered = "\n".join(str(m.text) for m in outcome.messages)
+        assert "project-helper" in rendered
+        assert "global-finder" not in rendered
+        assert "/plugins remove <number|name> --project" in rendered
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_plugins_cli_main_home_and_workspace_scope_handling(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    global_home = tmp_path / "global-home"
+    project_home = tmp_path / "project-home"
+    workspace = tmp_path / "ws"
+    _write_plugin(global_home, "global-finder")
+    _write_plugin(project_home, "project-helper")
+    _write_plugin(workspace / ".fast-agent", "ws-helper")
+    monkeypatch.setenv("FAST_AGENT_HOME", global_home.as_posix())
+
+    old_settings = get_settings()
+    try:
+        # --home overrides default scope, but explicit --global still uses original FAST_AGENT_HOME
+        explicit_global = CliRunner().invoke(
+            cli_app,
+            [
+                "--no-update-check",
+                "--home",
+                project_home.as_posix(),
+                "plugins",
+                "remove",
+                "--global",
+            ],
+        )
+        assert explicit_global.exit_code == 0, explicit_global.output
+        assert "global-finder" in explicit_global.output
+        assert "project-helper" not in explicit_global.output
+
+        # --home with plugins list sees both roots; plugins update --global targets only global
+        list_with_home = CliRunner().invoke(
+            cli_app,
+            ["--no-update-check", "--home", project_home.as_posix(), "plugins", "list"],
+        )
+        assert list_with_home.exit_code == 0, list_with_home.output
+        assert "global-finder" in list_with_home.output
+        assert "project-helper" in list_with_home.output
+
+        update_global_with_home = CliRunner().invoke(
+            cli_app,
+            [
+                "--no-update-check",
+                "--home",
+                project_home.as_posix(),
+                "plugins",
+                "update",
+                "--global",
+                "--check",
+            ],
+            terminal_width=200,
+        )
+        assert update_global_with_home.exit_code == 0, update_global_with_home.output
+        assert "global-finder" in update_global_with_home.output
+        assert "project-helper" not in update_global_with_home.output
+
+        # --workspace without --home still defaults to global plugins
+        ws_default = CliRunner().invoke(
+            cli_app,
+            ["--no-update-check", "--workspace", workspace.as_posix(), "plugins", "remove"],
+        )
+        assert ws_default.exit_code == 0, ws_default.output
+        assert "global-finder" in ws_default.output
+        assert "ws-helper" not in ws_default.output
+
+        # Shared root (FAST_AGENT_HOME == active home) still supports update --global --check
+        empty_home = tmp_path / "empty-global"
+        empty_home.mkdir()
+        monkeypatch.setenv("FAST_AGENT_HOME", empty_home.as_posix())
+        monkeypatch.chdir(tmp_path)
+        shared_check = CliRunner().invoke(
+            cli_app,
+            ["--no-update-check", "plugins", "update", "--global", "--check"],
+        )
+        assert shared_check.exit_code == 0, shared_check.output
+        assert "Plugin global scope is unavailable" not in shared_check.output
+    finally:
+        update_global_settings(old_settings)
 
 
 @pytest.mark.asyncio
@@ -978,18 +1143,21 @@ def test_plugins_update_reinstalls_managed_plugin(tmp_path: Path) -> None:
         runner = CliRunner()
         add_result = runner.invoke(
             plugins_command.app,
-            ["--registry", marketplace_path.as_posix(), "add", "finder"],
+            ["--registry", marketplace_path.as_posix(), "add", "finder", "--project"],
         )
         assert add_result.exit_code == 0, add_result.output
 
         _write_plugin(repo, "finder", "new")
         _commit_all(repo, "update")
 
-        check_result = runner.invoke(plugins_command.app, ["update"])
+        check_result = runner.invoke(plugins_command.app, ["update", "--check"])
         assert check_result.exit_code == 0, check_result.output
         assert "plugin content changed" in check_result.output
+        assert "old" in (home_root / "plugins" / "finder" / "commands.py").read_text(
+            encoding="utf-8"
+        )
 
-        update_result = runner.invoke(plugins_command.app, ["update", "all", "--yes"])
+        update_result = runner.invoke(plugins_command.app, ["update"])
         assert update_result.exit_code == 0, update_result.output
         assert "updated" in update_result.output
         assert "new" in (home_root / "plugins" / "finder" / "commands.py").read_text(
@@ -1049,14 +1217,14 @@ async def test_plugins_update_includes_global_managed_plugins(
         )
         list_output = "\n".join(str(message.text) for message in list_outcome.messages)
         assert "[ 4] finder  global" in list_output
-        assert "Update both scopes with /plugins update all --yes" in list_output
+        assert "Update both scopes with /plugins update" in list_output
         assert "indices stay as shown above" in list_output
 
         check_outcome = await plugins_handlers.handle_plugins_command(
             ctx,
             agent_name="main",
             action="update",
-            argument=None,
+            argument="--check",
         )
         check_output = "\n".join(str(message.text) for message in check_outcome.messages)
         assert "Plugin update check (project + global):" in check_output
@@ -1080,7 +1248,7 @@ async def test_plugins_update_includes_global_managed_plugins(
         _commit_all(repo, "cli update")
         check_result = runner.invoke(
             plugins_command.app,
-            ["update", "--global"],
+            ["update", "--global", "--check"],
             terminal_width=200,
         )
         assert check_result.exit_code == 0, check_result.output
@@ -1090,7 +1258,7 @@ async def test_plugins_update_includes_global_managed_plugins(
 
         update_result = runner.invoke(
             plugins_command.app,
-            ["update", "all", "--global", "--yes"],
+            ["update", "--global"],
         )
         assert update_result.exit_code == 0, update_result.output
         assert "updated" in update_result.output
@@ -1119,7 +1287,7 @@ def test_plugin_global_install_defaults_to_user_fast_agent_home(
 
     result = CliRunner().invoke(
         plugins_command.app,
-        ["--registry", marketplace_path.as_posix(), "add", "finder", "--global"],
+        ["--registry", marketplace_path.as_posix(), "add", "finder"],
     )
 
     assert result.exit_code == 0, result.output

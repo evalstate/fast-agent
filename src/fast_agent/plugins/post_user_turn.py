@@ -99,10 +99,10 @@ async def run_plugin_post_user_turn(
             if inspect.isawaitable(result):
                 result = await result
             if isinstance(result, PluginPostUserTurnOutput):
-                if result.display:
-                    display(result.display)
                 if result.images and display_images is not None:
                     display_images(result.images)
+                if result.display:
+                    display(result.display)
                 if result.session_usage and report_session_usage is not None:
                     report_session_usage(result.session_usage)
             elif result is not None and not isinstance(result, str):

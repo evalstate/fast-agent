@@ -134,3 +134,24 @@ async def test_keep_warm_request_without_reported_usage_is_an_error() -> None:
 
     with pytest.raises(PromptCacheWarmError):
         await llm.warm_cache([Prompt.user("hello")])
+
+
+@pytest.mark.parametrize(
+    ("model", "expected_retention"),
+    [
+        ("gemini-4-neon", 240),
+        ("gemini-4-hydrogen", 240),
+        ("gemini-4-carbon", 240),
+        ("gemini-4-argon", 240),
+        ("gemini-3.8-flash", 240),
+        ("gemini-2.5-flash", 240),
+        ("gemini-2.0-flash", None),
+    ],
+)
+def test_google_native_cache_retention_seconds(model: str, expected_retention: int | None) -> None:
+    from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
+
+    llm = GoogleNativeLLM(model=model)
+    assert llm.cache_retention_seconds == expected_retention
+    assert llm.warm_cache_reports_cache_use is True
+    assert llm.warms_cache_mid_turn is True

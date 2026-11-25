@@ -73,6 +73,8 @@ not need to inspect Fast-Agent session files or private message channels.
 - `--resume <id|latest>`: Resume the latest session (or a specific session id) and restore its saved model, web-search/web-fetch state, Delegate/Orchestrate/Harness capability mode, and per-agent shell availability without opening the startup picker. Saved shell access is restored only in the same local workspace; `--no-shell` disables it and `--shell` explicitly enables it. ACP-originated sessions do not inherit shell access. Older sessions without saved shell state require `--shell`. A session already active in another process is rejected; use `fast-agent session fork <id>` to branch its latest committed checkpoint.
 - `--subagents`: Enable the built-in `subagent` tool for the selected or generated agent
 - `--subagent-model <model_string>`: Enable built-in subagents and force every one to use this model
+- `--image-gen` / `--no-image-gen`: Enable or disable the built-in `generate_image` and `edit_image` tools. When enabled without a model, matches the main model's provider (`codexresponses.*` → `codexresponses.gpt-image-2.6-flare`, `openai.*` → `openai.gpt-image-2.6-flare`, `xai.*` → `xai.grok-imagine-image-2.0`, `google.*` → `google.gemini-nano-banana-2.1`), or falls back to the first available credential (Codex OAuth → `OPENAI_API_KEY` → xAI OAuth/`XAI_API_KEY` → `GOOGLE_API_KEY`)
+- `--image-gen-model <model_string>` (or `--image-gen=<model_string>`): Enable built-in image generation with a specific model or provider shorthand (e.g. `codexresponses.gpt-image-2.6-sunburst`, `openai.gpt-image-2.6-flare`, `xai.grok-imagine-image-2.0`, `google.gemini-nano-banana-2.1`, `codex`, `openai`, `xai`, `google`, `nano-banana`)
 - `--prompt-file`, `-p <path or uri>`: Path, HTTP(S) URL, `file://` URI, or `hf://` URI to a prompt file to use (either text or JSON)
 - `--skills-dir`, `--skills <path>`: Override the default skills directory
 - `--stdio "<command> <options>"`: Run the command to attach a STDIO server (enclose arguments in quotes)
@@ -116,6 +118,12 @@ fast-agent --model haiku
 
 # Use shell access and built-in subagents (go omitted)
 fast-agent -xx --subagent-model haiku
+
+# Enable built-in generate_image and edit_image tools (auto-selects image model)
+fast-agent go --model codexresponses.gpt-6.2-sol --image-gen
+
+# Pin a specific image generation model or provider shorthand
+fast-agent go --model sonnet --image-gen=xai.grok-imagine-image-2.0
 
 # Compare responses across multiple models (comparison mode)
 fast-agent --models "kimi,gpt-5-mini?reasoning=low"

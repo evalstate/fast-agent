@@ -425,12 +425,16 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
         {
             "name": "warm",
             "summary": "Keep the prompt cache warm while the prompt is idle",
-            "usage": "/warm [minutes|off|status]",
+            "usage": "/warm [minutes|off|status|ping]",
             "actions": [
                 {"name": "off", "summary": "stop warming at the idle prompt"},
                 {"name": "status", "summary": "show settings and recent keep-warm requests"},
+                {
+                    "name": "ping",
+                    "summary": "send one keep-warm request now and refresh the cache window",
+                },
             ],
-            "examples": ["/warm", "/warm 60", "/warm status", "/warm off"],
+            "examples": ["/warm", "/warm 60", "/warm ping", "/warm status", "/warm off"],
         },
         _simple_command_entry(
             "connect",

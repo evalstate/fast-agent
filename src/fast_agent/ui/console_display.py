@@ -172,10 +172,9 @@ class ConsoleDisplay:
         return self._logger_settings
 
     def update_logger_settings(self, logger_settings: LoggerSettings) -> None:
-        """Replace display logger settings and keep the backing config in sync."""
+        """Replace logger settings for this display without mutating shared config."""
         self._logger_settings = logger_settings
         self._markup = logger_settings.enable_markup
-        self._sync_logger_settings()
 
     def _sync_logger_settings(self) -> None:
         if self.config is None:
@@ -1680,6 +1679,8 @@ class ConsoleDisplay:
                 attachments=attachments,
                 image_previews=image_previews,
             ),
+            # Preserve literal newlines in hc notices (e.g. `Last lines:` terminal tables).
+            render_markdown=False if from_hc else None,
             show_hook_indicator=show_hook_indicator,
             header_rule_fill=True,
         )

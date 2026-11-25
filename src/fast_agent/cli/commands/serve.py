@@ -149,6 +149,8 @@ def _build_run_request(
     workspace: Path | None = None,
     subagents: bool | None = None,
     subagent_model: str | None = None,
+    image_gen: bool | None = None,
+    image_gen_model: str | None = None,
 ) -> AgentRunRequest:
     if watch and transport in (ServeTransport.HTTP, ServeTransport.STDIO):
         raise typer.BadParameter(
@@ -189,6 +191,8 @@ def _build_run_request(
         no_shell=no_shell,
         subagents=subagents,
         subagent_model=subagent_model,
+        image_gen=image_gen,
+        image_gen_model=image_gen_model,
         prefer_local_shell=prefer_local_shell,
         acp_client_tools=acp_client_tools,
         mode="serve",
@@ -253,6 +257,8 @@ def serve(
     no_shell: bool = CommonAgentOptions.no_shell(),
     subagents: bool | None = CommonAgentOptions.subagents(),
     subagent_model: str | None = CommonAgentOptions.subagent_model(),
+    image_gen: bool | None = CommonAgentOptions.image_gen(),
+    image_gen_model: str | None = CommonAgentOptions.image_gen_model(),
     acp_client_tools: bool | None = typer.Option(
         None,
         "--acp-client-tools/--no-acp-client-tools",
@@ -317,6 +323,8 @@ def serve(
         no_shell=no_shell,
         subagents=subagents,
         subagent_model=subagent_model,
+        image_gen=image_gen,
+        image_gen_model=image_gen_model,
         prefer_local_shell=prefer_local_shell,
         acp_client_tools=acp_client_tools,
         instance_scope=_resolve_instance_scope(
@@ -367,6 +375,8 @@ def serve_a2a(
     no_shell: bool = CommonAgentOptions.no_shell(),
     subagents: bool | None = CommonAgentOptions.subagents(),
     subagent_model: str | None = CommonAgentOptions.subagent_model(),
+    image_gen: bool | None = CommonAgentOptions.image_gen(),
+    image_gen_model: str | None = CommonAgentOptions.image_gen_model(),
     instance_scope: InstanceScope = typer.Option(
         InstanceScope.SHARED,
         "--instance-scope",
@@ -403,6 +413,8 @@ def serve_a2a(
         no_shell=no_shell,
         subagents=subagents,
         subagent_model=subagent_model,
+        image_gen=image_gen,
+        image_gen_model=image_gen_model,
         instance_scope=instance_scope,
         no_permissions=False,
         reload=reload,

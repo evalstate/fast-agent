@@ -254,8 +254,8 @@ async def test_cancellation_propagates(monkeypatch, endpoint):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("route", ["messages", "responses"])
-async def test_request_url_budget_nested_mixed_images(monkeypatch, endpoint, route):
+@pytest.mark.parametrize(("route", "expected_urls"), [("messages", 20), ("responses", 50)])
+async def test_request_url_budget_nested_mixed_images(monkeypatch, endpoint, route, expected_urls):
     requests = []
 
     def handler(request):
@@ -272,12 +272,14 @@ async def test_request_url_budget_nested_mixed_images(monkeypatch, endpoint, rou
     }
     existing = {"type": "image", "source": {"type": "url", "url": "https://existing/image"}}
     response_url = {"type": "input_image", "image_url": "https://existing/other"}
+    pairs = expected_urls // 2 + 1
+    inline_count = pairs * 2
     # Existing URLs come last, so they must be counted before the first upload.
     payload = {
         "messages": [
             {
                 "content": [
-                    *[inline, response_inline] * 11,
+                    *[inline, response_inline] * pairs,
                     {"type": "tool_result", "content": [existing], "output": [response_url]},
                     {"type": "tool_use", "input": {"content": [existing] * 30}},
                 ]
@@ -297,7 +299,11 @@ async def test_request_url_budget_nested_mixed_images(monkeypatch, endpoint, rou
     for _ in range(2):
         result = await uploads.normalize(payload, endpoint)
         content = result["messages"][0]["content"]
-        blocks = content[:22] + content[22]["content"] + content[22]["output"]
+        blocks = (
+            content[:inline_count]
+            + content[inline_count]["content"]
+            + content[inline_count]["output"]
+        )
         urls = 0
         inlines = 0
         for image_block in blocks:
@@ -316,9 +322,9 @@ async def test_request_url_budget_nested_mixed_images(monkeypatch, endpoint, rou
                 assert isinstance(encoded, str)
                 with Image.open(BytesIO(base64.b64decode(encoded))) as image:
                     assert image.size == ((2000, 1000) if route == "messages" else (2400, 1200))
-        assert urls == 20
+        assert urls == expected_urls
         assert inlines == 4
-        assert content[23] == before["messages"][0]["content"][23]
+        assert content[inline_count + 1] == before["messages"][0]["content"][inline_count + 1]
         assert payload == before
     assert len(requests) == 1
     assert len(resize_calls) == (2 if route == "messages" else 0)

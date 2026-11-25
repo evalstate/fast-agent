@@ -538,6 +538,7 @@ def _warm_command_completions(
         {
             "off": "Stop warming at the idle prompt",
             "status": "Show settings and recent keep-warm requests",
+            "ping": "Send one keep-warm request now and refresh the cache window",
         },
     )
 
@@ -1022,10 +1023,18 @@ def _plugins_remove_completions(
     argument: str,
     results: list[Completion],
 ) -> list[Completion]:
+    tokens = set(argument.split())
+    scope = "global" if "--global" in tokens else "project" if "--project" in tokens else None
+    partial = _current_argument_token(argument)
+    results.extend(_catalog_option_completions("plugins", "remove", argument))
     return _extend_name_or_signature_completions(
         results,
-        argument,
-        name_completions=completer._complete_local_plugin_names(argument),
+        partial,
+        name_completions=completer._complete_local_plugin_names(
+            partial,
+            all_scopes=False,
+            scope=scope,
+        ),
         signature_kind="installed plugin",
     )
 

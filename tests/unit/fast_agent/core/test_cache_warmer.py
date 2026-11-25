@@ -27,8 +27,11 @@ from fast_agent.llm.usage_tracking import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from fast_agent.commands.context import CommandContext
+    from fast_agent.interfaces import FastAgentLLMProtocol
 
-def _turn(*, age_seconds: float = 0.0, cache_read: int = 990) -> TurnUsage:
+
+def _turn(*, age_seconds: float = 0.0, cache_read: int | None = 990) -> TurnUsage:
     return TurnUsage(
         provider=Provider.ANTHROPIC,
         usage_schema=UsageSchema.OPENAI_CHAT,
@@ -52,7 +55,7 @@ class _Agent:
         mid_turn: bool = True,
         settings: CacheWarmSettings | None = None,
         on_request: Callable[[], Awaitable[None]] | None = None,
-        cache_read: int = 990,
+        cache_read: int | None = 990,
     ) -> None:
         self.accumulator = UsageAccumulator()
         if idle_seconds is not None:
@@ -265,8 +268,9 @@ async def test_nothing_is_sent_before_the_agents_first_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cold_cache_is_reported_as_a_miss() -> None:
-    agent = _Agent(cache_read=0)
+@pytest.mark.parametrize("cache_read", [0, None])
+async def test_cold_cache_is_reported_as_a_miss(cache_read: int | None) -> None:
+    agent = _Agent(cache_read=cache_read)
     warmer = _warmer(agent)
 
     async with warmer.keep_warm("hc", automatic=True):
@@ -334,3 +338,83 @@ async def test_cancelled_caller_still_lets_the_request_finish_and_stays_cancelle
         await turn
     last = warmer.status().last_ping
     assert last is not None and last.outcome == "hit"
+
+
+@pytest.mark.asyncio
+async def test_manual_ping_refreshes_expired_window_and_clears_failure() -> None:
+    agent = _Agent(idle_seconds=600, retention=300, cache_read=0)
+    warmer = _warmer(agent)
+    before = warmer.status()
+    assert before.lapses_at is not None and before.lapses_at < time.time()
+
+    # Simulate a prior failure state to verify a successful manual ping clears it.
+    warmer._state, warmer._detail = "failed", "prior error"
+
+    ping = await warmer.ping("/warm")
+    assert ping.outcome == "miss"
+    assert agent.requests == 1
+
+    after = warmer.status()
+    assert after.state == "off"
+    assert after.detail is None
+    assert after.last_ping is ping
+    assert after.lapses_at is not None and after.lapses_at > time.time() + 200
+
+
+@pytest.mark.asyncio
+async def test_handle_warm_ping_reports_expiry_state_and_new_window() -> None:
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.agents.llm_decorator import LlmDecorator
+    from fast_agent.commands.handlers.warm import handle_warm
+    from fast_agent.config import Settings
+    from fast_agent.context import Context
+
+    class _FakeDecorator(LlmDecorator):
+        def __init__(self, *, idle_seconds: float, cache_read: int) -> None:
+            super().__init__(
+                AgentConfig(name="agent"),
+                context=Context(config=Settings(cache_warm=CacheWarmSettings())),
+            )
+            self._accumulator = UsageAccumulator()
+            self._accumulator.add_turn(_turn(age_seconds=idle_seconds))
+            self._llm = cast(
+                "FastAgentLLMProtocol",
+                SimpleNamespace(
+                    usage_accumulator=self._accumulator,
+                    cache_retention_seconds=300,
+                    warms_cache_mid_turn=True,
+                    warm_cache_reports_cache_use=True,
+                ),
+            )
+            self._cache_read = cache_read
+
+        async def warm_prompt_cache(self, request_params=None, tools=None) -> TurnUsage:
+            turn = _turn(cache_read=self._cache_read)
+            self._accumulator.add_turn(turn)
+            return turn
+
+    # Case 1: expired cache -> cold miss -> refreshed new window
+    expired_agent = _FakeDecorator(idle_seconds=600, cache_read=0)
+    ctx = cast(
+        "CommandContext",
+        SimpleNamespace(agent_provider=SimpleNamespace(_agent=lambda _n: expired_agent)),
+    )
+    outcome = await handle_warm(ctx, agent_name="agent", action="ping")
+    assert len(outcome.messages) == 1
+    assert outcome.messages[0].channel == "info"
+    text = str(outcome.messages[0].text)
+    assert "MISS" in text
+    assert "already expired" in text
+    assert "New cache window" in text
+
+    # Case 2: warm cache -> hit -> refreshed new window
+    warm_agent = _FakeDecorator(idle_seconds=60, cache_read=990)
+    ctx_warm = cast(
+        "CommandContext",
+        SimpleNamespace(agent_provider=SimpleNamespace(_agent=lambda _n: warm_agent)),
+    )
+    outcome_warm = await handle_warm(ctx_warm, agent_name="agent", action="ping")
+    text_warm = str(outcome_warm.messages[0].text)
+    assert "HIT" in text_warm
+    assert "still warm" in text_warm
+    assert "New cache window" in text_warm

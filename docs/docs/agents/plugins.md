@@ -20,10 +20,12 @@ plugins:
     - edit-assistant
 ```
 
-Install a plugin from the configured plugin registry:
+Install a plugin from the configured plugin registry (installs globally by
+default; pass `--project` to install only in the active project):
 
 ```bash
 fast-agent plugins add agent-finder
+fast-agent plugins add agent-finder --project
 ```
 
 From an interactive fast-agent session, `/plugins add` makes the scope
@@ -41,9 +43,11 @@ Plugin listings use one combined project-then-global index. Update commands use
 the same indices and can be filtered without renumbering:
 
 ```text
-/plugins update all --global --yes
+/plugins update
+/plugins update --check
+/plugins update --global
 /plugins update 4 --global
-/plugins update all --project --yes
+/plugins update --project
 ```
 
 Manage installed plugins:
@@ -51,7 +55,7 @@ Manage installed plugins:
 ```bash
 fast-agent plugins list
 fast-agent plugins update
-fast-agent plugins update all --yes
+fast-agent plugins update --check
 fast-agent plugins remove agent-finder
 ```
 
@@ -74,7 +78,7 @@ Marketplaces can group plugins into `plugin_bundles`. Install a whole bundle in
 one step; plugins that are already installed are just enabled:
 
 ```bash
-fast-agent plugins add --bundle recommended --global
+fast-agent plugins add --bundle recommended
 ```
 
 The first time `fast-agent go` starts interactively with no plugins installed,
@@ -94,7 +98,7 @@ they use `~/.fast-agent`. The plugin is enabled in that directory's
 `fast-agent.yaml`:
 
 ```bash
-FAST_AGENT_HOME=~/.fast-agent fast-agent plugins add agent-finder --global
+FAST_AGENT_HOME=~/.fast-agent fast-agent plugins add agent-finder
 ```
 
 When `FAST_AGENT_HOME` is set, plugin names from

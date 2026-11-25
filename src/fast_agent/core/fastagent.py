@@ -76,6 +76,7 @@ if TYPE_CHECKING:
     from fast_agent.core.harness import AgentHarness
     from fast_agent.interfaces import AgentProtocol, ModelFactoryFunctionProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+    from fast_agent.session.terminal_pointers import HcParentSessionTarget
     from fast_agent.tools.environment_registry import EnvironmentRegistry, EnvironmentSelection
     from fast_agent.tools.execution_environment import ShellEnvironment
     from fast_agent.types import PromptMessageExtended
@@ -970,11 +971,12 @@ class FastAgent(AgentCardRuntimeMixin, ManagedRuntimeMixin, FastAgentRunMixin, D
         *,
         model: str | None = None,
         environment: "EnvironmentSelection" = None,
+        hc_parent: "HcParentSessionTarget | None" = None,
     ) -> "AgentHarness":
         """Create a headless session harness for this fast-agent app."""
         from fast_agent.core.harness import AgentHarness
 
-        return AgentHarness(self, model=model, environment=environment)
+        return AgentHarness(self, model=model, environment=environment, hc_parent=hc_parent)
 
     @property
     def environments(self) -> "EnvironmentRegistry":

@@ -38,15 +38,22 @@ def resolve_settings_start_path(
 ) -> Path:
     """Resolve the project base path implied by settings config/env metadata."""
     if settings is not None:
+        override_home = (
+            Path(settings._fast_agent_home).expanduser().resolve()
+            if settings._fast_agent_home
+            and settings._fast_agent_home_source in {"cli", "FAST_AGENT_HOME"}
+            else None
+        )
         config_file = settings._config_file
         if config_file:
             config_parent = Path(config_file).expanduser().resolve().parent
-            if config_parent.name == DEFAULT_HOME_DIR:
-                return config_parent.parent
-            return config_parent
+            if override_home is None or config_parent != override_home:
+                if config_parent.name == DEFAULT_HOME_DIR:
+                    return config_parent.parent
+                return config_parent
 
         home = settings.home
-        if home:
+        if home and override_home is None:
             home_root = Path(home).expanduser()
             if home_root.is_absolute():
                 return home_root.resolve().parent

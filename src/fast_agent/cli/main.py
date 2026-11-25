@@ -271,6 +271,8 @@ def main(
 
     context_payload = ensure_context_object(ctx)
     context_payload["no_update_check"] = no_update_check
+    context_payload["explicit_home"] = home is not None
+    context_payload["original_fast_agent_home"] = os.environ.get("FAST_AGENT_HOME")
 
     resolved_workspace, resolved_home = resolve_workspace_and_home_options(
         ctx,

@@ -95,10 +95,11 @@ def _list_outcome(ctx: "CommandContext", *, agent_name: str) -> CommandOutcome:
         "| --- | --- | --- | --- |",
     ]
     for run in runs:
-        task = run.task_preview or run.label or ""
+        alias = f"hc:{run.alias}" if run.tool_name == "hc" else run.alias
+        task = run.task_preview or run.label or (run.hc_terminal_id or "")
         lines.append(
             "| "
-            f"{escape_markdown_table_cell(run.alias)} | "
+            f"{escape_markdown_table_cell(alias)} | "
             f"{escape_markdown_table_cell(run.status)} | "
             f"{escape_markdown_table_cell(run.parent_agent_name)} | "
             f"{escape_markdown_table_cell(task)} |"

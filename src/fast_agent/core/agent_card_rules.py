@@ -56,6 +56,7 @@ AGENT_CARD_FIELDS = {
     *COMMON_CARD_FIELDS,
     "subagents",
     "subagent_model",
+    "image_gen",
     "harness_tools",
     "agents",
     "servers",

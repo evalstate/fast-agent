@@ -11,6 +11,8 @@ from fast_agent.ui.enhanced_prompt import parse_special_input
         ("/warm 45", WarmCommand(minutes=45)),
         ("/warm off", WarmCommand(action="off")),
         ("/warm STATUS", WarmCommand(action="status")),
+        ("/warm ping", WarmCommand(action="ping")),
+        ("/warm PING", WarmCommand(action="ping")),
     ],
 )
 def test_warm_command_forms(text: str, expected: WarmCommand) -> None:

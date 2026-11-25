@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 CHARS_PER_TOKEN = 4
 """Rough characters-per-token ratio used for context estimates."""
 
-LARGE_STUB_TOKENS = 500
+LARGE_STUB_TOKENS = 1000
 """Programmatic function stubs at or above this estimate are flagged as large."""
 
 

@@ -22,6 +22,8 @@ _OPTIONS_WITHOUT_VALUES = {
     "--no-shell",
     "--subagents",
     "--no-subagents",
+    "--image-gen",
+    "--no-image-gen",
     "--watch",
     "--reload",
     "--a2a-oauth",

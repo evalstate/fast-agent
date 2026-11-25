@@ -35,6 +35,7 @@ from fast_agent.session.snapshot import (
     SessionChildLinkSnapshot,
     SessionExecutionStatus,
     SessionSnapshot,
+    SessionTerminalAttachmentSnapshot,
     capture_session_snapshot,
     clone_session_snapshot_for_fork,
     load_session_snapshot,
@@ -47,6 +48,11 @@ from fast_agent.session.subagent_runs import (
     SUBAGENT_ORDINAL_KEY,
     SUBAGENT_TASK_PREVIEW_KEY,
     format_subagent_alias,
+)
+from fast_agent.session.terminal_pointers import (
+    HcTerminalPointer,
+    remove_terminal_pointer,
+    write_terminal_pointer,
 )
 from fast_agent.session.trajectory import TRAJECTORIES_DIR
 from fast_agent.utils.async_utils import run_coroutine
@@ -468,6 +474,14 @@ class Session:
             resolved_prompts=resolved_prompts,
             refresh_git=not checkpoint,
         )
+        if (
+            not checkpoint
+            and snapshot.execution.child_link is not None
+            and snapshot.execution.child_link.tool_name == "hc"
+            and snapshot.execution.status == "running"
+        ):
+            snapshot.execution.status = "completed"
+            snapshot.execution.completed_at = self.info.last_activity
         self._write_snapshot(snapshot)
         return result
 
@@ -616,6 +630,21 @@ class Session:
             self.info.last_activity = now
             self._write_snapshot(snapshot)
 
+    def set_terminal_attachment(
+        self,
+        attachment: SessionTerminalAttachmentSnapshot | None,
+    ) -> None:
+        """Record or clear the interactive terminal attachment for this session."""
+        stamped = (
+            attachment.model_copy(update={"updated_at": datetime.now()})
+            if attachment is not None and attachment.updated_at is None
+            else attachment
+        )
+        with self._mutation_lock():
+            snapshot = self._load_snapshot_or_compatibility()
+            snapshot.execution.terminal_attachment = stamped
+            self._write_snapshot(snapshot)
+
     def _load_snapshot_or_compatibility(self) -> SessionSnapshot:
         metadata_file = self.directory / "session.json"
         try:
@@ -628,6 +657,14 @@ class Session:
         """Load the typed continuation snapshot for this session."""
         with self._checkpoint_lock():
             return self._load_snapshot_or_compatibility()
+
+    def load_snapshot_unlocked(self) -> SessionSnapshot:
+        """Load the snapshot without acquiring a checkpoint lock.
+
+        ``session.json`` is replaced atomically, so parent-side inspection of
+        live child sessions can read it without colliding with child saves.
+        """
+        return self._load_snapshot_or_compatibility()
 
     def is_user_visible(self) -> bool:
         """Return whether this session should appear in interactive session surfaces."""
@@ -783,6 +820,7 @@ class SessionManager:
         )
         home_paths = resolve_home_paths(cwd=base, override=home_override)
         self.workspace_dir = base
+        self.home_dir = home_paths.root
         self.base_dir = home_paths.sessions
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._locks = SessionLockStore(self.base_dir)
@@ -791,6 +829,7 @@ class SessionManager:
         self._retain_multiple = retain_multiple
         self._owner_leases: dict[str, SessionOwnerLease] = {}
         self._current_session: Session | None = None
+        self._terminal_binding: SessionTerminalAttachmentSnapshot | None = None
 
     @property
     def current_session(self) -> Session | None:
@@ -912,9 +951,11 @@ class SessionManager:
         parent: Session,
         child_link: SessionChildLinkSnapshot,
         *,
+        session_id: str | None = None,
         alias_slug: str | None = None,
         label: str | None = None,
         task_preview: str | None = None,
+        acquire_owner: bool = False,
     ) -> Session:
         """Create a detached, non-resumable child below an existing session."""
         if parent.manager is not self:
@@ -922,51 +963,82 @@ class SessionManager:
         if child_link.parent_session_id != parent.info.name:
             raise ValueError("Child link parent_session_id does not match parent session")
 
-        children_dir = parent.directory / "children"
-        children_dir.mkdir(parents=True, exist_ok=True)
-        lock = self._locks.auxiliary(parent.info.name, "subagents", timeout=5)
-        with lock:
-            ordinal = self._next_subagent_ordinal(children_dir) if alias_slug is not None else None
-            while True:
-                child_id = self._generate_session_id()
-                child_dir = children_dir / child_id
-                try:
-                    child_dir.mkdir()
-                except FileExistsError:
-                    continue
-                break
-
-            now = datetime.now()
-            metadata: dict[str, Any] = {}
-            if ordinal is not None and alias_slug is not None:
-                metadata[SUBAGENT_ALIAS_KEY] = format_subagent_alias(ordinal, alias_slug)
-                metadata[SUBAGENT_ORDINAL_KEY] = ordinal
-                if label is not None:
-                    metadata[SUBAGENT_LABEL_KEY] = label
-                if task_preview is not None:
-                    metadata[SUBAGENT_TASK_PREVIEW_KEY] = task_preview
-            child = Session(
-                SessionInfo(
-                    name=child_id,
-                    created_at=now,
-                    last_activity=now,
-                    history_files=[],
-                    metadata=metadata,
-                ),
-                child_dir,
-                manager=self,
+        with self._locks.auxiliary(parent.info.name, "subagents", timeout=5):
+            return self._create_child_session_locked(
+                parent,
+                child_link,
+                session_id=session_id,
+                alias_slug=alias_slug,
+                label=label,
+                task_preview=task_preview,
+                acquire_owner=acquire_owner,
             )
-            snapshot = snapshot_from_session_info(child.info)
-            snapshot.execution.resumable = False
-            snapshot.execution.child_link = child_link
-            snapshot.execution.status = "running"
-            snapshot.execution.started_at = now
+
+    def _create_child_session_locked(
+        self,
+        parent: Session,
+        child_link: SessionChildLinkSnapshot,
+        *,
+        session_id: str | None = None,
+        alias_slug: str | None = None,
+        label: str | None = None,
+        task_preview: str | None = None,
+        acquire_owner: bool = False,
+    ) -> Session:
+        children_dir = parent.directory / "children"
+        children_dir.mkdir(exist_ok=True)
+        ordinal = self._next_subagent_ordinal(children_dir) if alias_slug is not None else None
+        explicit_id = _normalize_explicit_session_id(session_id) if session_id is not None else None
+        if session_id is not None and explicit_id is None:
+            raise ValueError(f"Invalid child session id: {session_id!r}")
+        while True:
+            child_id = explicit_id if explicit_id is not None else self._generate_session_id()
+            child_dir = children_dir / child_id
             try:
-                child._save_snapshot(snapshot)
-            except Exception:
+                child_dir.mkdir()
+            except FileExistsError:
+                if explicit_id is not None:
+                    raise
+                continue
+            break
+        if acquire_owner:
+            try:
+                self._acquire_owner(child_id)
+            except BaseException:
                 shutil.rmtree(child_dir, ignore_errors=True)
-                self.release_session(child_id)
                 raise
+
+        now = datetime.now()
+        metadata: dict[str, Any] = {}
+        if ordinal is not None and alias_slug is not None:
+            metadata[SUBAGENT_ALIAS_KEY] = format_subagent_alias(ordinal, alias_slug)
+            metadata[SUBAGENT_ORDINAL_KEY] = ordinal
+            if label is not None:
+                metadata[SUBAGENT_LABEL_KEY] = label
+            if task_preview is not None:
+                metadata[SUBAGENT_TASK_PREVIEW_KEY] = task_preview
+        child = Session(
+            SessionInfo(
+                name=child_id,
+                created_at=now,
+                last_activity=now,
+                history_files=[],
+                metadata=metadata,
+            ),
+            child_dir,
+            manager=self,
+        )
+        snapshot = snapshot_from_session_info(child.info)
+        snapshot.execution.resumable = False
+        snapshot.execution.child_link = child_link
+        snapshot.execution.status = "running"
+        snapshot.execution.started_at = now
+        try:
+            child._save_snapshot(snapshot)
+        except Exception:
+            shutil.rmtree(child_dir, ignore_errors=True)
+            self.release_session(child_id)
+            raise
         logger.info(
             "Created child session",
             data={
@@ -975,6 +1047,56 @@ class SessionManager:
                 "subagent_alias": metadata.get(SUBAGENT_ALIAS_KEY),
             },
         )
+        return child
+
+    def create_hc_child_session(
+        self,
+        parent_session_dir: pathlib.Path,
+        parent_session_id: str,
+        child_link: SessionChildLinkSnapshot,
+        *,
+        session_id: str | None = None,
+        alias_slug: str = "hc",
+        label: str | None = None,
+        expected_parent_terminal_id: str | None = None,
+        expected_core_id: str | None = None,
+    ) -> Session:
+        """Create and activate a cross-process ``hc`` child session under an existing parent."""
+        metadata_file = parent_session_dir / "session.json"
+        with self._locks.auxiliary(parent_session_id, "subagents", timeout=5):
+            if not metadata_file.is_file():
+                raise FileNotFoundError(f"Parent session metadata missing: {metadata_file}")
+            with metadata_file.open(encoding="utf-8") as handle:
+                parent_snapshot = load_session_snapshot(json.load(handle))
+            if parent_snapshot.session_id != parent_session_id:
+                raise ValueError(
+                    f"Parent session id mismatch: expected {parent_session_id!r}, "
+                    f"found {parent_snapshot.session_id!r}"
+                )
+            if expected_parent_terminal_id is not None:
+                if not self.is_session_owned(parent_session_id):
+                    raise ValueError(f"Parent session is no longer owned: {parent_session_id!r}")
+                attachment = parent_snapshot.execution.terminal_attachment
+                if (
+                    attachment is None
+                    or not attachment.active
+                    or attachment.terminal_id != expected_parent_terminal_id
+                    or attachment.core_id != expected_core_id
+                ):
+                    raise ValueError(
+                        f"Parent session terminal attachment no longer matches: {parent_session_id!r}"
+                    )
+            parent_info = session_info_from_snapshot(parent_snapshot)
+            parent = Session(parent_info, parent_session_dir, manager=self)
+            child = self._create_child_session_locked(
+                parent,
+                child_link,
+                session_id=session_id,
+                alias_slug=alias_slug,
+                label=label,
+                acquire_owner=True,
+            )
+        self._activate(child)
         return child
 
     @staticmethod
@@ -1145,7 +1267,10 @@ class SessionManager:
 
         try:
             with self._locks.checkpoint(session_id):
-                shutil.rmtree(session_dir)
+                with self._locks.auxiliary(session_id, "subagents", timeout=2.0):
+                    if self._has_owned_descendant(session_dir):
+                        return SessionDeleteResult(session_id, "busy")
+                    shutil.rmtree(session_dir)
             logger.info(f"Deleted session: {session_id}")
             return SessionDeleteResult(session_id, "deleted")
         except Exception as e:
@@ -1161,7 +1286,10 @@ class SessionManager:
             return self.delete_session(session_id)
         try:
             with self._locks.checkpoint(session_id):
-                shutil.rmtree(session.directory)
+                with self._locks.auxiliary(session_id, "subagents", timeout=2.0):
+                    if self._has_owned_descendant(session.directory):
+                        return False
+                    shutil.rmtree(session.directory)
         except FileNotFoundError:
             self.release_session(session_id)
             return False
@@ -1567,6 +1695,78 @@ class SessionManager:
         self._owner_leases[session_id] = lease
         return lease
 
+    def _has_owned_descendant(self, session_dir: pathlib.Path) -> bool:
+        children_dir = session_dir / "children"
+        if not children_dir.is_dir():
+            return False
+        for child_dir in children_dir.iterdir():
+            if not child_dir.is_dir():
+                continue
+            child_id = child_dir.name
+            if self.owns_session(child_id) or self._locks.is_owned(child_id):
+                return True
+            if self._has_owned_descendant(child_dir):
+                return True
+        return False
+
+    def _publish_terminal_pointer(
+        self,
+        session: Session,
+        binding: SessionTerminalAttachmentSnapshot,
+    ) -> None:
+        if not binding.core_id:
+            return
+        snapshot = session.load_snapshot_unlocked()
+        write_terminal_pointer(
+            HcTerminalPointer(
+                core_id=binding.core_id,
+                terminal_id=binding.terminal_id,
+                home_dir=self.home_dir,
+                session_id=session.info.name,
+                session_dir=session.directory,
+                agent_name=snapshot.continuation.active_agent,
+            )
+        )
+
+    def bind_terminal(self, terminal_id: str, *, core_id: str | None = None) -> None:
+        """Bind active interactive sessions in this manager to a terminal identity."""
+        self._terminal_binding = SessionTerminalAttachmentSnapshot(
+            core_id=core_id,
+            terminal_id=terminal_id,
+            active=True,
+        )
+        current = self._current_session
+        if current is not None and self.owns_session(current.info.name):
+            current.set_terminal_attachment(self._terminal_binding)
+            self._publish_terminal_pointer(current, self._terminal_binding)
+
+    def close_terminal_binding_cleanly(self) -> None:
+        """Mark the currently bound session cleanly closed before releasing its lease."""
+        binding = self._terminal_binding
+        current = self._current_session
+        self._terminal_binding = None
+        if binding is None or current is None or not self.owns_session(current.info.name):
+            return
+        if binding.core_id:
+            remove_terminal_pointer(
+                binding.core_id,
+                binding.terminal_id,
+                expected_session_id=current.info.name,
+            )
+        current.set_terminal_attachment(binding.model_copy(update={"active": False}))
+        self._finalize_hc_child_if_active(current)
+
+    @staticmethod
+    def _finalize_hc_child_if_active(session: Session) -> None:
+        snapshot = session.load_snapshot_unlocked()
+        if (
+            snapshot.execution.child_link is not None
+            and snapshot.execution.child_link.tool_name == "hc"
+            and snapshot.execution.status == "running"
+            and session.has_persisted_content()
+        ):
+            session.set_execution_status("completed")
+
     def _activate(self, session: Session) -> None:
         current = self._current_session
         if (
@@ -1574,16 +1774,119 @@ class SessionManager:
             and current is not None
             and current.info.name != session.info.name
         ):
+            if self.owns_session(current.info.name):
+                if self._terminal_binding is not None:
+                    current.set_terminal_attachment(
+                        self._terminal_binding.model_copy(update={"active": False})
+                    )
+                self._finalize_hc_child_if_active(current)
             self.release_session(current.info.name)
         self._current_session = session
+        if self._terminal_binding is not None and self.owns_session(session.info.name):
+            session.set_terminal_attachment(self._terminal_binding)
+            self._publish_terminal_pointer(session, self._terminal_binding)
 
     def owns_session(self, session_id: str) -> bool:
         """Return whether this manager retains the session owner lease."""
         return session_id in self._owner_leases
 
+    def is_session_owned(self, session_id: str) -> bool:
+        """Return whether this manager or another live process holds the owner lease."""
+        return session_id in self._owner_leases or self._locks.is_owned(session_id)
+
     def owned_elsewhere(self, session_id: str) -> bool:
         """Return whether another manager or process holds the session owner lease."""
         return session_id not in self._owner_leases and self._locks.is_owned(session_id)
+
+    def retire_terminal_binding(
+        self,
+        session_id: str,
+        terminal_id: str,
+        *,
+        core_id: str | None = None,
+        expected_updated_at: datetime | None = None,
+    ) -> None:
+        """Mark a previously interrupted session's terminal binding inactive without loading it."""
+        session = self.get_session(session_id)
+        if session is None:
+            return
+        acquired_here = session_id not in self._owner_leases
+        try:
+            self._acquire_owner(session_id)
+        except SessionBusyError:
+            return
+        try:
+            try:
+                snapshot = session.load_snapshot()
+            except Exception:
+                return
+            attachment = snapshot.execution.terminal_attachment
+            if attachment is None or not attachment.active or attachment.terminal_id != terminal_id:
+                return
+            if (
+                core_id is not None
+                and attachment.core_id is not None
+                and attachment.core_id != core_id
+            ):
+                return
+            if expected_updated_at is not None and attachment.updated_at != expected_updated_at:
+                return
+            session.set_terminal_attachment(
+                SessionTerminalAttachmentSnapshot(
+                    core_id=core_id if core_id is not None else attachment.core_id,
+                    terminal_id=terminal_id,
+                    active=False,
+                )
+            )
+        finally:
+            if acquired_here:
+                self.release_session(session_id)
+
+    def find_interrupted_terminal_session(
+        self,
+        terminal_id: str,
+        *,
+        core_id: str | None = None,
+    ) -> SessionInfo | None:
+        """Return the most recently bound interrupted, unlocked session for ``terminal_id``.
+
+        Orders matching resumable sessions by their terminal-binding timestamp
+        (falling back to ``last_activity``). The most recently bound session decides
+        the outcome: if still ``active`` and not owned elsewhere, return it; if it
+        closed cleanly (``active=False``), older sessions are not resurrected.
+        """
+        candidates: list[tuple[datetime, SessionInfo, bool]] = []
+        for info in self.list_sessions(include_empty=False):
+            session = self.get_session(info.name)
+            if session is None or not session.has_persisted_content():
+                continue
+            try:
+                snapshot = session.load_snapshot()
+            except Exception:
+                continue
+            if not snapshot.execution.resumable:
+                continue
+            attachment = snapshot.execution.terminal_attachment
+            if attachment is None or attachment.terminal_id != terminal_id:
+                continue
+            if (
+                core_id is not None
+                and attachment.core_id is not None
+                and attachment.core_id != core_id
+            ):
+                continue
+            order_ts = attachment.updated_at or info.last_activity
+            candidates.append((order_ts, info, attachment.active))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item[0], reverse=True)
+        for _ts, info, active in candidates:
+            if not active:
+                return None
+            if self.owned_elsewhere(info.name):
+                continue
+            return info
+        return None
 
     def release_session(self, session_id: str) -> None:
         """Release one retained session owner lease."""

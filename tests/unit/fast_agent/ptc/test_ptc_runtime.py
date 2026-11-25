@@ -267,6 +267,18 @@ async def test_settle_gathers_every_result_and_survives_conversation_reset(runti
         assert _text(result).endswith('Result:\n["dict", "RuntimeError", "dict"]')
 
 
+@pytest.mark.asyncio
+async def test_prelude_preimports_os_and_pathlib(runtime) -> None:
+    """``os`` and ``pathlib`` are pre-imported so fresh runs can use them without importing."""
+    dispatch = RecordingDispatcher()
+    code = "[os.path.join('a', 'b'), str(pathlib.Path('a') / 'b')]"
+
+    result = await runtime.execute({"code": code}, dispatch)
+
+    assert not result.is_error, _text(result)
+    assert _text(result).endswith('Result:\n["a/b", "a/b"]')
+
+
 def test_cpython_guidance_is_removed_when_shell_tool_is_removed() -> None:
     """Refreshing the tool list must not retain guidance for an unavailable shell."""
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings(enabled=True))

@@ -37,10 +37,18 @@ class AddArgument:
 
 
 @dataclass(frozen=True, slots=True)
+class RemoveArgument:
+    selector: str | None = None
+    scope: PluginScope | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class UpdateArgument:
     selector: str | None = None
     skills_dir: Path | None = None
     scope: PluginScope | None = None
+    check: bool = False
     force: bool = False
     yes: bool = False
     error: str | None = None
@@ -102,6 +110,7 @@ _PUBLISH_FLAG_OPTIONS: dict[str, tuple[_PublishFlagName, bool]] = {
     "--keep-temp": ("keep_temp", True),
 }
 _UPDATE_FLAG_OPTIONS = {
+    "--check": ("check", True),
     "--force": ("force", True),
     "--yes": ("yes", True),
 }
@@ -316,6 +325,36 @@ def parse_add_argument(
     )
 
 
+def parse_remove_argument(
+    argument: str | None,
+    *,
+    allow_scope: bool = False,
+) -> RemoveArgument:
+    """Parse remove command arguments into selector and optional scope."""
+    flag_options = dict(_PLUGIN_SCOPE_FLAG_OPTIONS) if allow_scope else {}
+    state = _parse_marketplace_argument(
+        argument,
+        command_name="remove",
+        initial_flags={"global_scope": False, "project_scope": False},
+        flag_options=flag_options,
+        value_options=(),
+        assign_value=_assign_update_value,
+    )
+    if state.error is not None:
+        return RemoveArgument(error=state.error)
+    if state.flag("global_scope") and state.flag("project_scope"):
+        return RemoveArgument(error="Choose one remove scope: --global or --project.")
+
+    return RemoveArgument(
+        selector=state.selector,
+        scope="global"
+        if state.flag("global_scope")
+        else "project"
+        if state.flag("project_scope")
+        else None,
+    )
+
+
 def parse_update_argument(
     argument: str | None,
     *,
@@ -330,6 +369,7 @@ def parse_update_argument(
         argument,
         command_name="update",
         initial_flags={
+            "check": False,
             "force": False,
             "yes": False,
             "global_scope": False,
@@ -352,6 +392,7 @@ def parse_update_argument(
         else "project"
         if state.flag("project_scope")
         else None,
+        check=state.flag("check"),
         force=state.flag("force"),
         yes=state.flag("yes"),
     )

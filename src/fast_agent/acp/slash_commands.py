@@ -829,6 +829,21 @@ class SlashCommandHandler:
             f"  /{cmd.name} - {cmd.description}" for cmd in available
         )
 
+    def _plugin_user_turn_usage(self, command_context: CommandContext):
+        from fast_agent.session.subagent_runs import with_hc_child_user_turn_usage
+
+        session_manager = command_context.resolve_session_manager()
+        parent_session = (
+            session_manager.get_session(self.session_id)
+            if session_manager is not None and self.session_id
+            else None
+        )
+        return with_hc_child_user_turn_usage(
+            self.instance.app.user_turn_usage,
+            session_manager,
+            parent=parent_session,
+        )
+
     async def _execute_plugin_command_action(
         self,
         agent: AgentProtocol,
@@ -869,7 +884,7 @@ class SlashCommandHandler:
                         ),
                     ),
                     is_acp=True,
-                    user_turn_usage=self.instance.app.user_turn_usage,
+                    user_turn_usage=self._plugin_user_turn_usage(command_context),
                 ),
             )
         except AgentConfigError as exc:

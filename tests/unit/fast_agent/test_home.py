@@ -195,7 +195,9 @@ def test_home_and_cwd_same_directory_is_searched_once(tmp_path: Path) -> None:
     assert result.config_path == config.resolve()
 
 
-def test_child_environment_exports_runtime_home_and_legacy_alias(tmp_path: Path) -> None:
+def test_child_environment_exports_runtime_home_without_synthesizing_fast_agent_home(
+    tmp_path: Path,
+) -> None:
     env = build_child_environment(
         active_home=tmp_path / ".fast-agent",
         base={"PATH": "/bin"},
@@ -204,6 +206,16 @@ def test_child_environment_exports_runtime_home_and_legacy_alias(tmp_path: Path)
 
     assert env["PATH"] == "/bin"
     assert env["EXTRA"] == "1"
+    assert env["FAST_AGENT_RUNTIME_HOME"] == str((tmp_path / ".fast-agent").resolve())
+    assert "FAST_AGENT_HOME" not in env
+
+
+def test_child_environment_updates_existing_fast_agent_home(tmp_path: Path) -> None:
+    env = build_child_environment(
+        active_home=tmp_path / ".fast-agent",
+        base={"PATH": "/bin", "FAST_AGENT_HOME": "/previous/home"},
+    )
+
     assert env["FAST_AGENT_RUNTIME_HOME"] == str((tmp_path / ".fast-agent").resolve())
     assert env["FAST_AGENT_HOME"] == str((tmp_path / ".fast-agent").resolve())
 

@@ -96,10 +96,6 @@ def _configure_inline_toolbar(session: PromptSession[str]) -> None:
     def _inline_render(app: Any, layout: Any, is_done: bool = False) -> None:
         renderer._min_available_height = 0
         output = renderer.output
-        if not is_done:
-            # Always repaint from (0, 0) with erase_down() so anything below
-            # the inline toolbar is cleared on every redraw.
-            renderer._last_screen = None
         if isinstance(output, Vt100_Output):
             # Wrap in DEC synchronized output (mode 2026) and flush once so
             # erase_down + 2-line redraw renders atomically without flicker.
@@ -134,17 +130,21 @@ def _configure_inline_toolbar(session: PromptSession[str]) -> None:
     #    display (Buffer.start_completion creates an empty CompletionState while
     #    completing in a thread, which would otherwise flicker the toolbar down).
     def _inline_default_buffer_control_height() -> Dimension:
+        if session.app.is_done:
+            return Dimension()
+
         if session.completer is not None and session.complete_style != CompleteStyle.READLINE_LIKE:
             space = session.reserve_space_for_menu
         else:
             space = 0
 
-        if space and not session.app.is_done:
+        if space:
             complete_state = session.default_buffer.complete_state
             if complete_state is not None and complete_state.completions:
                 return Dimension(min=space)
 
-        return Dimension()
+        # Keep one blank breathing line between the prompt and the status bar.
+        return Dimension(min=2)
 
     session._get_default_buffer_control_height = _inline_default_buffer_control_height
     current_window = session.layout.current_window

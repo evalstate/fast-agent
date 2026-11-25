@@ -44,6 +44,7 @@ Commands apply to the active agent.
 | --- | --- |
 | `/warm` | Warm at the idle prompt for `cache_warm.max_minutes` (default 30 minutes). |
 | `/warm <minutes>` | Set an idle-prompt warming window from now, e.g. `/warm 60`. |
+| `/warm ping` | Send one keep-warm request immediately, report hit/miss, and refresh the cache window. |
 | `/warm off` | Stop the explicit idle-prompt window. Automatic warming remains controlled by `cache_warm.auto`. |
 | `/warm status` | Show settings, schedule, and recent keep-warm requests. |
 
@@ -88,6 +89,8 @@ needs no keep-warm request; use a longer window for longer pauses.
 | OpenAI Responses, websocket | At least 30 minutes for GPT-5.6 and later | A `generate: false` warmup chained from the latest response: no model output. | No; idle-prompt warming only |
 | OpenAI Responses, SSE | At least 30 minutes for GPT-5.6 and later | The conversation re-sent with `prompt_cache_options.prewarm`: no model output. | Yes |
 | Copilot GPT-5.6 and later | At least 30 minutes | A short automated message whose reply is discarded; cache reads are reported exactly. | Yes |
+| Copilot Gemini 4 | Observed implicit-cache floors (`neon`: 30m, `hydrogen`/`carbon`: 15m, `argon`: 4m) | A short automated message whose reply is discarded; cache reads are reported exactly. | Yes |
+| Google Gemini (2.5 and later) | Observed implicit-cache floor (4 minutes; pings every 3m 15s) | A short automated message whose reply is discarded; cache reads are reported via `cached_content_token_count`. | Yes |
 | Other providers or models with unknown retention | Unknown; requires `interval_seconds` | A short automated message whose reply is discarded. | Provider-dependent |
 
 Over websocket, OpenAI continues only from its latest response. A warmup becomes

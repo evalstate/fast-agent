@@ -70,6 +70,8 @@ def _build_run_request(
     workspace: Path | None = None,
     subagents: bool | None = None,
     subagent_model: str | None = None,
+    image_gen: bool | None = None,
+    image_gen_model: str | None = None,
 ) -> AgentRunRequest:
     resolved_workspace, resolved_home = resolve_workspace_and_home_options(
         ctx,
@@ -105,6 +107,8 @@ def _build_run_request(
         no_shell=no_shell,
         subagents=subagents,
         subagent_model=subagent_model,
+        image_gen=image_gen,
+        image_gen_model=image_gen_model,
         prefer_local_shell=prefer_local_shell,
         acp_client_tools=acp_client_tools,
         mode="serve",
@@ -162,6 +166,8 @@ def run_acp(
     no_shell: bool = CommonAgentOptions.no_shell(),
     subagents: bool | None = CommonAgentOptions.subagents(),
     subagent_model: str | None = CommonAgentOptions.subagent_model(),
+    image_gen: bool | None = CommonAgentOptions.image_gen(),
+    image_gen_model: str | None = CommonAgentOptions.image_gen_model(),
     acp_client_tools: bool | None = typer.Option(
         None,
         "--acp-client-tools/--no-acp-client-tools",
@@ -224,6 +230,8 @@ def run_acp(
         no_shell=no_shell,
         subagents=subagents,
         subagent_model=subagent_model,
+        image_gen=image_gen,
+        image_gen_model=image_gen_model,
         prefer_local_shell=prefer_local_shell,
         acp_client_tools=acp_client_tools,
         no_permissions=no_permissions,

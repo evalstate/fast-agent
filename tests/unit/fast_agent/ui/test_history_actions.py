@@ -318,3 +318,54 @@ async def test_display_history_turn_sets_render_markdown_from_streaming_mode(
     assert display.assistant_calls[0]["render_markdown"] is expected_render_markdown
     assert display.assistant_calls[1]["render_markdown"] is None
     assert display.assistant_calls[2]["render_markdown"] is expected_render_markdown
+
+
+@pytest.mark.asyncio
+async def test_display_history_turn_renders_when_chat_and_tools_disabled() -> None:
+    from fast_agent.ui import console
+
+    config = Settings(logger=LoggerSettings(show_chat=False, show_tools=False))
+    turn = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="please check status")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[],
+            tool_calls={
+                "call_1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="demo_tool", arguments={"q": "status"}),
+                )
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[],
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[TextContent(type="text", text="tool output payload")]
+                )
+            },
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Everything looks good.")],
+        ),
+    ]
+
+    with console.console.capture() as capture:
+        await history_actions.display_history_turn(
+            "demo",
+            turn,
+            config=config,
+            turn_index=1,
+            total_turns=1,
+        )
+
+    output = capture.get()
+    assert "please check status" in output
+    assert "demo_tool" in output
+    assert "tool output payload" in output
+    assert "Everything looks good." in output

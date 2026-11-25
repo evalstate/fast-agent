@@ -178,7 +178,7 @@ class ClearCommand(CommandBase):
 
 @dataclass(frozen=True, slots=True)
 class WarmCommand(CommandBase):
-    action: Literal["start", "off", "status"] = "start"
+    action: Literal["start", "off", "status", "ping"] = "start"
     minutes: int | None = None
     error: str | None = None
     kind: Literal["warm"] = "warm"

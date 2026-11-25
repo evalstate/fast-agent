@@ -32,11 +32,13 @@ if TYPE_CHECKING:
 # Modules importable inside Monty; a tool must not shadow them.
 SANDBOX_MODULES = frozenset(
     {
+        "annotationlib",
         "asyncio",
         "base64",
         "binascii",
         "bisect",
         "collections",
+        "colorsys",
         "copy",
         "csv",
         "dataclasses",
@@ -47,12 +49,15 @@ SANDBOX_MODULES = frozenset(
         "hashlib",
         "itertools",
         "json",
+        "keyword",
         "math",
         "os",
         "pathlib",
         "posixpath",
         "random",
         "re",
+        "stat",
+        "statistics",
         "sys",
         "time",
         "tomllib",
@@ -268,27 +273,6 @@ def build_functions(
     return functions
 
 
-# Builtins the Monty runtime provides but its bundled type-checker stubs omit (pydantic-monty
-# 1.3 and 1.4), declared so code using them passes type checking.
-_MISSING_BUILTIN_STUBS = """
-def open(
-    file: Any,
-    mode: str = "r",
-    buffering: int = -1,
-    encoding: str | None = None,
-    errors: str | None = None,
-    newline: str | None = None,
-) -> Any: ...
-
-
-class FileNotFoundError(OSError): ...
-class FileExistsError(OSError): ...
-class IsADirectoryError(OSError): ...
-class NotADirectoryError(OSError): ...
-class PermissionError(OSError): ...
-"""
-
-
 def render_stubs(functions: Mapping[str, PtcFunction]) -> str:
     """Render the type checker's stubs for ``functions`` and the runtime's helpers."""
     body = "\n\n\n".join(
@@ -297,10 +281,7 @@ def render_stubs(functions: Mapping[str, PtcFunction]) -> str:
         )
         for function in functions.values()
     )
-    return (
-        "from typing import Any, Literal, Required, TypedDict\n\n"
-        f"{_MISSING_BUILTIN_STUBS}\n\n{STORE_STUBS}\n\n{body}\n"
-    )
+    return f"from typing import Any, Literal, Required, TypedDict\n\n{STORE_STUBS}\n\n{body}\n"
 
 
 def _build_function(tool: Tool, python_name: str, typed_dict_names: set[str]) -> PtcFunction:

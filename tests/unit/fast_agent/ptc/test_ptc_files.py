@@ -636,3 +636,124 @@ async def test_local_environment_filesystem_cwd_without_a_shell(tmp_path) -> Non
     finally:
         await agent.shutdown()
         await environment.close()
+
+
+@pytest.mark.asyncio
+async def test_positional_write_and_update_mode_enforce_read_and_write_permissions(
+    tmp_path,
+) -> None:
+    from pathlib import PurePosixPath
+
+    from fast_agent.ptc.files import SandboxFilesystem
+
+    target = tmp_path / "data.bin"
+    target.write_bytes(b"hello world")
+
+    read_only = SandboxFilesystem(read=True, write=False)
+    with pytest.raises(PermissionError, match="writing is not enabled"):
+        await read_only(
+            name="Path.write_bytes_at",
+            args=(PurePosixPath(target.as_posix()), 0, b"HELLO"),
+            kwargs={},
+            is_async=True,
+        )
+    with pytest.raises(PermissionError, match="writing is not enabled"):
+        await read_only(
+            name="open",
+            args=(PurePosixPath(target.as_posix()), "w+b"),
+            kwargs={},
+            is_async=True,
+        )
+    assert target.read_bytes() == b"hello world"
+
+    write_only = SandboxFilesystem(read=False, write=True)
+    with pytest.raises(PermissionError, match="reading is not enabled"):
+        await write_only(
+            name="Path.read_bytes",
+            args=(PurePosixPath(target.as_posix()),),
+            kwargs={},
+            is_async=True,
+        )
+    assert target.read_bytes() == b"hello world"
+
+
+@pytest.mark.asyncio
+async def test_binary_chunked_write_past_read_limit_and_positional_overwrite(tmp_path) -> None:
+    from pathlib import PurePosixPath
+
+    from pydantic_monty import AsyncMonty
+
+    from fast_agent.ptc.files import MAX_BINARY_READ_BYTES, SandboxFilesystem
+
+    chunk = b"x" * (MAX_BINARY_READ_BYTES // 2 + 1024)
+    big = tmp_path / "big.bin"
+    write_only = SandboxFilesystem(read=False, write=True)
+    read_write = SandboxFilesystem(read=True, write=True)
+
+    async with AsyncMonty(min_processes=1, max_processes=1) as pool:
+        async with pool.checkout(script_name="wb_chunked.py") as session:
+            await session.feed_run(
+                f"with open({big.as_posix()!r}, 'wb') as f:\n"
+                f"    f.write(b'x' * {len(chunk)})\n"
+                f"    f.write(b'y' * {len(chunk)})\n"
+                f"    f.write(b'tail')\n",
+                os=write_only,
+            )
+        assert big.read_bytes() == chunk + (b"y" * len(chunk)) + b"tail"
+
+        overwrite = tmp_path / "overwrite.bin"
+        async with pool.checkout(script_name="wb_seek.py") as session:
+            data = await session.feed_run(
+                f"with open({overwrite.as_posix()!r}, 'w+b') as f:\n"
+                "    f.write(b'hello world!')\n"
+                "    f.seek(6)\n"
+                "    f.write(b'monty')\n"
+                "    f.seek(0)\n"
+                "    out = f.read()\n"
+                "out\n",
+                os=read_write,
+            )
+        assert data == b"hello monty!"
+        assert overwrite.read_bytes() == b"hello monty!"
+
+        with pytest.raises(ValueError, match="past the end"):
+            read_write.path_write_bytes_at(PurePosixPath(overwrite.as_posix()), 100, b"z")
+
+
+@pytest.mark.asyncio
+async def test_sorted_pathlib_paths_matches_cpython_ordering(tmp_path: Path) -> None:
+    (tmp_path / "b.txt").write_text("b", encoding="utf-8")
+    (tmp_path / "a.txt").write_text("a", encoding="utf-8")
+    (tmp_path / "a-b").mkdir()
+    (tmp_path / "a").mkdir()
+    (tmp_path / "a" / "b").write_text("nested", encoding="utf-8")
+
+    async with _agent(tmp_path) as (agent, _):
+        result = await _run(
+            agent,
+            "import json\n"
+            "root = pathlib.Path('.')\n"
+            "iterdir_names = [p.name for p in sorted(root.iterdir())]\n"
+            "glob_names = [p.name for p in sorted(root.glob('*.txt'))]\n"
+            "set_names = [p.name for p in sorted(set(root.glob('*.txt')), reverse=True)]\n"
+            "part_order = [str(p) for p in sorted([pathlib.Path('a-b'), pathlib.Path('a/b')])]\n"
+            "key_order = [str(p) for p in sorted([pathlib.Path('a-b'), pathlib.Path('a/b')], key=str)]\n"
+            "print(json.dumps({\n"
+            "    'iterdir': iterdir_names,\n"
+            "    'glob': glob_names,\n"
+            "    'set_rev': set_names,\n"
+            "    'parts': part_order,\n"
+            "    'str': key_order,\n"
+            "}))\n",
+        )
+        assert not result.is_error, _text(result)
+        payload = json.loads(_text(result).split("Output:\n", 1)[1])
+        assert payload["iterdir"] == ["a", "a-b", "a.txt", "b.txt"]
+        assert payload["glob"] == ["a.txt", "b.txt"]
+        assert payload["set_rev"] == ["b.txt", "a.txt"]
+        assert payload["parts"] == ["a/b", "a-b"]
+        assert payload["str"] == ["a-b", "a/b"]
+
+        mixed = await _run(agent, "sorted([pathlib.Path('a'), 'b'])")
+        assert mixed.is_error
+        assert "TypeError" in _text(mixed)

@@ -121,4 +121,5 @@ def test_herdr_internal_resource_points_to_live_manual() -> None:
 
     assert "hc --skill" in content
     assert "hc --core" not in content
-    assert len(content.split()) < 130
+    assert "subagent" in content
+    assert len(content.split()) < 200

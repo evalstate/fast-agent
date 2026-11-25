@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.10.66"
+version = "0.10.67"
 description = "Code, Build and Evaluate agents - excellent Model and Skills/MCP/ACP/A2A Support"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -19,7 +19,7 @@ dependencies = [
     "mcp-types==2.3.0",
     "pydantic-settings==2.16.3",
     "pydantic==2.14.4",
-    "pydantic-monty==1.6.0",
+    "pydantic-monty==1.7.0",
     "pyyaml==6.0.4",
     "rich==15.0.0",
     "typer==0.29.1",

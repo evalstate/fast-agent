@@ -162,21 +162,18 @@ async def test_inline_toolbar_renders_compactly_and_clears_below() -> None:
         session.app.renderer.render(session.app, session.app.layout)
         raw = buf.getvalue()
         assert session.app.renderer._last_screen is not None
-        assert session.app.renderer._last_screen.height == 2
+        # Prompt line + 1 blank breathing line + toolbar = 3 rows when idle.
+        assert session.app.renderer._last_screen.height == 3
         assert "\x1b[6n" not in raw
         assert "\x1b[?2026h" in raw
         assert "\x1b[?2026l" in raw
-        assert "\x1b[J" in raw
         assert "NORMAL | model" in raw
 
         # Empty CompletionState (in-flight threaded completion) must not expand height.
-        buf.seek(0)
-        buf.truncate(0)
         session.default_buffer.text = "hello"
         session.default_buffer.complete_state = CompletionState(Document("hello"), [])
         session.app.renderer.render(session.app, session.app.layout)
-        assert session.app.renderer._last_screen.height == 2
-        assert "\x1b[J" in buf.getvalue()
+        assert session.app.renderer._last_screen.height == 3
 
         # Non-empty completions expand to reserve menu space + toolbar.
         session.default_buffer.text = "/"
@@ -186,13 +183,10 @@ async def test_inline_toolbar_renders_compactly_and_clears_below() -> None:
         session.app.renderer.render(session.app, session.app.layout)
         assert session.app.renderer._last_screen.height == 7
 
-        # Closing completions shrinks back to 2 and erases below.
-        buf.seek(0)
-        buf.truncate(0)
+        # Closing completions keeps the status bar anchored (does not snap back up).
         session.default_buffer.complete_state = None
         session.app.renderer.render(session.app, session.app.layout)
-        assert session.app.renderer._last_screen.height == 2
-        assert "\x1b[J" in buf.getvalue()
+        assert session.app.renderer._last_screen.height == 7
 
 
 @pytest.mark.asyncio

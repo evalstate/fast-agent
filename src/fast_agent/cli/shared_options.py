@@ -263,6 +263,26 @@ class CommonAgentOptions:
         )
 
     @staticmethod
+    def image_gen():
+        return typer.Option(
+            None,
+            "--image-gen/--no-image-gen",
+            help="Enable or disable built-in image generation and editing tools.",
+        )
+
+    @staticmethod
+    def image_gen_model():
+        return typer.Option(
+            None,
+            "--image-gen-model",
+            help=(
+                "Image generation model spec (e.g. codexresponses.gpt-image-2.6-flare, "
+                "xai.grok-imagine-image-2.0, google.gemini-nano-banana-2.1, openai, xai, google); "
+                "also enables --image-gen."
+            ),
+        )
+
+    @staticmethod
     def reload():
         return typer.Option(False, "--reload", help="Enable manual AgentCard reloads")
 

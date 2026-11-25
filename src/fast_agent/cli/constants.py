@@ -14,6 +14,15 @@ def normalize_convenience_flag_args(args: list[str], *, start_index: int = 0) ->
             args[index : index + 1] = ["--shell", "--subagents"]
             index += 2
             continue
+        if args[index].startswith("--image-gen="):
+            value = args[index].split("=", 1)[1].strip()
+            if value:
+                args[index : index + 1] = ["--image-gen-model", value]
+                index += 2
+            else:
+                args[index] = "--image-gen"
+                index += 1
+            continue
         index += 1
 
 
@@ -98,6 +107,9 @@ GO_SPECIFIC_OPTIONS = {
     "--subagents",
     "--no-subagents",
     "--subagent-model",
+    "--image-gen",
+    "--no-image-gen",
+    "--image-gen-model",
     "--ptc",
     "--no-ptc",
     "--ptc-all",
