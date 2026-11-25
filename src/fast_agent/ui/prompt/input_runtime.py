@@ -17,7 +17,7 @@ from rich.markup import escape as escape_markup
 from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.command_payloads import CommandPayload, EOFCommand, InterruptCommand
 from fast_agent.ui.console import rich_print
-from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
+from fast_agent.ui.prompt.keybindings import PromptInputInterrupt, reset_renderer_cpr_state
 from fast_agent.ui.prompt.turn_input import acknowledge_replayed_input
 from fast_agent.ui.prompt_marks import emit_prompt_mark, prompt_mark_sequence
 from fast_agent.ui.terminal_streams import is_tty_stream
@@ -77,11 +77,54 @@ def build_prompt_style() -> Style:
     )
 
 
+def _install_resilient_resize_handler(
+    session: PromptSession,
+    *,
+    debounce_seconds: float = 0.08,
+) -> None:
+    app = getattr(session, "app", None)
+    original_on_resize = getattr(app, "_on_resize", None)
+    if app is None or not callable(original_on_resize):
+        return
+
+    pending_handle: dict[str, asyncio.TimerHandle | None] = {"handle": None}
+
+    def _finish_resize() -> None:
+        pending_handle["handle"] = None
+        if not getattr(app, "is_running", True):
+            return
+        renderer = getattr(app, "renderer", None)
+        if renderer is not None:
+            reset_renderer_cpr_state(renderer, reset_cpr_support=True)
+        original_on_resize()
+
+    def _resilient_on_resize() -> None:
+        renderer = getattr(app, "renderer", None)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            if renderer is not None:
+                reset_renderer_cpr_state(renderer, reset_cpr_support=True)
+            original_on_resize()
+            return
+
+        if pending_handle["handle"] is None:
+            if renderer is not None:
+                reset_renderer_cpr_state(renderer, reset_cpr_support=True)
+                renderer.erase(leave_alternate_screen=False)
+        else:
+            pending_handle["handle"].cancel()
+
+        pending_handle["handle"] = loop.call_later(debounce_seconds, _finish_resize)
+
+    app._on_resize = _resilient_on_resize
+
+
 def create_prompt_session(
     *, history, completer, lexer, multiline_filter, toolbar, style
 ) -> PromptSession:
     """Create a configured PromptSession for enhanced input."""
-    return PromptSession(
+    session = PromptSession(
         history=history,
         completer=completer,
         lexer=lexer,
@@ -93,6 +136,8 @@ def create_prompt_session(
         style=style,
         erase_when_done=True,
     )
+    _install_resilient_resize_handler(session)
+    return session
 
 
 @contextlib.contextmanager
@@ -153,6 +198,9 @@ async def _prompt_async_result(
     prompt_end_state: dict[str, bool],
 ) -> tuple[str | CommandPayload, float | None]:
     try:
+        renderer = getattr(getattr(session, "app", None), "renderer", None)
+        if renderer is not None:
+            reset_renderer_cpr_state(renderer, reset_cpr_support=True)
         with _prompt_start_guard("A"):
             result = await session.prompt_async(
                 lambda: _prompt_text_with_end_mark(resolve_prompt_text, prompt_end_state),

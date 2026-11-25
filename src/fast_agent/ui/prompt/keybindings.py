@@ -219,13 +219,39 @@ def _toggle_multiline_mode(
         on_toggle_multiline(session_state.in_multiline_mode)
 
 
+def reset_renderer_cpr_state(renderer: Any, *, reset_cpr_support: bool = False) -> None:
+    """Drain stale CPR futures left behind by terminal disconnects or resizes."""
+    waiting = getattr(renderer, "_waiting_for_cpr_futures", None)
+    if waiting is not None:
+        while waiting:
+            fut = waiting.popleft()
+            if not fut.done():
+                fut.set_result(None)
+    if reset_cpr_support:
+        from prompt_toolkit.renderer import CPR_Support
+
+        if getattr(renderer, "cpr_support", None) == CPR_Support.NOT_SUPPORTED:
+            renderer.cpr_support = CPR_Support.UNKNOWN
+
+
 def _clear_terminal_screen(event: Any, fallback_app: Any | None) -> None:
     app_ref = _event_or_fallback_app(event, fallback_app)
     if not app_ref:
         return
     renderer = getattr(app_ref, "renderer", None)
     if renderer:
+        reset_renderer_cpr_state(renderer, reset_cpr_support=True)
+        output = getattr(renderer, "output", None)
+        if output is not None:
+            # Reset scroll region and SGR attributes in case a reconnect/resize left them dirty.
+            output.write_raw("\x1b[r\x1b[0m")
         renderer.clear()
+        reset_renderer_cpr_state(renderer)
+        if output is not None:
+            try:
+                renderer._min_available_height = output.get_size().rows
+            except Exception:
+                pass
         app_ref.invalidate()
 
 
