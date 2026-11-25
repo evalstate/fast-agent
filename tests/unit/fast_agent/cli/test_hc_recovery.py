@@ -317,7 +317,7 @@ def test_locked_interrupted_session_is_skipped(tmp_path: Path) -> None:
 def test_should_check_hc_recovery_guards(fake_hc, monkeypatch: pytest.MonkeyPatch) -> None:
     fake_hc()
     assert should_check_hc_recovery(_make_request(), stdin_is_tty=True, stdout_is_tty=True)
-    assert not should_check_hc_recovery(
+    assert should_check_hc_recovery(
         _make_request(resume="latest"), stdin_is_tty=True, stdout_is_tty=True
     )
     assert not should_check_hc_recovery(
@@ -407,3 +407,65 @@ def test_resuming_older_session_then_crashing_finds_resumed_session(tmp_path: Pa
         "t120", core_id="core-1"
     )
     assert found is not None and found.name == s_old.info.name
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="simulated hc is a POSIX script")
+@pytest.mark.asyncio
+async def test_explicit_resume_skips_prompt_for_same_session_and_prompts_for_other_session(
+    tmp_path: Path, fake_hc, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / ".fast-agent"
+    m = SessionManager(cwd=tmp_path, home_override=home)
+    m.bind_terminal("t120", core_id="core-1")
+    s_other = m.create_session()
+    _persist_dummy_history(s_other.directory)
+    s_interrupted = m.create_session()
+    _persist_dummy_history(s_interrupted.directory)
+    m.close()
+
+    fake_hc(
+        ls={
+            "terminals": [
+                {
+                    "address": "t121",
+                    "parent": "t120",
+                    "name": "stale-worker",
+                    "state": "finished",
+                    "reason": "stopped_by_restart",
+                }
+            ]
+        },
+        server={"core": {"id": "core-1"}},
+    )
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+
+    # Resuming the SAME interrupted session: no prompt, notices deliver there.
+    same_req = _make_request(home=home, resume=s_interrupted.info.name)
+    same_called = False
+
+    def _fail_if_called(_plan: HcRecoveryPlan):
+        nonlocal same_called
+        same_called = True
+        return "fresh"
+
+    same_outcome = await resolve_hc_startup_recovery(same_req, prompt_choice=_fail_if_called)
+    assert same_outcome.action == "noop"
+    assert not same_called
+    assert same_req.resume == s_interrupted.info.name
+
+    # Resuming a DIFFERENT session: prompts to clear stopped_by_restart children, preserving resume target.
+    other_req = _make_request(home=home, resume=s_other.info.name)
+    seen_plan: list[HcRecoveryPlan] = []
+
+    def _choose_clear(plan: HcRecoveryPlan):
+        seen_plan.append(plan)
+        return "fresh_clear"
+
+    other_outcome = await resolve_hc_startup_recovery(other_req, prompt_choice=_choose_clear)
+    assert other_outcome.action == "fresh_clear"
+    assert other_outcome.removed_terminals == ("t121",)
+    assert other_req.resume == s_other.info.name
+    assert len(seen_plan) == 1
+    assert seen_plan[0].interrupted_session is None
+    assert seen_plan[0].explicit_resume_target is not None

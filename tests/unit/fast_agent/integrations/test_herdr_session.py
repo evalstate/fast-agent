@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
-from fast_agent.integrations import herdr_session
+from fast_agent.integrations import herdr_lifecycle, herdr_session
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import (
     CompletionTokenUsage,
@@ -64,7 +64,7 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
         "report_session_metadata",
         lambda **kwargs: reports.append(kwargs),
     )
-    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setattr(herdr_lifecycle, "program_status_enabled", lambda: True)
 
     herdr_session.report_session(
         cast("Session", session),
@@ -104,7 +104,7 @@ def test_report_session_resolves_model_reference_for_herdr(monkeypatch) -> None:
         "report_session_metadata",
         lambda **kwargs: reports.append(kwargs),
     )
-    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setattr(herdr_lifecycle, "program_status_enabled", lambda: True)
 
     herdr_session.report_session(
         cast("Session", session),
@@ -153,7 +153,7 @@ def test_report_current_session_clears_metadata_without_a_session(monkeypatch) -
         "report_session_metadata",
         lambda **kwargs: reports.append(kwargs),
     )
-    monkeypatch.setenv("HERDR_ENV", "1")
+    monkeypatch.setattr(herdr_lifecycle, "program_status_enabled", lambda: True)
     manager = SimpleNamespace(current_session=None)
 
     herdr_session.report_current_session(cast("SessionManager", manager))
@@ -205,7 +205,7 @@ def test_session_presentation_falls_back_for_older_sessions() -> None:
 
 
 def test_report_current_session_does_not_resolve_agent_when_inactive(monkeypatch) -> None:
-    monkeypatch.delenv("HERDR_ENV", raising=False)
+    monkeypatch.setattr(herdr_lifecycle, "program_status_enabled", lambda: False)
 
     herdr_session.report_current_session(
         cast("SessionManager", SimpleNamespace(current_session=None)),

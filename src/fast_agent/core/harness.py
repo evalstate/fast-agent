@@ -47,6 +47,7 @@ if TYPE_CHECKING:
     from fast_agent.history.compaction import CompactionResult
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.session_manager import Session, SessionManager
+    from fast_agent.session.terminal_pointers import HcParentSessionTarget
     from fast_agent.tools.environment_registry import EnvironmentSelection
     from fast_agent.tools.execution_environment import ShellEnvironment, ShellExecutionResult
     from fast_agent.tools.local_shell_executor import LocalEnvironment
@@ -530,10 +531,12 @@ class AgentHarness:
         *,
         model: str | None = None,
         environment: EnvironmentSelection = None,
+        hc_parent: HcParentSessionTarget | None = None,
     ) -> None:
         self._fast_agent = fast_agent
         self._model = model
         self._environment_selection = environment
+        self._hc_parent = hc_parent
         self._sessions: HarnessSessions | None = None
         self._runtime: RunRuntime | None = None
         self._settings: RunSettings | None = None
@@ -808,7 +811,7 @@ class AgentHarness:
         settings = self._fast_agent.context.config
         if settings is None or settings._fast_agent_no_home or not settings.session_history:
             return None
-        return FileHarnessSessionPersistence(settings.home)
+        return FileHarnessSessionPersistence(settings.home, hc_parent=self._hc_parent)
 
     async def _create_instance(self) -> AgentInstance:
         if self._runtime is None:

@@ -8,6 +8,7 @@ whether to resume the interrupted session bound to this terminal or start fresh.
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -20,15 +21,20 @@ from fast_agent.integrations.hc_children import (
     HcTerminalChildren,
     hc_environment,
     read_hc_core_id,
+    read_hc_self_info,
     read_hc_terminal_children,
     remove_hc_terminals,
 )
+from fast_agent.paths import resolve_home_paths
+from fast_agent.session.locking import SessionLockStore
 from fast_agent.session.session_manager import (
     SessionInfo,
     SessionManager,
     display_session_name,
     session_metadata_title,
 )
+from fast_agent.session.snapshot import load_session_snapshot
+from fast_agent.session.terminal_pointers import HcParentSessionTarget, read_terminal_pointer
 from fast_agent.ui.console import console
 
 if TYPE_CHECKING:
@@ -50,6 +56,7 @@ class HcRecoveryPlan:
     interrupted_session: SessionInfo | None
     children: HcTerminalChildren | None
     interrupted_updated_at: datetime | None = None
+    explicit_resume_target: str | None = None
 
     @property
     def stopped_by_restart(self) -> tuple[str, ...]:
@@ -79,12 +86,7 @@ def should_check_hc_recovery(
     stdout_is_tty: bool | None = None,
 ) -> bool:
     """Return True when an interactive CLI launch should check for hc terminal recovery."""
-    if (
-        request.mode != "interactive"
-        or not request.is_repl
-        or request.resume is not None
-        or request.no_home
-    ):
+    if request.mode != "interactive" or not request.is_repl or request.no_home:
         return False
     in_tty = sys.stdin.isatty() if stdin_is_tty is None else stdin_is_tty
     out_tty = sys.stdout.isatty() if stdout_is_tty is None else stdout_is_tty
@@ -106,6 +108,41 @@ def inspect_hc_recovery(request: AgentRunRequest) -> HcRecoveryPlan | None:
     children = read_hc_terminal_children(env.terminal_id)
     interrupted: SessionInfo | None = None
     interrupted_updated_at: datetime | None = None
+    explicit_resume_target: str | None = None
+
+    if request.resume is not None:
+        if children is None or not children.stopped_by_restart:
+            return HcRecoveryPlan(
+                terminal_id=env.terminal_id,
+                core_id=core_id,
+                interrupted_session=None,
+                children=children,
+            )
+        manager = SessionManager(cwd=request.workspace, home_override=request.home)
+        interrupted = manager.find_interrupted_terminal_session(env.terminal_id, core_id=core_id)
+        if request.resume in ("", "latest"):
+            sessions = manager.list_sessions()
+            target_id = sessions[0].name if sessions else None
+        else:
+            target_id = manager.resolve_session_name(request.resume)
+        if interrupted is not None and target_id == interrupted.name:
+            return HcRecoveryPlan(
+                terminal_id=env.terminal_id,
+                core_id=core_id,
+                interrupted_session=None,
+                children=None,
+            )
+        explicit_resume_target = (
+            display_session_name(target_id) if target_id else request.resume or "latest"
+        )
+        return HcRecoveryPlan(
+            terminal_id=env.terminal_id,
+            core_id=core_id,
+            interrupted_session=None,
+            children=children,
+            explicit_resume_target=explicit_resume_target,
+        )
+
     if not request.force_model_picker and request.model_base_url is None:
         manager = SessionManager(cwd=request.workspace, home_override=request.home)
         interrupted = manager.find_interrupted_terminal_session(env.terminal_id, core_id=core_id)
@@ -208,12 +245,23 @@ def _prompt_recovery_choice(plan: HcRecoveryPlan) -> HcRecoveryAction:
             rf"  [bold]\[r][/bold] Resume [cyan]{escape(short_id)}[/cyan] "
             f"(deliver pending hc notices there){suffix}"
         )
-    if plan.stopped_by_restart:
-        suffix = " [dim](default)[/dim]" if default_key == "c" else ""
+    if plan.explicit_resume_target is not None:
+        target_label = escape(plan.explicit_resume_target)
+        if plan.stopped_by_restart:
+            suffix = " [dim](default)[/dim]" if default_key == "c" else ""
+            console.print(
+                rf"  [bold]\[c][/bold] Clear stopped_by_restart children (hc rm) & resume [cyan]{target_label}[/cyan]{suffix}"
+            )
         console.print(
-            rf"  [bold]\[c][/bold] Start fresh & clear stopped_by_restart children (hc rm){suffix}"
+            rf"  [bold]\[n][/bold] Resume [cyan]{target_label}[/cyan] (leave hc children as-is)"
         )
-    console.print(r"  [bold]\[n][/bold] Start fresh (leave hc children as-is)")
+    else:
+        if plan.stopped_by_restart:
+            suffix = " [dim](default)[/dim]" if default_key == "c" else ""
+            console.print(
+                rf"  [bold]\[c][/bold] Start fresh & clear stopped_by_restart children (hc rm){suffix}"
+            )
+        console.print(r"  [bold]\[n][/bold] Start fresh (leave hc children as-is)")
 
     keys_label = "/".join(key.upper() if key == default_key else key for key in choices)
     while True:
@@ -296,4 +344,70 @@ def _retire_declined_session(
         terminal_id,
         core_id=core_id,
         expected_updated_at=expected_updated_at,
+    )
+
+
+def resolve_hc_parent_session(request: AgentRunRequest) -> HcParentSessionTarget | None:
+    """Resolve a live local parent ``fast-agent`` session when launched via ``hc run``.
+
+    Returns ``None`` (falling back to a normal top-level session) whenever this
+    process is not a fresh interactive ``hc`` child, its parent is on another
+    machine, its parent is not a live ``fast-agent`` session, or the pointer
+    cannot be verified against the parent session's owner lease and attachment.
+    """
+    if (
+        request.mode != "interactive"
+        or not request.is_repl
+        or request.resume is not None
+        or request.no_home
+    ):
+        return None
+
+    self_info = read_hc_self_info()
+    if self_info is None or self_info.parent is None or "/" in self_info.parent:
+        return None
+
+    core_id = read_hc_core_id()
+    if not core_id:
+        return None
+
+    pointer = read_terminal_pointer(core_id, self_info.parent)
+    if pointer is None:
+        return None
+
+    metadata_file = pointer.session_dir / "session.json"
+    if not metadata_file.is_file():
+        return None
+
+    try:
+        snapshot = load_session_snapshot(json.loads(metadata_file.read_text(encoding="utf-8")))
+    except Exception:
+        return None
+
+    if snapshot.session_id != pointer.session_id:
+        return None
+
+    attachment = snapshot.execution.terminal_attachment
+    if (
+        attachment is None
+        or not attachment.active
+        or attachment.terminal_id != self_info.parent
+        or attachment.core_id != core_id
+    ):
+        return None
+
+    sessions_dir = resolve_home_paths(override=pointer.home_dir).sessions
+    if not SessionLockStore(sessions_dir).is_owned(pointer.session_id):
+        return None
+
+    parent_agent = snapshot.continuation.active_agent or pointer.agent_name or "default"
+    return HcParentSessionTarget(
+        home_dir=pointer.home_dir,
+        parent_session_id=pointer.session_id,
+        parent_session_dir=pointer.session_dir,
+        parent_agent_name=parent_agent,
+        hc_terminal_id=self_info.terminal_id,
+        hc_name=self_info.name,
+        parent_terminal_id=self_info.parent,
+        core_id=core_id,
     )

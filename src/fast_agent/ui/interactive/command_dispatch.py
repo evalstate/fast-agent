@@ -1989,6 +1989,8 @@ def _plugin_command_context(
     prompt_provider: "AgentApp",
     shell_working_dir: Path | None,
 ) -> PluginCommandActionContext:
+    from fast_agent.session.subagent_runs import with_hc_child_user_turn_usage
+
     return PluginCommandActionContext(
         command_name=command_name,
         arguments=arguments,
@@ -2000,7 +2002,10 @@ def _plugin_command_context(
             current_agent_name=current_agent.name,
         ),
         is_tui=True,
-        user_turn_usage=prompt_provider.user_turn_usage,
+        user_turn_usage=with_hc_child_user_turn_usage(
+            prompt_provider.user_turn_usage,
+            context.resolve_session_manager(),
+        ),
     )
 
 

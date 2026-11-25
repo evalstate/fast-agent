@@ -93,6 +93,15 @@ async def handle_show_usage(ctx: CommandContext, *, agent_name: str) -> CommandO
         outcome.add_message("No usage data available", channel="warning", right_info="usage")
         return outcome
 
+    if ctx.sessions_enabled:
+        from fast_agent.session.subagent_runs import collect_hc_child_usage_rollups
+        from fast_agent.ui.usage_display import usage_rows_from_hc_rollups
+
+        for row in usage_rows_from_hc_rollups(
+            collect_hc_child_usage_rollups(ctx.resolve_session_manager())
+        ):
+            agents_to_show[row.name] = row
+
     await ctx.io.display_usage_report(agents_to_show)
     return outcome
 

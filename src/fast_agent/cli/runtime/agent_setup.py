@@ -1669,12 +1669,16 @@ def _classify_cli_mcp_failure(
 
 async def run_agent_request(request: AgentRunRequest) -> None:
     """Run the normalized CLI request."""
-    from fast_agent.cli.runtime.hc_recovery import resolve_hc_startup_recovery
+    from fast_agent.cli.runtime.hc_recovery import (
+        resolve_hc_startup_recovery,
+        should_check_hc_recovery,
+    )
     from fast_agent.integrations.herdr_lifecycle import herdr_startup_hold
 
     try:
-        with herdr_startup_hold():
-            await resolve_hc_startup_recovery(request)
+        if should_check_hc_recovery(request):
+            with herdr_startup_hold():
+                await resolve_hc_startup_recovery(request)
         startup_model_source_override = await _select_startup_model_if_needed(request)
     except PromptExitError as exc:
         raise SystemExit(0) from exc

@@ -510,14 +510,17 @@ def test_blocked_reports_kind_and_other_states_never_do(terminal: TtyStream) -> 
     ]
 
 
-def test_startup_question_activates_reports_and_then_clears(terminal: TtyStream) -> None:
+def test_startup_question_activates_reports_and_stays_working_until_prompt(
+    terminal: TtyStream,
+) -> None:
     # Before the first prompt (plugin offer, model picker) nothing is active yet.
     with herdr_lifecycle.herdr_blocked(kind="question", activate=True):
         pass
-    # Answered before any prompt exists: withdraw the record rather than guess.
+    # Answered before any prompt exists: stay working so herdr-core holds queued
+    # notices/sends until harness init finishes and the prompt emits idle.
     assert [(r["state"], r.get("kind")) for r in reports(terminal)] == [
         ("blocked", "question"),
-        ("clear", None),
+        ("working", None),
     ]
     herdr_lifecycle.report_prompt_mark("A")
     assert reports(terminal)[-1]["state"] == "idle"

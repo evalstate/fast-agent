@@ -213,3 +213,23 @@ def test_wait_duration_is_coarse_and_silent_for_the_first_minute(
 )
 def test_unwrapping_shows_only_the_body_of_hc_messages(text: str, body: str) -> None:
     assert unwrap_hc_message(text) == body
+
+
+def test_multi_notice_paste_unwraps_cleanly_and_counts_all_blocks() -> None:
+    pasted = "<hc>t1 w1 exited (exit 0). Read: hc read t1</hc>\n<hc>t2 w2 hit an error: boom. See: hc read t2</hc>"
+    assert unwrap_hc_message(pasted) == (
+        "t1 w1 exited (exit 0). Read: hc read t1\n\nt2 w2 hit an error: boom. See: hc read t2"
+    )
+    assert hc_children.hc_message_heading([pasted]) == "hc · 2 messages"
+    assert (
+        hc_children.hc_message_heading(
+            ["<hc>t7 worker is blocked (permission). See: hc read t7</hc>"]
+        )
+        == "hc · t7 blocked"
+    )
+    assert (
+        hc_children.hc_message_heading(
+            ["<hc>t7 worker hit an error: rate limited. See: hc read t7</hc>"]
+        )
+        == "hc · t7 error"
+    )
