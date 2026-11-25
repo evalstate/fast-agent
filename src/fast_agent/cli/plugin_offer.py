@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 OFFER_MARKER_FILENAME = ".plugin_bundle_offer"
-INSTALL_LATER_HINT = f"fast-agent plugins add --bundle {RECOMMENDED_BUNDLE} --global"
+INSTALL_LATER_HINT = f"fast-agent plugins add --bundle {RECOMMENDED_BUNDLE}"
 _ANSWERED = "answered"
 _RETRY = "retry"
 

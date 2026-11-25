@@ -1187,34 +1187,31 @@ async def handle_update_skill(
     updates = check_skill_updates(destination_root=managed_skills_dir)
     updates = await _check_skill_update_sources(ctx, agent_name=agent_name, updates=updates)
 
-    if parsed.selector is None:
+    if parsed.selector is not None and parsed.selector.strip().lower() != "all":
+        selected = select_skill_updates(updates, parsed.selector)
+        if not selected:
+            outcome.add_message(f"Skill not found: {parsed.selector}", channel="error")
+            return outcome
+    else:
+        selected = updates
+
+    if parsed.check:
         outcome.add_message(
-            _format_update_results(updates, title="Skill update check:"),
+            _format_update_results(selected, title="Skill update check:"),
             right_info="skills",
             agent_name=agent_name,
         )
         outcome.add_message(
-            "Apply with `/skills update <number|name|all> [--force] [--yes]`.",
+            "Apply with `/skills update [<number|name|all>] [--force]`.",
             channel="info",
             right_info="skills",
             agent_name=agent_name,
         )
         return outcome
 
-    selected = select_skill_updates(updates, parsed.selector)
     if not selected:
-        outcome.add_message(f"Skill not found: {parsed.selector}", channel="error")
-        return outcome
-
-    if len(selected) > 1 and not parsed.yes:
         outcome.add_message(
-            _format_update_results(selected, title="Update plan:"),
-            right_info="skills",
-            agent_name=agent_name,
-        )
-        outcome.add_message(
-            "Multiple skills selected. Re-run with `--yes` to apply updates.",
-            channel="warning",
+            _format_update_results([], title="Skill update results:"),
             right_info="skills",
             agent_name=agent_name,
         )

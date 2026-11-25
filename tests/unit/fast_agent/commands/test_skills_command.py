@@ -428,12 +428,13 @@ def test_skills_update_applies_local_repo_changes(tmp_path: Path) -> None:
         _write_skill(repo / "skills", "alpha", body="Version 2 body.")
         _commit_all(repo, "update alpha")
 
-        check_result = runner.invoke(skills_command.app, ["update"], terminal_width=200)
+        check_result = runner.invoke(skills_command.app, ["update", "--check"], terminal_width=200)
         assert check_result.exit_code == 0, check_result.output
         assert "update available" in check_result.output
         assert "▎•" not in check_result.output
+        assert "Version 1 body." in (manager_dir / "alpha" / "SKILL.md").read_text(encoding="utf-8")
 
-        apply_result = runner.invoke(skills_command.app, ["update", "alpha"], terminal_width=200)
+        apply_result = runner.invoke(skills_command.app, ["update"], terminal_width=200)
         assert apply_result.exit_code == 0, apply_result.output
         assert "updated" in apply_result.output
         assert "Version 2 body." in (manager_dir / "alpha" / "SKILL.md").read_text(encoding="utf-8")

@@ -627,37 +627,33 @@ async def handle_update_card_pack(
         return outcome
 
     home_paths = resolve_home_paths(ctx.resolve_settings())
-    updates = card_service.check_updates(home_paths=home_paths)
+    if parsed.selector is not None and parsed.selector.strip().lower() != "all":
+        try:
+            plan = card_service.plan_updates(home_paths=home_paths, selector=parsed.selector)
+        except card_service.CardPackLookupError as exc:
+            outcome.add_message(str(exc), channel="error")
+            return outcome
+        selected = plan.selected
+    else:
+        selected = card_service.check_updates(home_paths=home_paths)
 
-    if parsed.selector is None:
+    if parsed.check:
         outcome.add_message(
-            _format_update_results(updates, title="Card pack update check:"),
+            _format_update_results(selected, title="Card pack update check:"),
             right_info="packs",
             agent_name=agent_name,
         )
         add_info_messages(
             outcome,
-            ("Apply with `/packs update <number|name|all> [--force] [--yes]`.",),
+            ("Apply with `/packs update [<number|name|all>] [--force]`.",),
             right_info="packs",
             agent_name=agent_name,
         )
         return outcome
 
-    try:
-        plan = card_service.plan_updates(home_paths=home_paths, selector=parsed.selector)
-    except card_service.CardPackLookupError as exc:
-        outcome.add_message(str(exc), channel="error")
-        return outcome
-
-    if len(plan.selected) > 1 and not parsed.yes:
+    if not selected:
         outcome.add_message(
-            _format_update_results(plan.selected, title="Update plan:"),
-            right_info="packs",
-            agent_name=agent_name,
-        )
-        outcome.add_message(
-            "Multiple card packs selected. Re-run with `--yes` to apply updates.",
-            channel="warning",
+            _format_update_results([], title="Card pack update results:"),
             right_info="packs",
             agent_name=agent_name,
         )
@@ -665,7 +661,7 @@ async def handle_update_card_pack(
 
     applied = await run_in_thread(
         card_service.apply_update_plan,
-        plan.selected,
+        selected,
         home_paths=home_paths,
         force=parsed.force,
     )

@@ -39,7 +39,7 @@ CHECK_ERRORS = (
 
 PACKAGE_NAME = "fast-agent-mcp"
 DEFAULT_UPDATE_COMMAND = "uv tool install -U fast-agent-mcp"
-PLUGIN_UPDATE_COMMAND = "fast-agent plugins update all --yes"
+PLUGIN_UPDATE_COMMAND = "fast-agent plugins update"
 DEFAULT_TIMEOUT_SECONDS = 1.5
 DEFAULT_INTERVAL_SECONDS = 24 * 3600
 UPDATE_CHECK_MARKER_FILENAME = ".check_for_update_done"

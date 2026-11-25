@@ -381,44 +381,50 @@ def cards_update(
     selector: Annotated[
         str | None,
         typer.Argument(
-            help="Card pack name, index, or 'all'. Omit to run update check.",
+            help="Card pack name, index, or 'all'. Omit to update all.",
             show_default=False,
         ),
     ] = None,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="Check for updates without applying."),
+    ] = False,
     force: Annotated[
         bool,
         typer.Option("--force", help="Overwrite local modifications."),
     ] = False,
     yes: Annotated[
         bool,
-        typer.Option("--yes", help="Confirm multi-pack apply."),
+        typer.Option("--yes", help="Accepted for compatibility; updates apply immediately."),
     ] = False,
 ) -> None:
     """Check and apply card pack updates."""
+    del yes
     home_paths = _home_paths()
-    updates = card_service.check_updates(home_paths=home_paths)
+    if selector is not None and selector.strip().lower() != "all":
+        try:
+            plan = card_service.plan_updates(home_paths=home_paths, selector=selector)
+        except card_service.CardPackLookupError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+        selected = plan.selected
+    else:
+        selected = card_service.check_updates(home_paths=home_paths)
 
-    if not selector:
-        _print_updates(updates, title="Card pack update check:")
+    if check:
+        _print_updates(selected, title="Card pack update check:")
         print_hint(
             console,
-            "Apply with: fast-agent cards update <number|name|all> [--force] [--yes]",
+            "Apply with: fast-agent cards update [<number|name|all>] [--force]",
         )
         raise typer.Exit(0)
 
-    try:
-        plan = card_service.plan_updates(home_paths=home_paths, selector=selector)
-    except card_service.CardPackLookupError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(1) from exc
-
-    if len(plan.selected) > 1 and not yes:
-        _print_updates(plan.selected, title="Update plan:")
-        print_warning(console, "Multiple card packs selected. Re-run with --yes to apply updates.")
-        raise typer.Exit(1)
+    if not selected:
+        _print_updates([], title="Card pack update results:")
+        raise typer.Exit(0)
 
     applied = card_service.apply_update_plan(
-        plan.selected,
+        selected,
         home_paths=home_paths,
         force=force,
     )

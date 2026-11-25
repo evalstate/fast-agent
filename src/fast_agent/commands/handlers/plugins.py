@@ -18,6 +18,7 @@ from fast_agent.commands.handlers._marketplace_argument_parsing import (
     PluginScope,
     optional_selector,
     parse_add_argument,
+    parse_remove_argument,
     parse_update_argument,
     resolve_registry_argument,
 )
@@ -242,15 +243,10 @@ def _format_local_plugins(*, plugins_dir: Path, plugins: Sequence[LocalPlugin]) 
 
     content.append_text(Text("Browse marketplace plugins with /plugins available", style="dim"))
     content.append("\n")
-    content.append_text(
-        Text("Remove project plugins with /plugins remove <number|name>", style="dim")
-    )
+    content.append_text(Text("Remove global plugins with /plugins remove <name>", style="dim"))
     content.append("\n")
     content.append_text(
-        Text(
-            "Remove global plugins with fast-agent plugins remove <number|name> --global",
-            style="dim",
-        )
+        Text("Remove project plugins with /plugins remove <name> --project", style="dim")
     )
     return content
 
@@ -376,18 +372,13 @@ def _format_installed_plugins(
 
     content.append_text(Text("Browse marketplace plugins with /plugins available", style="dim"))
     content.append("\n")
-    content.append_text(
-        Text("Remove project plugins with /plugins remove <number|name>", style="dim")
-    )
+    content.append_text(Text("Remove global plugins with /plugins remove <name>", style="dim"))
     content.append("\n")
     content.append_text(
-        Text(
-            "Remove global plugins with fast-agent plugins remove <number|name> --global",
-            style="dim",
-        )
+        Text("Remove project plugins with /plugins remove <name> --project", style="dim")
     )
     content.append("\n")
-    content.append_text(Text("Update both scopes with /plugins update all --yes", style="dim"))
+    content.append_text(Text("Update both scopes with /plugins update", style="dim"))
     content.append("\n")
     content.append_text(
         Text(
@@ -558,7 +549,7 @@ async def _select_plugin_install_target(
             )
         return target
     if not interactive:
-        return targets["project"]
+        return targets.get("global") or targets["project"]
 
     default_scope: PluginScope = "global" if "global" in targets else "project"
     selected_scope = await prompt_selection_after_message(
@@ -602,7 +593,7 @@ def _add_plugin_install_guidance(
     add_info_messages(
         outcome,
         (
-            "Install globally with `/plugins add <number|name> --global`.",
+            "Install globally (default) with `/plugins add <number|name>`.",
             "Install for this project with `/plugins add <number|name> --project`.",
         ),
         right_info="plugins",
@@ -885,23 +876,47 @@ async def handle_remove_plugin(
     interactive: bool = True,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
+    parsed = parse_remove_argument(argument, allow_scope=True)
+    if parsed.error is not None:
+        outcome.add_message(parsed.error, channel="warning")
+        return outcome
+
     settings = ctx.resolve_settings()
-    home_paths = resolve_home_paths(settings)
-    config_path = _config_path_for_settings(ctx)
-    plugins = list_local_plugins(destination_root=home_paths.plugins)
+    if ctx.no_home or settings._fast_agent_no_home:
+        outcome.add_message(
+            "Plugin removal is disabled in no_home mode.",
+            channel="error",
+        )
+        return outcome
+
+    targets = _plugin_install_targets(ctx)
+    if parsed.scope is not None:
+        target = targets.get(parsed.scope)
+        if target is None:
+            outcome.add_message(
+                "Global plugin installs are unavailable in this environment.",
+                channel="error",
+            )
+            return outcome
+    else:
+        target = targets.get("global") or targets["project"]
+
+    active_config_path = _config_path_for_settings(ctx)
+    plugins = list_local_plugins(destination_root=target.plugins_dir)
 
     if not plugins:
         outcome.add_message("No local plugins to remove.", channel="warning")
         return outcome
 
-    selection = optional_selector(argument)
+    selection = parsed.selector
     if not selection:
-        content = _format_local_plugins(plugins_dir=home_paths.plugins, plugins=plugins)
+        content = _format_local_plugins(plugins_dir=target.plugins_dir, plugins=plugins)
+        scope_flag = " --project" if target.scope == "project" else ""
         if not interactive:
             outcome.add_message(content, right_info="plugins", agent_name=agent_name)
             add_info_messages(
                 outcome,
-                ("Remove with `/plugins remove <number|name>`.",),
+                (f"Remove with `/plugins remove <number|name>{scope_flag}`.",),
                 right_info="plugins",
                 agent_name=agent_name,
             )
@@ -925,9 +940,9 @@ async def handle_remove_plugin(
         return outcome
 
     try:
-        remove_local_plugin(selected.plugin_dir, destination_root=home_paths.plugins)
-        disable_plugin_in_config(config_path, selected.name)
-        _refresh_provider_plugins(ctx, config_path)
+        remove_local_plugin(selected.plugin_dir, destination_root=target.plugins_dir)
+        disable_plugin_in_config(target.config_path, selected.name)
+        _refresh_provider_plugins(ctx, active_config_path)
     except Exception as exc:
         outcome.add_message(f"Failed to remove plugin: {exc}", channel="error")
         return outcome
@@ -955,27 +970,55 @@ async def handle_update_plugin(
         return outcome
 
     settings = ctx.resolve_settings()
-    home_paths = resolve_home_paths(settings)
-    roots = installed_plugin_roots(settings, project_plugins=home_paths.plugins)
-    if parsed.scope is not None and all(scope != parsed.scope for scope, _ in roots):
+    if ctx.no_home or settings._fast_agent_no_home:
         outcome.add_message(
-            f"Plugin {parsed.scope} scope is unavailable.",
+            "Plugin updates are disabled in no_home mode.",
             channel="error",
         )
         return outcome
+
+    home_paths = resolve_home_paths(settings)
+    roots = installed_plugin_roots(settings, project_plugins=home_paths.plugins)
+    scoped_roots = roots
+    if parsed.scope is not None and all(scope != parsed.scope for scope, _ in roots):
+        global_home_value = (
+            strip_to_none(settings._fast_agent_global_plugin_home)
+            if parsed.scope == "global"
+            else None
+        )
+        if global_home_value is not None:
+            scoped_roots = [("global", Path(global_home_value).expanduser() / "plugins")]
+        else:
+            outcome.add_message(
+                f"Plugin {parsed.scope} scope is unavailable.",
+                channel="error",
+            )
+            return outcome
     all_updates = await run_in_thread(
         check_plugin_updates_in_roots,
         destination_roots=[root for _, root in roots],
     )
-    updates = _plugin_updates_for_scope(all_updates, roots, parsed.scope)
+    updates = _plugin_updates_for_scope(all_updates, scoped_roots, parsed.scope)
 
-    if parsed.selector is None:
+    if parsed.selector is not None and parsed.selector.strip().lower() != "all":
+        selected = select_plugin_updates(updates, parsed.selector)
+        if not selected:
+            scope_suffix = f" in {parsed.scope} scope" if parsed.scope is not None else ""
+            outcome.add_message(
+                f"Plugin not found{scope_suffix}: {parsed.selector}",
+                channel="error",
+            )
+            return outcome
+    else:
+        selected = updates
+
+    if parsed.check:
         apply_hint = (
-            "Apply with `/plugins update <number|name|all> [--global|--project] [--force] [--yes]`."
+            "Apply with `/plugins update [<number|name|all>] [--global|--project] [--force]`."
         )
         outcome.add_message(
             _format_update_results(
-                updates,
+                selected,
                 title=_plugin_update_title("Plugin update check", parsed.scope),
             ),
             right_info="plugins",
@@ -989,27 +1032,12 @@ async def handle_update_plugin(
         )
         return outcome
 
-    selected = select_plugin_updates(updates, parsed.selector)
     if not selected:
-        scope_suffix = f" in {parsed.scope} scope" if parsed.scope is not None else ""
-        outcome.add_message(
-            f"Plugin not found{scope_suffix}: {parsed.selector}",
-            channel="error",
-        )
-        return outcome
-
-    if len(selected) > 1 and not parsed.yes:
         outcome.add_message(
             _format_update_results(
-                selected,
-                title=_plugin_update_title("Update plan", parsed.scope),
+                [],
+                title=_plugin_update_title("Plugin update results", parsed.scope),
             ),
-            right_info="plugins",
-            agent_name=agent_name,
-        )
-        outcome.add_message(
-            "Multiple plugins selected. Re-run with `--yes` to apply updates.",
-            channel="warning",
             right_info="plugins",
             agent_name=agent_name,
         )
@@ -1104,14 +1132,6 @@ async def _handle_plugins_available_action(
     return await handle_list_marketplace_plugins(ctx, agent_name=agent_name)
 
 
-async def _handle_plugins_remove_action(
-    ctx: "CommandContext",
-    agent_name: str,
-    argument: str | None,
-) -> CommandOutcome:
-    return await handle_remove_plugin(ctx, agent_name=agent_name, argument=argument)
-
-
 async def _handle_plugins_update_action(
     ctx: "CommandContext",
     agent_name: str,
@@ -1135,7 +1155,6 @@ async def _handle_plugins_registry_action(
 _PLUGINS_ACTION_HANDLERS: dict[str, _PluginsActionHandler] = {
     "list": _handle_plugins_list_action,
     "available": _handle_plugins_available_action,
-    "remove": _handle_plugins_remove_action,
     "update": _handle_plugins_update_action,
     "registry": _handle_plugins_registry_action,
 }
@@ -1156,6 +1175,14 @@ async def handle_plugins_command(
 
     if normalized == "add":
         return await handle_add_plugin(
+            ctx,
+            agent_name=agent_name,
+            argument=argument,
+            interactive=interactive,
+        )
+
+    if normalized == "remove":
+        return await handle_remove_plugin(
             ctx,
             agent_name=agent_name,
             argument=argument,

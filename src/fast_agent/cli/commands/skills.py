@@ -459,54 +459,59 @@ def skills_update(
     selector: Annotated[
         str | None,
         typer.Argument(
-            help="Skill name, index, or 'all'. Omit to run update check.",
+            help="Skill name, index, or 'all'. Omit to update all.",
             show_default=False,
         ),
     ] = None,
     skills_dir: SkillsDirOption = None,
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="Check for updates without applying."),
+    ] = False,
     force: Annotated[
         bool,
         typer.Option("--force", help="Overwrite local modifications."),
     ] = False,
     yes: Annotated[
         bool,
-        typer.Option("--yes", help="Confirm multi-skill apply."),
+        typer.Option("--yes", help="Accepted for compatibility; updates apply immediately."),
     ] = False,
 ) -> None:
     """Check and apply skill updates."""
+    del yes
     managed_directory = get_manager_directory(
         get_settings_or_exit(),
         managed_directory_override=_resolve_skills_dir_input(ctx, skills_dir),
     )
     updates = check_skill_updates(destination_root=managed_directory)
 
-    if not selector:
+    if selector is not None and selector.strip().lower() != "all":
+        selected = select_skill_updates(updates, selector)
+        if not selected:
+            typer.echo(f"Skill not found: {selector}", err=True)
+            raise typer.Exit(1)
+    else:
+        selected = updates
+
+    if check:
         _print_updates(
-            updates,
+            selected,
             title="Skill update check:",
             managed_directory=managed_directory,
         )
         print_hint(
             console,
-            "Apply with: fast-agent skills update <number|name|all> [--force] [--yes]",
+            "Apply with: fast-agent skills update [<number|name|all>] [--force]",
         )
         raise typer.Exit(0)
 
-    selected = select_skill_updates(updates, selector)
     if not selected:
-        typer.echo(f"Skill not found: {selector}", err=True)
-        raise typer.Exit(1)
-
-    if len(selected) > 1 and not yes:
         _print_updates(
-            selected,
-            title="Update plan:",
+            [],
+            title="Skill update results:",
             managed_directory=managed_directory,
         )
-        console.print(
-            "[yellow]Multiple skills selected. Re-run with --yes to apply updates.[/yellow]"
-        )
-        raise typer.Exit(1)
+        raise typer.Exit(0)
 
     applied = apply_skill_updates(selected, force=force)
     _print_updates(

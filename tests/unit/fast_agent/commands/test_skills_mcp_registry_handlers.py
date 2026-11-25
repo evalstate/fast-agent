@@ -450,7 +450,7 @@ async def test_skills_update_reports_mcp_digest_update_available(tmp_path) -> No
         skills=SkillsSettings(),
     )
 
-    outcome = await handle_update_skill(_ctx(settings), agent_name="main", argument=None)
+    outcome = await handle_update_skill(_ctx(settings), agent_name="main", argument="--check")
 
     rendered = "\n".join(_plain(message.text) for message in outcome.messages)
     assert "hub-search" in rendered
