@@ -334,3 +334,57 @@ async def test_ctrl_y_skips_tool_only_assistant_turns_when_falling_back_to_histo
     await binding.handler(SimpleNamespace(current_buffer=Buffer(), app=_App()))
 
     assert copied == ["earlier answer"]
+
+
+@pytest.mark.asyncio
+async def test_clear_terminal_screen_resets_scroll_region_and_drains_cpr() -> None:
+    import asyncio
+    from collections import deque
+
+    from fast_agent.ui.prompt.keybindings import _clear_terminal_screen
+
+    pending = asyncio.get_running_loop().create_future()
+    raw_writes: list[str] = []
+    cleared = 0
+    invalidated = 0
+
+    erased = 0
+
+    class _Output:
+        def write_raw(self, data: str) -> None:
+            raw_writes.append(data)
+
+        def get_size(self) -> Any:
+            return SimpleNamespace(rows=24, columns=80)
+
+    class _Renderer:
+        _waiting_for_cpr_futures = deque([pending])
+        _min_available_height = 30
+        output = _Output()
+
+        def erase(self, *, leave_alternate_screen: bool = True) -> None:
+            nonlocal erased
+            assert leave_alternate_screen is False
+            erased += 1
+
+        def clear(self) -> None:
+            nonlocal cleared
+            cleared += 1
+
+    class _App:
+        renderer = _Renderer()
+
+        def invalidate(self) -> None:
+            nonlocal invalidated
+            invalidated += 1
+
+    app = _App()
+    _clear_terminal_screen(SimpleNamespace(app=app), None)
+
+    assert pending.done()
+    assert erased == 1
+    assert "\x1b[r\x1b[0m" in raw_writes
+    assert "\x1b[24;1H" + "\n" * 24 in raw_writes
+    assert cleared == 1
+    assert app.renderer._min_available_height == 0
+    assert invalidated == 1

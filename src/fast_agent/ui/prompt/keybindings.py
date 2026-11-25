@@ -240,18 +240,23 @@ def _clear_terminal_screen(event: Any, fallback_app: Any | None) -> None:
         return
     renderer = getattr(app_ref, "renderer", None)
     if renderer:
-        reset_renderer_cpr_state(renderer, reset_cpr_support=True)
+        reset_renderer_cpr_state(renderer)
         output = getattr(renderer, "output", None)
         if output is not None:
-            # Reset scroll region and SGR attributes in case a reconnect/resize left them dirty.
+            # Erase the active prompt first so it isn't pushed into scrollback,
+            # reset scroll region/SGR, then scroll the visible viewport into
+            # scrollback so the previous message isn't lost on erase_screen().
+            renderer.erase(leave_alternate_screen=False)
             output.write_raw("\x1b[r\x1b[0m")
+            try:
+                rows = output.get_size().rows
+            except Exception:
+                rows = 0
+            if rows > 0:
+                output.write_raw(f"\x1b[{rows};1H" + "\n" * rows)
         renderer.clear()
         reset_renderer_cpr_state(renderer)
-        if output is not None:
-            try:
-                renderer._min_available_height = output.get_size().rows
-            except Exception:
-                pass
+        renderer._min_available_height = 0
         app_ref.invalidate()
 
 
