@@ -341,6 +341,10 @@ def test_candidate_local_llamacpp_urls_defaults_and_env(monkeypatch: pytest.Monk
         "http://localhost:8080/v1",
     )
 
+    for ipv6_host in ("::1", "[::1]"):
+        monkeypatch.setenv("LLAMA_ARG_HOST", ipv6_host)
+        assert candidate_local_llamacpp_urls()[0] == "http://[::1]:11435/v1"
+
 
 def test_props_urls_supports_autoload_false() -> None:
     from fast_agent.llm.llamacpp_discovery import normalize_llamacpp_url

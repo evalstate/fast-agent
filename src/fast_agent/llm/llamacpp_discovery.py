@@ -321,6 +321,8 @@ def candidate_local_llamacpp_urls(explicit_url: str | None = None) -> tuple[str,
         host = env_host or "localhost"
         if host in {"0.0.0.0", "::", "[::]"}:
             host = "localhost"
+        elif ":" in host and not host.startswith("["):
+            host = f"[{host}]"
         port = env_port or "9931"
         candidates.append(normalize_llamacpp_url(f"http://{host}:{port}/v1").request_base_url)
 
