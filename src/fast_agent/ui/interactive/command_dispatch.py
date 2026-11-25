@@ -2054,7 +2054,11 @@ def _plugin_action_outcome(
             post_content=post_content,
         )
     elif action_result.message:
-        outcome.add_message(action_result.message, post_content=post_content)
+        if post_content is not None:
+            outcome.add_message("", render_markdown=True, post_content=post_content)
+            outcome.add_message(action_result.message)
+        else:
+            outcome.add_message(action_result.message)
     elif post_content is not None:
         outcome.add_message("", render_markdown=True, post_content=post_content)
     return outcome
