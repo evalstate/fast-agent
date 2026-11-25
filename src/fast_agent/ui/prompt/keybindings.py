@@ -14,6 +14,8 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
 from prompt_toolkit.lexers import Lexer
+from prompt_toolkit.output.vt100 import Vt100_Output
+from prompt_toolkit.renderer import CPR_Support, Renderer
 from rich.file_proxy import FileProxy
 from rich.text import Text
 
@@ -219,12 +221,55 @@ def _toggle_multiline_mode(
         on_toggle_multiline(session_state.in_multiline_mode)
 
 
+_VT100_RESET_SCROLL_REGION = "\x1b[r"
+
+
+def reset_renderer_cpr_state(renderer: Renderer) -> None:
+    """Drain stuck CPR futures and re-enable CPR probing after dropped replies.
+
+    When a terminal proxy (such as herdr-core) drops a Cursor Position Request
+    reply during disconnect/reconnect or resize, prompt_toolkit can leave
+    unresolved futures in ``_waiting_for_cpr_futures`` and latch
+    ``cpr_support`` to ``NOT_SUPPORTED``.
+    """
+    futures = renderer._waiting_for_cpr_futures
+    while futures:
+        futures.popleft().cancel()
+
+    if renderer.cpr_support == CPR_Support.NOT_SUPPORTED and renderer.output.responds_to_cpr:
+        renderer.cpr_support = CPR_Support.UNKNOWN
+        # Suppress repeated unsupported-CPR warnings if subsequent re-probes also time out.
+        renderer.cpr_not_supported_callback = None
+
+
+def _clear_renderer_screen(renderer: Renderer) -> None:
+    """Clear the terminal screen without leaving stale CPR state behind."""
+    reset_renderer_cpr_state(renderer)
+    output = renderer.output
+    if not isinstance(output, Vt100_Output):
+        renderer.clear()
+        return
+
+    renderer.erase()
+    output.write_raw(_VT100_RESET_SCROLL_REGION)
+    output.erase_screen()
+    output.cursor_goto(0, 0)
+    output.flush()
+
+    # The cursor is now at row 1, so the available height is the full terminal
+    # height without needing a redundant CPR round-trip.
+    renderer._min_available_height = output.get_size().rows
+
+
 def _clear_terminal_screen(event: Any, fallback_app: Any | None) -> None:
     app_ref = _event_or_fallback_app(event, fallback_app)
     if not app_ref:
         return
     renderer = getattr(app_ref, "renderer", None)
-    if renderer:
+    if isinstance(renderer, Renderer):
+        _clear_renderer_screen(renderer)
+        app_ref.invalidate()
+    elif renderer is not None:
         renderer.clear()
         app_ref.invalidate()
 

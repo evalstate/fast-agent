@@ -11,13 +11,14 @@ from typing import TYPE_CHECKING, Any, TextIO
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import StyleAndTextTuples, to_formatted_text
+from prompt_toolkit.renderer import CPR_Support
 from prompt_toolkit.styles import Style
 from rich.markup import escape as escape_markup
 
 from fast_agent.ui.agent_identity import is_default_agent_name
 from fast_agent.ui.command_payloads import CommandPayload, EOFCommand, InterruptCommand
 from fast_agent.ui.console import rich_print
-from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
+from fast_agent.ui.prompt.keybindings import PromptInputInterrupt, reset_renderer_cpr_state
 from fast_agent.ui.prompt.turn_input import acknowledge_replayed_input
 from fast_agent.ui.prompt_marks import emit_prompt_mark, prompt_mark_sequence
 from fast_agent.ui.terminal_streams import is_tty_stream
@@ -77,11 +78,24 @@ def build_prompt_style() -> Style:
     )
 
 
+def _install_resilient_resize_handler(session: PromptSession[Any]) -> None:
+    """Allow SIGWINCH / resize redraws to recover if CPR latched to NOT_SUPPORTED."""
+    app = session.app
+    original_on_resize = app._on_resize
+
+    def _resilient_on_resize() -> None:
+        if app.renderer.cpr_support == CPR_Support.NOT_SUPPORTED:
+            reset_renderer_cpr_state(app.renderer)
+        original_on_resize()
+
+    app._on_resize = _resilient_on_resize
+
+
 def create_prompt_session(
     *, history, completer, lexer, multiline_filter, toolbar, style
 ) -> PromptSession:
     """Create a configured PromptSession for enhanced input."""
-    return PromptSession(
+    session = PromptSession(
         history=history,
         completer=completer,
         lexer=lexer,
@@ -93,6 +107,8 @@ def create_prompt_session(
         style=style,
         erase_when_done=True,
     )
+    _install_resilient_resize_handler(session)
+    return session
 
 
 @contextlib.contextmanager

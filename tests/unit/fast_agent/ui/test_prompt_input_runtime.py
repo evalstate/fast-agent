@@ -127,3 +127,102 @@ async def test_run_prompt_once_converts_eof_to_eof_command() -> None:
     )
 
     assert isinstance(result, EOFCommand)
+
+
+class _FakeVt100Stdout:
+    encoding = "utf-8"
+
+    def __init__(self) -> None:
+        self._chunks: list[str] = []
+
+    def isatty(self) -> bool:
+        return True
+
+    def write(self, data: str) -> int:
+        self._chunks.append(data)
+        return len(data)
+
+    def flush(self) -> None:
+        pass
+
+    def getvalue(self) -> str:
+        return "".join(self._chunks)
+
+    def clear(self) -> None:
+        self._chunks.clear()
+
+
+@pytest.mark.asyncio
+async def test_resilient_resize_recovers_after_dropped_cpr_without_submit_stall(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    import time
+
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.input.defaults import create_pipe_input
+    from prompt_toolkit.output.vt100 import Vt100_Output
+    from prompt_toolkit.renderer import CPR_Support
+
+    buf = _FakeVt100Stdout()
+    output = Vt100_Output(cast("TextIO", buf), lambda: Size(rows=24, columns=80), enable_cpr=True)
+
+    with create_pipe_input() as pipe:
+        session: PromptSession[str] = PromptSession(
+            bottom_toolbar="TOOLBAR",
+            erase_when_done=True,
+            input=pipe,
+            output=output,
+        )
+        input_runtime._install_resilient_resize_handler(session)
+        renderer = session.app.renderer
+        monkeypatch.setattr(renderer, "CPR_TIMEOUT", 0.05)
+
+        async def _drive() -> float:
+            try:
+                # Let initial CPR time out so cpr_support latches to NOT_SUPPORTED
+                # with a stale pending future.
+                await asyncio.sleep(0.1)
+                assert renderer.cpr_support == CPR_Support.NOT_SUPPORTED
+                assert len(renderer._waiting_for_cpr_futures) == 1
+
+                # A resize that also times out must not spam repeated CPR warnings.
+                buf.clear()
+                session.app._on_resize()
+                assert "\x1b[6n" in buf.getvalue()
+                await asyncio.sleep(0.1)
+                assert renderer.cpr_support == CPR_Support.NOT_SUPPORTED
+                assert "WARNING:" not in buf.getvalue()
+
+                # Next resize re-probes; reply arrives -> toolbar renders and queue drains.
+                buf.clear()
+                session.app._on_resize()
+                assert "\x1b[6n" in buf.getvalue()
+                pipe.send_text("\x1b[5;1R")
+                await asyncio.sleep(0.05)
+                assert renderer.cpr_support == CPR_Support.SUPPORTED
+                assert not renderer._waiting_for_cpr_futures
+                assert "TOOLBAR" in buf.getvalue()
+
+                # Once SUPPORTED, rapid resizes preserve in-flight CPR replies until
+                # both arrive instead of draining prematurely.
+                session.app._on_resize()
+                session.app._on_resize()
+                pipe.send_text("\x1b[5;1R\x1b[5;1R")
+                await asyncio.sleep(0.05)
+                assert not renderer._waiting_for_cpr_futures
+
+                return time.perf_counter()
+            finally:
+                pipe.send_text("\r")
+
+        driver = asyncio.create_task(_drive())
+        try:
+            result = await asyncio.wait_for(session.prompt_async("> "), timeout=5.0)
+        finally:
+            submitted_at = await driver
+        elapsed = time.perf_counter() - submitted_at
+
+    assert result == ""
+    assert elapsed < 0.5

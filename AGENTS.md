@@ -23,6 +23,7 @@ Practical `hc` patterns:
   `uv run scripts/typecheck.py` after code changes. If the format check fails,
   run `uv run scripts/format.py` before rechecking.
 - Check the type safety rules in `typesafe.md` and avoid hasattr/getattr style checks
+- Check `update-exceptions.md` when upgrading third-party dependencies or adding library-internal workarounds, and keep it updated when private SDK hooks are added or removed.
 - Avoid unnecessary defensive programming. Validate at boundaries and use static analysis and type safety rules to write concise code. Do not caveat without good cause (external data processing for example).
 - Keep examples under `examples/` in sync with packaged resources when relevant.
 - Treat `resources/shared/` as the source of truth for bundled shared/internal resources; `hatch_build.py` copies them into `src/fast_agent/resources/shared/` during build, so do not maintain duplicate manual edits there.

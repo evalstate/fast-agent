@@ -17,6 +17,7 @@ from fast_agent.ui.prompt.keybindings import (
     _cycle_completion,
     create_keybindings,
     paste_clipboard_image_attachment_into_buffer,
+    reset_renderer_cpr_state,
 )
 
 
@@ -334,3 +335,94 @@ async def test_ctrl_y_skips_tool_only_assistant_turns_when_falling_back_to_histo
     await binding.handler(SimpleNamespace(current_buffer=Buffer(), app=_App()))
 
     assert copied == ["earlier answer"]
+
+
+@pytest.mark.asyncio
+async def test_ctrl_l_resets_cpr_state_scroll_region_and_seeds_height() -> None:
+    import asyncio
+    import io
+
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.output.vt100 import Vt100_Output
+    from prompt_toolkit.renderer import CPR_Support, Renderer
+    from prompt_toolkit.styles import Style
+
+    class _FakeStdout:
+        encoding = "utf-8"
+
+        def __init__(self) -> None:
+            self._buf = io.StringIO()
+
+        def isatty(self) -> bool:
+            return True
+
+        def write(self, data: str) -> int:
+            return self._buf.write(data)
+
+        def flush(self) -> None:
+            self._buf.flush()
+
+        def getvalue(self) -> str:
+            return self._buf.getvalue()
+
+    buf = _FakeStdout()
+    output = Vt100_Output(cast("Any", buf), lambda: Size(rows=30, columns=100), enable_cpr=True)
+    renderer = Renderer(style=Style([]), output=output)
+
+    stale_future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+    renderer._waiting_for_cpr_futures.append(stale_future)
+    renderer.cpr_support = CPR_Support.NOT_SUPPORTED
+
+    invalidated = False
+
+    class _App:
+        def __init__(self) -> None:
+            self.renderer = renderer
+
+        def invalidate(self) -> None:
+            nonlocal invalidated
+            invalidated = True
+
+    app = _App()
+    kb = create_keybindings(app=app)
+    binding = _binding_for(kb, Keys.ControlL)
+    binding.handler(SimpleNamespace(current_buffer=Buffer(), app=app))
+
+    emitted = buf.getvalue()
+    assert stale_future.cancelled()
+    assert not renderer._waiting_for_cpr_futures
+    assert renderer.cpr_support == CPR_Support.UNKNOWN
+    assert "\x1b[r" in emitted
+    assert "\x1b[2J" in emitted
+    assert "\x1b[6n" not in emitted
+    assert renderer.height_is_known is True
+    assert renderer.cpr_not_supported_callback is None
+    assert invalidated is True
+
+
+def test_reset_renderer_cpr_state_preserves_not_supported_when_output_disables_cpr() -> None:
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.output.vt100 import Vt100_Output
+    from prompt_toolkit.renderer import CPR_Support, Renderer
+    from prompt_toolkit.styles import Style
+
+    class _FakeStdout:
+        encoding = "utf-8"
+
+        def isatty(self) -> bool:
+            return True
+
+        def write(self, data: str) -> int:
+            return len(data)
+
+        def flush(self) -> None:
+            pass
+
+    output = Vt100_Output(
+        cast("Any", _FakeStdout()), lambda: Size(rows=24, columns=80), enable_cpr=False
+    )
+    renderer = Renderer(style=Style([]), output=output)
+
+    assert renderer.cpr_support == CPR_Support.NOT_SUPPORTED
+    reset_renderer_cpr_state(renderer)
+    assert renderer.cpr_support == CPR_Support.NOT_SUPPORTED
