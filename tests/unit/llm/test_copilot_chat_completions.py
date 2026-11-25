@@ -409,7 +409,7 @@ def test_gemini_route_defaults_compaction_trigger_and_streaming_timeout(model: s
     public_id = f"copilot.{model}"
     resolved = ModelFactory.resolve_model_spec(public_id)
     assert resolved.model_params is not None
-    assert resolved.model_params.compaction_trigger_tokens == 190_000
+    assert resolved.model_params.compaction_trigger_tokens == 300_000
 
     context = Context(config=Settings())
     llm = ModelFactory.create_factory(f"{public_id}?reasoning=medium")(

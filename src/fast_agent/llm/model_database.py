@@ -2577,13 +2577,13 @@ def _copilot_route_overrides(spec: CopilotModelSpec) -> dict[str, object]:
         if spec.model_id in ("gemini-4-hydrogen", "gemini-4-neon"):
             efforts.append("xhigh")
             default_effort = "high"
-        # Copilot's Gemini gateway pricing and prompt reliability degrade past 200k
-        # input tokens (the catalog's default context tier), so auto-compact at 190k
-        # unless compact_at or compaction.threshold overrides it.
+        # Auto-compact Copilot's Gemini routes at 300k input tokens (verified on TB4
+        # Carbon/Neon; flat pricing across the 1M window) unless compact_at or
+        # compaction.threshold overrides it.
         overrides.update(
             context_window=1_000_000 if spec.model_id == "gemini-4-carbon" else 1_048_576,
             max_output_tokens=64_000 if spec.model_id == "gemini-4-carbon" else 65_536,
-            compaction_trigger_tokens=190_000,
+            compaction_trigger_tokens=300_000,
             reasoning="openai",
             reasoning_effort_spec=ReasoningEffortSpec(
                 kind="effort",
