@@ -4,6 +4,8 @@ Python port of openai/codex apply_patch (Apache 2.0).
 
 from __future__ import annotations
 
+import os
+import unicodedata
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TextIO
 
@@ -95,16 +97,28 @@ def apply_hunks_to_files(
                 hunk.chunks,
                 base_directory=base_directory,
             )
+            source_path = _resolve_target_path(hunk.path, base_directory)
             destination = hunk.move_path
             if destination is not None:
-                _write_file(_resolve_target_path(destination, base_directory), applied.new_contents)
-                try:
-                    _resolve_target_path(hunk.path, base_directory).unlink()
-                except OSError as exc:
-                    raise ApplyPatchError(f"Failed to remove original {hunk.path}") from exc
+                target_path = _resolve_target_path(destination, base_directory)
+                if _is_same_directory_entry(source_path, target_path):
+                    _write_file(source_path, applied.new_contents)
+                    if source_path.name != target_path.name:
+                        try:
+                            source_path.replace(target_path)
+                        except OSError as exc:
+                            raise ApplyPatchError(
+                                f"Failed to move {hunk.path} to {destination}"
+                            ) from exc
+                else:
+                    _write_file(target_path, applied.new_contents)
+                    try:
+                        source_path.unlink()
+                    except OSError as exc:
+                        raise ApplyPatchError(f"Failed to remove original {hunk.path}") from exc
                 modified.append(destination)
             else:
-                _write_file(_resolve_target_path(hunk.path, base_directory), applied.new_contents)
+                _write_file(source_path, applied.new_contents)
                 modified.append(hunk.path)
         else:
             raise ApplyPatchError(f"Unsupported hunk kind: {hunk}")
@@ -214,7 +228,25 @@ def _resolve_target_path(path: Path, base_directory: Path | None) -> Path:
         return path
     if base_directory is None:
         return path
-    return (base_directory / path).resolve()
+    candidate = base_directory / path
+    if candidate.name in {"", ".", ".."}:
+        return candidate.resolve()
+    return candidate.parent.resolve() / candidate.name
+
+
+def _is_same_directory_entry(source_path: Path, target_path: Path) -> bool:
+    try:
+        if not os.path.samestat(source_path.lstat(), target_path.lstat()):
+            return False
+        if not os.path.samefile(source_path.parent, target_path.parent):
+            return False
+    except OSError:
+        return False
+
+    return (
+        unicodedata.normalize("NFC", source_path.name).casefold()
+        == unicodedata.normalize("NFC", target_path.name).casefold()
+    )
 
 
 def _write_file(path: Path, contents: str) -> None:

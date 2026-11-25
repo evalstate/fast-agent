@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
+import pytest
 
 from fast_agent.patch.engine import apply_patch
 
@@ -12,10 +15,10 @@ def _read_text(path: Path) -> str:
         return handle.read()
 
 
-def _run_patch(patch: str) -> tuple[str, str]:
+def _run_patch(patch: str, *, base_directory: Path | None = None) -> tuple[str, str]:
     stdout = StringIO()
     stderr = StringIO()
-    apply_patch(patch, stdout, stderr)
+    apply_patch(patch, stdout, stderr, base_directory=base_directory)
     return stdout.getvalue(), stderr.getvalue()
 
 
@@ -52,6 +55,82 @@ def test_update_file_hunk_can_move_file() -> None:
         stdout, stderr = _run_patch(patch)
 
         assert stdout == f"Success. Updated the following files:\nM {dest}\n"
+        assert stderr == ""
+        assert not src.exists()
+        assert _read_text(dest) == "line2\n"
+
+
+@pytest.mark.parametrize("move_to", ["same.txt", "sub/../same.txt"])
+def test_update_file_hunk_move_to_same_path_preserves_file(move_to: str) -> None:
+    with TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        (base / "sub").mkdir()
+        path = base / "same.txt"
+        path.write_text("line\n", encoding="utf-8", newline="")
+
+        patch = (
+            "*** Begin Patch\n"
+            "*** Update File: same.txt\n"
+            f"*** Move to: {move_to}\n"
+            "@@\n"
+            "-line\n"
+            "+line2\n"
+            "*** End Patch"
+        )
+
+        stdout, stderr = _run_patch(patch, base_directory=base)
+
+        assert stdout == f"Success. Updated the following files:\nM {Path(move_to)}\n"
+        assert stderr == ""
+        assert path.exists()
+        assert _read_text(path) == "line2\n"
+
+
+def test_update_file_hunk_case_only_move_preserves_and_renames_file() -> None:
+    with TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        src = base / "readme.txt"
+        src.write_text("line\n", encoding="utf-8", newline="")
+
+        patch = (
+            "*** Begin Patch\n"
+            "*** Update File: readme.txt\n"
+            "*** Move to: README.txt\n"
+            "@@\n"
+            "-line\n"
+            "+line2\n"
+            "*** End Patch"
+        )
+
+        stdout, stderr = _run_patch(patch, base_directory=base)
+
+        assert stdout == "Success. Updated the following files:\nM README.txt\n"
+        assert stderr == ""
+        assert os.listdir(base) == ["README.txt"]
+        assert _read_text(base / "README.txt") == "line2\n"
+
+
+def test_update_file_hunk_move_to_hardlink_removes_source() -> None:
+    with TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        src = base / "src.txt"
+        dest = base / "dst.txt"
+        src.write_text("line\n", encoding="utf-8", newline="")
+        os.link(src, dest)
+
+        patch = (
+            "*** Begin Patch\n"
+            "*** Update File: src.txt\n"
+            "*** Move to: dst.txt\n"
+            "@@\n"
+            "-line\n"
+            "+line2\n"
+            "*** End Patch"
+        )
+
+        stdout, stderr = _run_patch(patch, base_directory=base)
+
+        assert stdout == "Success. Updated the following files:\nM dst.txt\n"
         assert stderr == ""
         assert not src.exists()
         assert _read_text(dest) == "line2\n"
