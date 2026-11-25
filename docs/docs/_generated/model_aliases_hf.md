@@ -25,6 +25,7 @@
 | `glm52` | `hf.zai-org/GLM-5.2:zai-org` |
 | `glm53` | `hf.zai-org/GLM-5.3:zai-org` |
 | `glm53flash` | `hf.zai-org/GLM-5.3-Flash:zai-org` |
+| `google/gemma-4-26b-a4b-it` | `google/gemma-4-26b-a4b-it` |
 | `google/gemma-4-31b-it` | `google/gemma-4-31b-it` |
 | `gpt-oss` | `hf.openai/gpt-oss-120b:cerebras` |
 | `gpt-oss-20b` | `hf.openai/gpt-oss-20b` |
@@ -63,6 +64,7 @@
 | `reflection/beam-1.0-501b-a23b` | `reflection/beam-1.0-501b-a23b` |
 | `tencent/hy4` | `tencent/hy4` |
 | `tencent/hy4-flash` | `tencent/hy4-flash` |
+| `thinkingmachines/inkling-2-mini` | `thinkingmachines/inkling-2-mini` |
 | `thinkingmachines/inkling-2-small` | `thinkingmachines/inkling-2-small` |
 | `zai-org/glm-5.2` | `zai-org/glm-5.2` |
 | `zai-org/glm-5.3` | `zai-org/glm-5.3` |
