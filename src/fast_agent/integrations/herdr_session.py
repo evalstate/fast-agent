@@ -109,7 +109,8 @@ def report_session(
     *,
     agent: "AgentProtocol | None" = None,
 ) -> None:
-    report_program_resume_session(_resumable_session_id(session))
+    if program_resume_configured():
+        report_program_resume_session(_resumable_session_id(session))
     if not session_reporting_enabled():
         return
     metadata = session.info.metadata if session is not None else {}
