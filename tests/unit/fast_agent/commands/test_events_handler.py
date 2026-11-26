@@ -231,7 +231,7 @@ async def test_events_subscribe_with_wake_and_poll() -> None:
     assert subscription.wake
     assert subscription.arguments == {"job_id": "abc"}
     status_text = _text(await handle_events(context, agent_name="main"))
-    assert "| yes | user | active |" in status_text
+    assert "| yes | user | 30s | active |" in status_text
     assert "/events select" in status_text
 
     polled = _text(
@@ -277,7 +277,8 @@ async def test_events_subscribe_with_once_and_every_and_status_column() -> None:
         argument="subscribe jobs job.status_changed job_id=plain",
     )
     status_without_every = _text(await handle_events(context, agent_name="main"))
-    assert "| every |" not in status_without_every
+    assert "| poll |" in status_without_every
+    assert "| 30s |" in status_without_every
 
     # With --once and --every 5m, both flags are stored and 'every' appears in status.
     subscribed = _text(
@@ -304,10 +305,10 @@ async def test_events_subscribe_with_once_and_every_and_status_column() -> None:
     assert subs_by_job["def"].min_poll_ms == 30_000
 
     status_with_every = _text(await handle_events(context, agent_name="main"))
-    assert "| every |" in status_with_every
-    assert "| 5m |" in status_with_every
+    assert "| poll |" in status_with_every
+    assert "| 5m (min) |" in status_with_every
+    assert "| 30s (min) |" in status_with_every
     assert "| 30s |" in status_with_every
-    assert "| - |" in status_with_every
 
     # Bad --every values return an error.
     for bad_cmd in (

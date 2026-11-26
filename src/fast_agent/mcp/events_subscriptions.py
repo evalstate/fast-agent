@@ -153,6 +153,8 @@ class EventSubscription:
     """Whether to stop polling cleanly after the first non-duplicate event arrives."""
     min_poll_ms: int | None = None
     """Optional client-side minimum poll interval in milliseconds."""
+    poll_interval_ms: int | None = None
+    """Effective poll interval in milliseconds from the latest poll response."""
     origin: SubscriptionOrigin = "user"
     """Who created this subscription: user command, declared config, or model tool."""
 
@@ -654,12 +656,14 @@ class EventSubscriptionManager:
             delay_ms = self._next_delay_ms(subscription, result)
 
     def _next_delay_ms(self, subscription: EventSubscription, result: PollEventsResult) -> int:
-        if result.has_more and result.events:
-            return 0
         recommended = (
             result.next_poll_ms if result.next_poll_ms is not None else self._default_poll_ms
         )
-        return max(self._min_poll_ms, recommended, subscription.min_poll_ms or 0)
+        effective = max(self._min_poll_ms, recommended, subscription.min_poll_ms or 0)
+        subscription.poll_interval_ms = effective
+        if result.has_more and result.events:
+            return 0
+        return effective
 
     def _record_failure(self, state: _Running, exc: Exception, failures: int) -> int:
         state.subscription.last_error = str(exc) or type(exc).__name__

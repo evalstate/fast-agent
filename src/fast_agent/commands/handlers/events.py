@@ -253,27 +253,26 @@ def _render_status(aggregator: _EventsAggregator) -> str:
     if not subscriptions:
         return "No event subscriptions. Use `/events list` to see what servers offer."
 
-    show_every = any(subscription.min_poll_ms is not None for subscription in subscriptions)
-    if show_every:
-        lines = [
-            "| id | server | event | arguments | wake | origin | every | status | delivered |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-        ]
-    else:
-        lines = [
-            "| id | server | event | arguments | wake | origin | status | delivered |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- |",
-        ]
+    lines = [
+        "| id | server | event | arguments | wake | origin | poll | status | delivered |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
     for subscription in subscriptions:
         status = subscription.status
         if subscription.last_error:
             status = f"{status}: {subscription.last_error}"
         arguments = json.dumps(subscription.arguments, sort_keys=True)
-        every_cell = (
-            f"| {format_poll_interval(subscription.min_poll_ms) if subscription.min_poll_ms is not None else '-'} "
-            if show_every
-            else ""
-        )
+        if subscription.poll_interval_ms is not None:
+            poll_text = format_poll_interval(subscription.poll_interval_ms)
+            if (
+                subscription.min_poll_ms is not None
+                and subscription.min_poll_ms >= subscription.poll_interval_ms
+            ):
+                poll_text = f"{poll_text} (min)"
+        elif subscription.min_poll_ms is not None:
+            poll_text = f"{format_poll_interval(subscription.min_poll_ms)} (min)"
+        else:
+            poll_text = "-"
         lines.append(
             f"| `{subscription.key}` "
             f"| {escape_markdown_table_cell(subscription.server_name)} "
@@ -281,7 +280,7 @@ def _render_status(aggregator: _EventsAggregator) -> str:
             f"| {escape_markdown_table_cell(markdown_code_span(arguments))} "
             f"| {'yes' if subscription.wake else 'no'} "
             f"| {escape_markdown_table_cell(subscription.origin)} "
-            f"{every_cell}"
+            f"| {escape_markdown_table_cell(poll_text)} "
             f"| {escape_markdown_table_cell(status)} "
             f"| {subscription.delivered} |"
         )
