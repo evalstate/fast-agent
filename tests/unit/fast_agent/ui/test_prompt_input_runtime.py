@@ -63,9 +63,9 @@ def test_clear_prompt_echo_line_skips_multiline_and_non_tty() -> None:
 
 
 def test_format_prompt_prefix_omits_default_agent_name() -> None:
-    assert input_runtime._format_prompt_prefix("dev", default_agent_name="dev") == "❯"
-    assert input_runtime._format_prompt_prefix("default") == "default ❯"
-    assert input_runtime._format_prompt_prefix("dev") == "dev ❯"
+    assert input_runtime.format_prompt_prefix("dev", default_agent_name="dev") == "❯"
+    assert input_runtime.format_prompt_prefix("default") == "default ❯"
+    assert input_runtime.format_prompt_prefix("dev") == "dev ❯"
 
 
 def test_echo_visible_command_escapes_markup(monkeypatch: pytest.MonkeyPatch) -> None:
