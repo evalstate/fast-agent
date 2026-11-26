@@ -253,3 +253,49 @@ def test_python_syntax_blocks_highlights_file_target_heredoc_and_skips_fstrings(
     assert python_syntax_blocks(fstring_heredoc) == [
         SyntaxBlock(code=fstring_heredoc.rstrip(), language="python")
     ]
+
+
+def test_python_syntax_blocks_highlights_multiline_bash_in_shell_command() -> None:
+    code = (
+        'r = await shell(command="""git status -s && \\\n'
+        "git add \\\n"
+        "  src/fast_agent/ui/syntax_highlighting.py && \\\n"
+        'git commit -m "feat(ui): test" && \\\n'
+        'git push""")\n'
+        "print(show(r))"
+    )
+
+    blocks = python_syntax_blocks(code)
+
+    assert blocks == [
+        SyntaxBlock(code='r = await shell(command="""git status -s && \\', language="python"),
+        SyntaxBlock(
+            code=(
+                "git add \\\n"
+                "  src/fast_agent/ui/syntax_highlighting.py && \\\n"
+                'git commit -m "feat(ui): test" && \\'
+            ),
+            language="bash",
+        ),
+        SyntaxBlock(code='git push""")', language="text"),
+        SyntaxBlock(code="print(show(r))", language="python"),
+    ]
+
+
+def test_python_syntax_blocks_mixes_bash_and_heredoc_inside_shell_command() -> None:
+    code = (
+        'r = await shell(command=r"""\n'
+        "set -u\n"
+        "uv run python - <<'PY'\n"
+        "print(42)\n"
+        "PY\n"
+        'echo "done"\n'
+        '""")\n'
+    )
+
+    blocks = python_syntax_blocks(code)
+
+    assert [block.language for block in blocks] == ["python", "bash", "python", "bash", "text"]
+    assert blocks[1].code == "set -u\nuv run python - <<'PY'"
+    assert blocks[2].code == "print(42)"
+    assert blocks[3].code == 'PY\necho "done"'

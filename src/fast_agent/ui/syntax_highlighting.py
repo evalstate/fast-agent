@@ -135,6 +135,87 @@ def _triple_quoted_inner_span(token_text: str) -> tuple[int, int] | None:
     return None
 
 
+_TRIVIAL_TOKEN_TYPES = frozenset(
+    {tokenize.NL, tokenize.NEWLINE, tokenize.INDENT, tokenize.DEDENT, tokenize.COMMENT}
+)
+
+
+def _prev_significant_token(
+    tokens: list[tokenize.TokenInfo],
+    index: int,
+) -> tuple[int, tokenize.TokenInfo] | None:
+    i = index - 1
+    while i >= 0:
+        if tokens[i].type not in _TRIVIAL_TOKEN_TYPES:
+            return i, tokens[i]
+        i -= 1
+    return None
+
+
+def _is_shell_command_string(tokens: list[tokenize.TokenInfo], index: int) -> bool:
+    """Return True when tokens[index] is the command argument of a shell(...) call."""
+    prev = _prev_significant_token(tokens, index)
+    if prev is None:
+        return False
+    prev_idx, prev_tok = prev
+
+    # Positional: shell("""...""")
+    if prev_tok.type == tokenize.OP and prev_tok.string == "(":
+        callee = _prev_significant_token(tokens, prev_idx)
+        return (
+            callee is not None and callee[1].type == tokenize.NAME and callee[1].string == "shell"
+        )
+
+    # Keyword: shell(..., command="""...""")
+    if not (prev_tok.type == tokenize.OP and prev_tok.string == "="):
+        return False
+    kw = _prev_significant_token(tokens, prev_idx)
+    if kw is None or kw[1].type != tokenize.NAME or kw[1].string != "command":
+        return False
+
+    # Walk back to the enclosing '(' to verify the callee is `shell`.
+    depth = 0
+    i = kw[0] - 1
+    while i >= 0:
+        tok = tokens[i]
+        if tok.type == tokenize.OP:
+            if tok.string in {")", "]", "}"}:
+                depth += 1
+            elif tok.string in {"(", "[", "{"}:
+                if depth == 0:
+                    if tok.string != "(":
+                        return False
+                    callee = _prev_significant_token(tokens, i)
+                    return (
+                        callee is not None
+                        and callee[1].type == tokenize.NAME
+                        and callee[1].string == "shell"
+                    )
+                depth -= 1
+        i -= 1
+    return False
+
+
+def _fill_bash_gaps(
+    code: str,
+    *,
+    start: int,
+    end: int,
+    heredoc_spans: list[_LanguageSpan],
+) -> list[_LanguageSpan]:
+    """Fill whole-line interior ranges not claimed by heredoc spans with `bash`."""
+    combined: list[_LanguageSpan] = []
+    cursor = start
+    for span in sorted(heredoc_spans, key=lambda item: item.start):
+        if span.start > cursor and code[cursor : span.start].strip():
+            combined.append(_LanguageSpan(cursor, span.start, "bash"))
+        combined.append(span)
+        cursor = max(cursor, span.end)
+    if end > cursor and code[cursor:end].strip():
+        combined.append(_LanguageSpan(cursor, end, "bash"))
+    return combined
+
+
 def _python_embedded_spans(code: str) -> list[_LanguageSpan]:
     lines = code.splitlines(keepends=True)
     if not lines:
@@ -150,7 +231,7 @@ def _python_embedded_spans(code: str) -> list[_LanguageSpan]:
     except (tokenize.TokenError, IndentationError):
         return []
 
-    for tok in tokens:
+    for tok_index, tok in enumerate(tokens):
         if tok.type != tokenize.STRING:
             continue
         inner_bounds = _triple_quoted_inner_span(tok.string)
@@ -177,16 +258,28 @@ def _python_embedded_spans(code: str) -> list[_LanguageSpan]:
                 continue
             heredoc_spans.append(_LanguageSpan(abs_start, abs_end, language))
 
-        if not heredoc_spans:
-            continue
-
-        spans.extend(heredoc_spans)
-        # Isolate the closing triple-quote line as plain text so its closing quotes
-        # do not re-open a string in Pygments for subsequent Python lines.
         end_line_index = tok.end[0] - 1
         closing_line_start = line_starts[end_line_index]
         closing_line_end = line_starts[end_line_index + 1]
-        if closing_line_start >= heredoc_spans[-1].end and closing_line_end > closing_line_start:
+
+        string_spans = heredoc_spans
+        if _is_shell_command_string(tokens, tok_index):
+            interior_start = line_starts[tok.start[0]]
+            if closing_line_start > interior_start:
+                string_spans = _fill_bash_gaps(
+                    code,
+                    start=interior_start,
+                    end=closing_line_start,
+                    heredoc_spans=heredoc_spans,
+                )
+
+        if not string_spans:
+            continue
+
+        spans.extend(string_spans)
+        # Isolate the closing triple-quote line as plain text so its closing quotes
+        # do not re-open a string in Pygments for subsequent Python lines.
+        if closing_line_start >= string_spans[-1].end and closing_line_end > closing_line_start:
             spans.append(_LanguageSpan(closing_line_start, closing_line_end, "text"))
 
     spans.sort(key=lambda span: span.start)

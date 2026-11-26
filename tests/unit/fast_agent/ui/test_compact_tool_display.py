@@ -552,7 +552,10 @@ def test_compact_exec_sandbox_uses_python_sandbox_pill_and_short_rules() -> None
     assert any("print(42)" in line for line in lines)
     assert any(line == "─" * 36 for line in lines)
     assert any(
-        line.startswith("▎▶ dev text (25 chars) · 120ms · id: call_…456789") for line in lines
+        line.startswith(
+            "▎▶ dev  python (sandbox) result  text (25 chars) · 120ms · id: call_…456789"
+        )
+        for line in lines
     )
 
 
@@ -607,5 +610,8 @@ def test_compact_exec_sandbox_omits_default_agent_name() -> None:
     assert any(line == "─" * 36 for line in lines)
     assert any(line.startswith("▎◀ bash · id:") for line in lines)
     assert any("▎ exit code 0  3 lines · 3.08s · id:" in line for line in lines)
-    assert any(line.startswith("▎▶ text (2 chars) · 150ms · id: call_…456789") for line in lines)
+    assert any(
+        line.startswith("▎▶  python (sandbox) result  text (2 chars) · 150ms · id: call_…456789")
+        for line in lines
+    )
     assert not any("agent" in line for line in lines)

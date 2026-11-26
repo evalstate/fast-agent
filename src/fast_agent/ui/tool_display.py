@@ -870,6 +870,7 @@ class ToolDisplay:
             line = self._compact_code_rule_line(
                 message_type=MessageType.TOOL_RESULT,
                 name=name,
+                label="python (sandbox) result",
                 annotations=annotations,
                 is_error=result.is_error,
                 show_hook_indicator=show_hook_indicator,
