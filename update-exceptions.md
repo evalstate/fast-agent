@@ -23,16 +23,19 @@ When upgrading any dependency listed below:
     `session._get_default_buffer_control_height` / `current_window.height` to keep
     one blank line below the prompt (`Dimension(min=2)`) and expand to
     `reserve_space_for_menu` only when `complete_state.completions` is non-empty.
-  - `_install_resilient_resize_handler()` wraps `session.app._on_resize` with an
-    80 ms debounce, draining `renderer._waiting_for_cpr_futures` and zeroing
-    `renderer._min_available_height`.
+  - `_install_resilient_resize_handler()` wraps `session.app._on_resize` with a
+    50 ms debounce, skips redundant resize notifications when
+    `renderer.output.get_size() == renderer._last_size`, drains
+    `renderer._waiting_for_cpr_futures`, zeros `renderer._min_available_height`,
+    and wraps `erase()` + redraw in a single DEC Mode 2026 synchronized frame.
   - `reset_renderer_cpr_state()` drains `renderer._waiting_for_cpr_futures` and
     optionally resets `renderer.cpr_support`; `_clear_terminal_screen()` resets
     scroll region/SGR and scrolls the visible viewport into scrollback on
     `Vt100_Output` before clearing.
   - Check on upgrade: verify `Renderer._waiting_for_cpr_futures`,
     `Renderer.cpr_support`, `Renderer._min_available_height`,
-    `Renderer._last_screen`, `Renderer.render`, `Application._on_resize`,
+    `Renderer._last_screen`, `Renderer._last_size`, `Renderer.render`,
+    `Application._on_resize`,
     `PromptSession._get_default_buffer_control_height`, and the
     `class:bottom-toolbar` `ConditionalContainer` layout structure.
   - Tests: `tests/unit/fast_agent/ui/test_prompt_input_runtime.py`,
