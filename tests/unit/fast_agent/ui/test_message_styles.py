@@ -211,17 +211,23 @@ class TestA3MessageStyle:
         assert warning.spans[1].style == "red reverse dim"
         assert error.spans[1].style == "red reverse bold"
 
-    def test_stream_reprint_banner_spans_full_width(self) -> None:
-        """Stream reprint banner renders three full-width bright rows."""
+    def test_stream_reprint_banner_moderates_width_on_wide_terminals(self) -> None:
+        """Stream reprint banner fits narrow widths and caps wide viewports to 60 cells."""
         style = A3MessageStyle()
 
-        lines = style.stream_reprint_banner(40)
+        narrow_lines = style.stream_reprint_banner(40)
+        assert len(narrow_lines) == 3
+        assert all(line.cell_len == 40 for line in narrow_lines)
+        assert narrow_lines[0].plain == "━" * 40
+        assert "FINAL RESPONSE" in narrow_lines[1].plain
+        assert narrow_lines[2].plain == "━" * 40
 
-        assert len(lines) == 3
-        assert all(line.cell_len == 40 for line in lines)
-        assert lines[0].plain == "━" * 40
-        assert "FINAL RESPONSE" in lines[1].plain
-        assert lines[2].plain == "━" * 40
+        wide_lines = style.stream_reprint_banner(120)
+        assert len(wide_lines) == 3
+        assert all(line.cell_len == 60 for line in wide_lines)
+        assert wide_lines[0].plain == "━" * 60
+        assert "FINAL RESPONSE" in wide_lines[1].plain
+        assert wide_lines[2].plain == "━" * 60
 
     def test_bottom_metadata_respects_zero_item_length(self) -> None:
         style = A3MessageStyle()

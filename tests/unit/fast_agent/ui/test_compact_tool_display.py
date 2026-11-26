@@ -615,3 +615,44 @@ def test_compact_exec_sandbox_omits_default_agent_name() -> None:
         for line in lines
     )
     assert not any("agent" in line for line in lines)
+
+
+def test_compact_write_text_file_frames_header_closer_group_python_and_result() -> None:
+    display = _display()
+    py_with_heredoc = 'async def run():\n    await shell(command="""echo one\necho two""")\n'
+    result = CallToolResult(
+        content=[TextContent(type="text", text="wrote file")],
+        is_error=False,
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            "write_text_file",
+            {"path": "scripts/deploy.py", "content": py_with_heredoc},
+            name="dev",
+            tool_call_id="call_abcdef0123456789",
+        )
+        display.show_tool_result(
+            result,
+            name="dev",
+            tool_name="write_text_file",
+            tool_call_id="call_abcdef0123456789",
+        )
+
+    lines = capture.get().splitlines()
+    assert any("▎◀ dev" in line and " python (write_text_file) " in line for line in lines)
+    assert any("path: scripts/deploy.py" in line for line in lines)
+    assert any("echo one" in line for line in lines)
+    assert any(line == "─" * 36 for line in lines)
+    assert any("▎▶ dev file write" in line for line in lines)
+
+
+def test_edit_file_preview_header_uses_bold_white_style() -> None:
+    from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
+
+    styled = style_apply_patch_preview_text(
+        "edit_file preview: src/app.py (+1 -1)\n@@ -1 +1 @@\n-old\n+new",
+        default_style="dim",
+    )
+    first_line_spans = [span for span in styled.spans if span.start == 0]
+    assert any(span.style == "bold white" for span in first_line_spans)

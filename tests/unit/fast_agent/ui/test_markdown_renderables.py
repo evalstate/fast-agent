@@ -1,5 +1,6 @@
 import io
 
+import pytest
 from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -386,3 +387,121 @@ def test_build_markdown_renderable_frames_ansi_code_blocks_with_capped_rules() -
     ]
     assert unlabelled_lines[0] == "─" * 36
     assert "text" not in unlabelled_lines[0]
+
+
+@pytest.mark.parametrize("code_theme", ["ansi_light", "monokai"])
+def test_build_markdown_renderable_omits_trailing_spaces_and_caps_hr_for_reflow(
+    code_theme: str,
+) -> None:
+    sample = (
+        "# Top Heading\n\n"
+        "## 2. Unified semantic coloring\n\n"
+        "All three views share one mapping:\n\n"
+        "- **Tool name**: bold cobalt\n"
+        "  - Nested item\n\n"
+        "    Second paragraph inside bullet.\n"
+        "1. First ordered item\n"
+        "2. Second ordered item\n\n"
+        "> Quoted line one\n"
+        ">\n"
+        "> Quoted line two\n\n"
+        "---\n\n"
+        "Closing paragraph."
+    )
+    renderable = build_markdown_renderable(
+        sample,
+        code_theme=code_theme,
+        escape_xml=True,
+    )
+    buffer_console = Console(width=100, force_terminal=True, color_system="truecolor")
+    lines = buffer_console.render_lines(renderable, buffer_console.options, pad=False)
+    plain_lines = ["".join(segment.text for segment in line) for line in lines]
+
+    for plain in plain_lines:
+        assert plain == plain.rstrip(" "), f"unexpected trailing space in {plain!r}"
+
+    with buffer_console.capture() as capture:
+        buffer_console.print(renderable)
+    printed_lines = [Text.from_ansi(line).plain for line in capture.get().splitlines()]
+    for plain in printed_lines:
+        assert plain == plain.rstrip(" "), f"unexpected trailing space in printed {plain!r}"
+
+    assert "Top Heading" in printed_lines
+    assert "─" * 36 in printed_lines
+    assert "-" * 100 not in printed_lines
+
+
+def test_live_incomplete_fences_omit_bottom_rule_and_keep_single_clean_cursor() -> None:
+    from fast_agent.ui.markdown.truncation import MarkdownTruncator
+    from fast_agent.ui.streaming.display import STREAM_CURSOR_BLOCK, _CursorStyledRenderable
+
+    console = Console(width=80, force_terminal=True, color_system="truecolor")
+
+    def render_plain(markup: str, *, theme: str = "ansi_light", cursor: bool = True) -> list[str]:
+        renderable = build_markdown_renderable(
+            markup,
+            code_theme=theme,
+            escape_xml=True,
+            cursor_suffix=STREAM_CURSOR_BLOCK if cursor else "",
+            close_incomplete_fences=True,
+        )
+        if cursor:
+            renderable = _CursorStyledRenderable(renderable, visible=True, _segment_cache={})
+        return [
+            "".join(seg.text for seg in line)
+            for line in console.render_lines(renderable, console.options, pad=False)
+        ]
+
+    # Open top-level fence: header pill present, NO bottom rule, trailing newline moves cursor to next row
+    open_no_nl = render_plain("Intro\n\n```python\nx = 1")
+    assert any("python" in line and "──" in line for line in open_no_nl)
+    assert open_no_nl[-1] == f"x = 1{STREAM_CURSOR_BLOCK}"
+    assert "─" * 36 not in open_no_nl
+
+    open_with_nl = render_plain("Intro\n\n```python\nx = 1\n")
+    assert open_with_nl[-2:] == ["x = 1", STREAM_CURSOR_BLOCK]
+    assert "─" * 36 not in open_with_nl
+
+    # Closed fence: bottom rule appears, live cursor moves OUTSIDE the framed block
+    closed = render_plain("Intro\n\n```python\nx = 1\n```")
+    assert closed[-2] == "─" * 36
+    assert closed[-1] == STREAM_CURSOR_BLOCK
+
+    # Nested list & blockquote open fences: single cursor, no duplicate block or bouncing closer
+    nested_list = render_plain("- item\n\n  ```python\n  x = 1")
+    assert sum(line.count(STREAM_CURSOR_BLOCK) for line in nested_list) == 1
+    assert nested_list[-1].endswith(f"x = 1{STREAM_CURSOR_BLOCK}")
+    assert not any(line.strip() == "─" * 33 for line in nested_list)
+
+    nested_quote = render_plain("> ```python\n> a")
+    assert sum(line.count(STREAM_CURSOR_BLOCK) for line in nested_quote) == 1
+    assert nested_quote[-1] == f"▌ a{STREAM_CURSOR_BLOCK}"
+
+    # Under ansi_dark, cursor must not inherit Pygments red/underline error styling
+    dark_renderable = _CursorStyledRenderable(
+        build_markdown_renderable(
+            "```python\nx = 1",
+            code_theme="ansi_dark",
+            escape_xml=True,
+            cursor_suffix=STREAM_CURSOR_BLOCK,
+            close_incomplete_fences=True,
+        ),
+        visible=True,
+        _segment_cache={},
+    )
+    cursor_segments = [
+        seg
+        for seg in console.render(dark_renderable, console.options)
+        if STREAM_CURSOR_BLOCK in seg.text
+    ]
+    assert len(cursor_segments) == 1
+    assert cursor_segments[0].style is not None
+    assert not cursor_segments[0].style.underline
+
+    # Truncator height measurement matches open vs closed rule count
+    truncator = MarkdownTruncator()
+    open_h = truncator.measure_rendered_height("```python\nx = 1", console, code_theme="ansi_light")
+    closed_h = truncator.measure_rendered_height(
+        "```python\nx = 1\n```", console, code_theme="ansi_light"
+    )
+    assert closed_h == open_h + 1

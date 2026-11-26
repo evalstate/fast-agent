@@ -15,7 +15,6 @@ from rich.file_proxy import FileProxy
 from rich.live import Live
 from rich.segment import ControlType, Segment
 from rich.style import Style
-from rich.syntax import Syntax
 from rich.text import Text
 
 from fast_agent.core.logging.logger import get_logger
@@ -26,9 +25,9 @@ from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
 from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.ui.markdown.content import prepare_markdown_content
 from fast_agent.ui.markdown.renderables import (
+    CursorSyntax,
     build_markdown_renderable,
     build_rich_markdown,
-    close_incomplete_code_blocks,
 )
 from fast_agent.ui.markdown.truncation import MarkdownTruncator
 from fast_agent.ui.message_styles import build_code_rule, format_code_tool_pill_label
@@ -38,6 +37,7 @@ from fast_agent.ui.streaming.segments import StreamSegmentAssembler
 from fast_agent.ui.streaming.viewport import StreamViewport
 from fast_agent.ui.syntax_highlighting import shell_syntax_blocks
 from fast_agent.utils.env import env_flag
+from fast_agent.utils.path_display import fit_path_for_display
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -274,40 +274,7 @@ class _CursorStyledRenderable:
         yield from _style_terminal_stream_cursor(segments, visible=self.visible)
 
 
-class _CursorSyntax(Syntax):
-    """Append the stream cursor after lexing so it cannot become an error token."""
-
-    def __init__(
-        self,
-        code: str,
-        lexer: str,
-        *,
-        theme: str,
-        word_wrap: bool,
-        cursor_suffix: str,
-    ) -> None:
-        self._cursor_suffix = cursor_suffix
-        super().__init__(
-            code,
-            lexer,
-            theme=theme,
-            line_numbers=False,
-            word_wrap=word_wrap,
-        )
-
-    def highlight(
-        self,
-        code: str,
-        line_range: tuple[int | None, int | None] | None = None,
-    ) -> Text:
-        highlighted = super().highlight(code, line_range)
-        if self._cursor_suffix and code.endswith("\n") and not self.code.endswith("\n"):
-            highlighted.remove_suffix("\n")
-            highlighted.append(self._cursor_suffix)
-            highlighted.append("\n")
-        else:
-            highlighted.append(self._cursor_suffix)
-        return highlighted
+_CursorSyntax = CursorSyntax
 
 
 def _style_terminal_stream_cursor(
@@ -1696,19 +1663,14 @@ class StreamingMessageHandle:
             return Text(f"{segment.text}{cursor_suffix}", style="dim italic")
 
         prepared = prepare_markdown_content(segment.text, self._display._escape_xml)
-        if cursor_suffix:
-            last_line = prepared.split("\n")[-1].lstrip()
-            if last_line.startswith(("```", "~~~")):
-                prepared_with_cursor = f"{prepared}\n{cursor_suffix}"
-            else:
-                prepared_with_cursor = f"{prepared}{cursor_suffix}"
-            prepared_for_display = close_incomplete_code_blocks(prepared_with_cursor)
-        else:
-            prepared_for_display = close_incomplete_code_blocks(prepared)
+        if not prepared:
+            return Text(cursor_suffix, style="dim italic")
         return build_rich_markdown(
-            prepared_for_display,
+            prepared,
             code_theme=self._display.code_style,
             style="dim italic",
+            live_incomplete_fences=True,
+            cursor_suffix=cursor_suffix,
         )
 
     def _update_max_render_height(
@@ -1834,36 +1796,56 @@ class StreamingMessageHandle:
         cursor_suffix: str,
     ) -> "RenderableType":
         preview = segment.code_preview
-        if preview is not None and preview.code.strip():
-            if preview.variant == "shell":
-                blocks = shell_syntax_blocks(
-                    preview.code,
-                    shell_language=preview.language,
-                    include_incomplete=not preview.complete,
-                )
-                renderables: list[RenderableType] = [self._tool_header_text(segment)]
-                for index, block in enumerate(blocks):
-                    renderables.append(
-                        _CursorSyntax(
-                            block.code,
-                            block.language,
-                            theme=self._display.code_style,
-                            word_wrap=self._display.code_word_wrap,
-                            cursor_suffix=cursor_suffix if index == len(blocks) - 1 else "",
-                        )
+        if preview is not None and preview.variant == "shell" and preview.code.strip():
+            blocks = shell_syntax_blocks(
+                preview.code,
+                shell_language=preview.language,
+                include_incomplete=not preview.complete,
+            )
+            renderables: list[RenderableType] = [self._tool_header_text(segment)]
+            for index, block in enumerate(blocks):
+                renderables.append(
+                    _CursorSyntax(
+                        block.code,
+                        block.language,
+                        theme=self._display.code_style,
+                        word_wrap=self._display.code_word_wrap,
+                        cursor_suffix=cursor_suffix if index == len(blocks) - 1 else "",
                     )
-                return Group(*renderables)
+                )
+            return Group(*renderables)
 
-            return Group(
-                self._tool_header_text(segment),
+        if (
+            preview is not None
+            and preview.variant == "code"
+            and (preview.path is not None or preview.code != "")
+        ):
+            code_renderables: list[RenderableType] = [self._tool_header_text(segment)]
+            if preview.path:
+                path_label = Text("path: ", style="dim")
+                path_label.append(
+                    fit_path_for_display(
+                        preview.path,
+                        max(1, console.console.size.width - len("path: ")),
+                    ),
+                    style="cyan",
+                )
+                code_renderables.append(path_label)
+            body_cursor = cursor_suffix if not segment.tool_completed else ""
+            code_renderables.append(
                 _CursorSyntax(
                     preview.code,
                     preview.language,
                     theme=self._display.code_style,
                     word_wrap=self._display.code_word_wrap,
-                    cursor_suffix=cursor_suffix,
-                ),
+                    cursor_suffix=body_cursor,
+                )
             )
+            if segment.tool_completed:
+                code_renderables.append(build_code_rule(max_width=console.console.size.width))
+                if cursor_suffix:
+                    code_renderables.append(Text(cursor_suffix, style="dim"))
+            return Group(*code_renderables)
 
         header_text = self._tool_header_text(segment)
         tool_text = header_text

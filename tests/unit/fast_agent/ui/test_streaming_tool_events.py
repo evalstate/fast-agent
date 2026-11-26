@@ -986,3 +986,38 @@ def test_tool_stream_code_preview_uses_namespaced_tool_metadata() -> None:
     assert preview.language == "python"
     assert preview.code == "resp = await hf_trending()\nprin"
     assert preview.complete is False
+
+
+def test_write_text_file_stream_exposes_completed_path_and_renders_empty_content() -> None:
+    from rich.console import Console
+
+    from fast_agent.ui.console_display import ConsoleDisplay
+    from fast_agent.ui.streaming.display import STREAM_CURSOR_BLOCK, StreamingMessageHandle
+
+    assembler = _make_assembler()
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "write_text_file",
+            "tool_use_id": "tool-write-empty",
+            "chunk": '{"path":"pkg/__init__.py","content":""}',
+        },
+    )
+    segment = assembler.segments[0]
+    preview = segment.code_preview
+    assert preview is not None
+    assert preview.path == "pkg/__init__.py"
+    assert preview.language == "python"
+    assert preview.code == ""
+
+    display = ConsoleDisplay()
+    handle = StreamingMessageHandle(display=display)
+    renderable = handle._render_display_segment(segment, cursor_suffix=STREAM_CURSOR_BLOCK)
+    test_console = Console(width=80, force_terminal=True, color_system=None)
+    lines = [
+        "".join(seg.text for seg in line)
+        for line in test_console.render_lines(renderable, test_console.options, pad=False)
+    ]
+    assert any("python (write_text_file)" in line for line in lines)
+    assert any("path: pkg/__init__.py" in line for line in lines)
+    assert not any('"content"' in line for line in lines)

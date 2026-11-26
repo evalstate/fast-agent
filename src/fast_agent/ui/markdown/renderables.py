@@ -9,8 +9,16 @@ from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
 from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.errors import StyleSyntaxError
+from rich.markdown import (
+    BlockQuote,
+    Heading,
+    HorizontalRule,
+    ListItem,
+    Markdown,
+    MarkdownElement,
+    Paragraph,
+)
 from rich.markdown import CodeBlock as RichCodeBlock
-from rich.markdown import Markdown, MarkdownElement
 from rich.segment import Segment
 from rich.style import Style
 from rich.syntax import Syntax
@@ -18,10 +26,12 @@ from rich.text import Text
 
 from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
 from fast_agent.ui.markdown.content import prepare_markdown_content
-from fast_agent.ui.message_styles import build_code_rule
+from fast_agent.ui.message_styles import SHORT_RULE_WIDTH, build_code_rule
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from markdown_it.token import Token
+
     from fast_agent.command_actions.models import MarkdownTextStyle
 
 _FENCE_OPEN_LINE_RE = re.compile(r"^\s{0,3}(?P<delim>`{3,}|~{3,})(?P<info>.*)$")
@@ -90,6 +100,7 @@ class _ParsedMarkdownSpan:
     raw_text: str = ""
     code: str = ""
     language: str = "text"
+    complete: bool = True
 
 
 @dataclass(frozen=True)
@@ -104,6 +115,8 @@ class _RenderableChunk:
     text: str
     language: str = "text"
     reference_definitions: str = ""
+    complete: bool = True
+    cursor_suffix: str = ""
 
 
 @dataclass(frozen=True)
@@ -362,9 +375,10 @@ def extract_single_fenced_code_block(text: str) -> FencedCodeBlock | None:
         fence=fence,
     )
     if closing_index is None:
+        raw_lines = text.splitlines(keepends=True)
         return FencedCodeBlock(
             language=language,
-            code="\n".join(lines[start_index + 1 :]),
+            code="".join(raw_lines[start_index + 1 :]),
             complete=False,
         )
 
@@ -454,7 +468,7 @@ def _parse_markdown_document(text: str) -> _ParsedMarkdownDocument | None:
     for token in tokens:
         if token.type not in ("fence", "code_block", "definition") or token.map is None:
             continue
-        if getattr(token, "level", 0) != 0:
+        if token.level != 0:
             continue
 
         start_line, end_line = token.map
@@ -462,7 +476,7 @@ def _parse_markdown_document(text: str) -> _ParsedMarkdownDocument | None:
         end = min(offsets[end_line], len(text))
 
         if token.type == "definition":
-            meta = getattr(token, "meta", {}) or {}
+            meta = token.meta
             identifier = str(meta.get("id", "") or "")
             if identifier and identifier not in seen_reference_ids:
                 seen_reference_ids.add(identifier)
@@ -477,15 +491,17 @@ def _parse_markdown_document(text: str) -> _ParsedMarkdownDocument | None:
             continue
 
         raw_text = text[start:end]
-        info = (getattr(token, "info", "") or "").strip()
+        info = (token.info or "").strip()
         language = info.split(" ", 1)[0] or "text"
-        code = getattr(token, "content", "") or ""
+        code = token.content or ""
+        complete = True
 
         if token.type == "fence":
             fenced = extract_single_fenced_code_block(raw_text)
             if fenced is not None:
                 code = fenced.code
                 language = fenced.language or language
+                complete = fenced.complete
 
         spans.append(
             _ParsedMarkdownSpan(
@@ -495,6 +511,7 @@ def _parse_markdown_document(text: str) -> _ParsedMarkdownDocument | None:
                 raw_text=raw_text,
                 code=code,
                 language=language,
+                complete=complete,
             )
         )
 
@@ -535,6 +552,7 @@ def _build_renderable_chunks(text: str) -> tuple[_RenderableChunk, ...] | None:
                     kind="code",
                     text=span.code,
                     language=span.language,
+                    complete=span.complete,
                 )
             )
         cursor = span.end
@@ -561,6 +579,50 @@ def syntax_theme_has_background(code_theme: str) -> bool:
     return theme.get_background_style().bgcolor is not None
 
 
+class CursorSyntax(Syntax):
+    """Append the stream cursor after lexing so it cannot become an error token."""
+
+    def __init__(
+        self,
+        code: str,
+        lexer: str,
+        *,
+        theme: str,
+        word_wrap: bool,
+        cursor_suffix: str,
+    ) -> None:
+        self._cursor_suffix = cursor_suffix
+        super().__init__(
+            code,
+            lexer,
+            theme=theme,
+            line_numbers=False,
+            word_wrap=word_wrap,
+        )
+
+    def highlight(
+        self,
+        code: str,
+        line_range: tuple[int | None, int | None] | None = None,
+    ) -> Text:
+        highlighted = super().highlight(code, line_range)
+        if self._cursor_suffix and code.endswith("\n") and not self.code.endswith("\n"):
+            highlighted.remove_suffix("\n")
+            highlighted.append(self._cursor_suffix)
+            highlighted.append("\n")
+        else:
+            highlighted.append(self._cursor_suffix)
+        return highlighted
+
+
+def _token_is_open_fence(token: Token) -> bool:
+    if token.type != "fence" or token.map is None:
+        return False
+    start_line, end_line = token.map
+    body_line_count = len((token.content or "").splitlines())
+    return (end_line - start_line) < (2 + body_line_count)
+
+
 class _CodeRule:
     def __init__(self, label: str = "") -> None:
         self.label = label
@@ -574,7 +636,66 @@ class _CodeRule:
         yield build_code_rule(self.label, max_width=options.max_width)
 
 
-class _FramedMarkdownCodeBlock(RichCodeBlock):
+class _ReflowSafeCodeBlock(RichCodeBlock):
+    """Rich Markdown CodeBlock with live incomplete-fence and post-lex cursor support."""
+
+    def __init__(
+        self,
+        lexer_name: str,
+        theme: str,
+        *,
+        is_open: bool = False,
+        cursor_suffix: str = "",
+    ) -> None:
+        super().__init__(lexer_name, theme)
+        self._is_open = is_open
+        self._cursor_suffix = cursor_suffix
+
+    @classmethod
+    def create(cls, markdown: Markdown, token: Token) -> RichCodeBlock:
+        node_info = token.info or ""
+        lexer_name = node_info.partition(" ")[0] or "text"
+        is_open = False
+        cursor_suffix = ""
+        if isinstance(markdown, _ReflowSafeMarkdown):
+            is_open = markdown._live_incomplete_fences and _token_is_open_fence(token)
+            if is_open and token is markdown._cursor_fence_token:
+                cursor_suffix = markdown._cursor_suffix
+        return cls(
+            lexer_name,
+            markdown.code_theme,
+            is_open=is_open,
+            cursor_suffix=cursor_suffix,
+        )
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        del console, options
+        raw_code = str(self.text)
+        code = raw_code if self._is_open else raw_code.rstrip()
+        normalized_language = _normalize_code_language(self.lexer_name)
+        if self._cursor_suffix:
+            yield CursorSyntax(
+                code,
+                normalized_language,
+                theme=self.theme,
+                word_wrap=True,
+                cursor_suffix=self._cursor_suffix,
+            )
+            return
+        yield Syntax(
+            code,
+            normalized_language,
+            theme=self.theme,
+            word_wrap=True,
+            padding=1,
+        )
+
+
+class _FramedMarkdownCodeBlock(_ReflowSafeCodeBlock):
     """Rich Markdown CodeBlock framed by short rules for backgroundless themes."""
 
     def __rich_console__(
@@ -583,23 +704,202 @@ class _FramedMarkdownCodeBlock(RichCodeBlock):
         options: ConsoleOptions,
     ) -> RenderResult:
         del console
-        code = str(self.text).rstrip("\n")
+        raw_code = str(self.text)
+        code = raw_code if self._is_open else raw_code.rstrip("\n")
         normalized_language = _normalize_code_language(self.lexer_name)
         label = "" if normalized_language == "text" else normalized_language
-        syntax = Syntax(
-            code,
-            normalized_language,
-            theme=self.theme,
-            word_wrap=True,
+        syntax: Syntax = (
+            CursorSyntax(
+                code,
+                normalized_language,
+                theme=self.theme,
+                word_wrap=True,
+                cursor_suffix=self._cursor_suffix,
+            )
+            if self._cursor_suffix
+            else Syntax(
+                code,
+                normalized_language,
+                theme=self.theme,
+                word_wrap=True,
+            )
         )
         yield build_code_rule(label, max_width=options.max_width)
         yield syntax
-        yield build_code_rule(max_width=options.max_width)
+        if not self._is_open:
+            yield build_code_rule(max_width=options.max_width)
 
 
-class _FramedMarkdown(Markdown):
+class _ReflowSafeParagraph(Paragraph):
+    """Paragraph without right-edge space padding so terminal reflow stays clean."""
+
+    @classmethod
+    def create(cls, markdown: Markdown, token: Token) -> Paragraph:
+        del token
+        return cls(justify=markdown.justify or "default")
+
+
+class _ReflowSafeHeading(Heading):
+    """Heading rendered left-aligned without right-edge space padding."""
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        del console, options
+        text = self.text.copy()
+        text.justify = "default"
+        yield text
+
+
+class _ReflowSafeListItem(ListItem):
+    """List item whose inner lines omit right-edge space padding."""
+
+    def render_bullet(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        render_options = options.update(width=max(1, options.max_width - 3))
+        lines = console.render_lines(self.elements, render_options, style=self.style, pad=False)
+        bullet_style = console.get_style("markdown.item.bullet", default="none")
+
+        bullet = Segment(" • ", bullet_style)
+        padding = Segment(" " * 3, bullet_style)
+        new_line = Segment("\n")
+        for index, line in enumerate(lines):
+            if index > 0 and not line:
+                yield new_line
+                continue
+            yield bullet if index == 0 else padding
+            yield from line
+            yield new_line
+
+    def render_number(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+        number: int,
+        last_number: int,
+    ) -> RenderResult:
+        number_width = len(str(last_number)) + 2
+        render_options = options.update(width=max(1, options.max_width - number_width))
+        lines = console.render_lines(self.elements, render_options, style=self.style, pad=False)
+        number_style = console.get_style("markdown.item.number", default="none")
+
+        new_line = Segment("\n")
+        padding = Segment(" " * number_width, number_style)
+        numeral = Segment(f"{number}".rjust(number_width - 1) + " ", number_style)
+        for index, line in enumerate(lines):
+            if index > 0 and not line:
+                yield new_line
+                continue
+            yield numeral if index == 0 else padding
+            yield from line
+            yield new_line
+
+
+class _ReflowSafeBlockQuote(BlockQuote):
+    """Block quote whose inner lines omit right-edge space padding."""
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        render_options = options.update(width=max(1, options.max_width - 4))
+        lines = console.render_lines(self.elements, render_options, style=self.style, pad=False)
+        style = self.style
+        new_line = Segment("\n")
+        padding = Segment("▌ ", style)
+        empty_padding = Segment("▌", style)
+        for line in lines:
+            if line:
+                yield padding
+                yield from line
+            else:
+                yield empty_padding
+            yield new_line
+
+
+class _ReflowSafeHorizontalRule(HorizontalRule):
+    """Horizontal rule capped to short-rule width so narrowing panes do not wrap dashes."""
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        style = console.get_style("markdown.hr", default="dim")
+        rule_width = max(0, min(options.max_width, SHORT_RULE_WIDTH))
+        yield Text("─" * rule_width, style=style)
+        yield Text()
+
+
+class _ReflowSafeMarkdown(Markdown):
     elements: ClassVar[dict[str, type[MarkdownElement]]] = {
         **Markdown.elements,
+        "paragraph_open": _ReflowSafeParagraph,
+        "heading_open": _ReflowSafeHeading,
+        "list_item_open": _ReflowSafeListItem,
+        "blockquote_open": _ReflowSafeBlockQuote,
+        "hr": _ReflowSafeHorizontalRule,
+        "fence": _ReflowSafeCodeBlock,
+        "code_block": _ReflowSafeCodeBlock,
+    }
+
+    def __init__(
+        self,
+        markup: str,
+        *,
+        code_theme: str = "monokai",
+        style: str = "",
+        live_incomplete_fences: bool = False,
+        cursor_suffix: str = "",
+        reference_definitions: str = "",
+    ) -> None:
+        self._live_incomplete_fences = live_incomplete_fences
+        self._cursor_suffix = cursor_suffix
+        self._cursor_fence_token: Token | None = None
+        self._trailing_cursor = ""
+        full_markup = f"{markup}\n\n{reference_definitions}" if reference_definitions else markup
+        super().__init__(full_markup, code_theme=code_theme, style=style)
+        if not cursor_suffix:
+            return
+
+        last_leaf = next(
+            (token for token in reversed(self.parsed) if token.nesting == 0),
+            None,
+        )
+        if last_leaf is None or last_leaf.type in {"fence", "code_block", "hr"}:
+            if (
+                last_leaf is not None
+                and last_leaf.type == "fence"
+                and live_incomplete_fences
+                and _token_is_open_fence(last_leaf)
+            ):
+                self._cursor_fence_token = last_leaf
+            else:
+                self._trailing_cursor = cursor_suffix
+            return
+
+        with_cursor = f"{markup}{cursor_suffix}"
+        full_with_cursor = (
+            f"{with_cursor}\n\n{reference_definitions}" if reference_definitions else with_cursor
+        )
+        super().__init__(full_with_cursor, code_theme=code_theme, style=style)
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        yield from super().__rich_console__(console, options)
+        if self._trailing_cursor:
+            style = console.get_style(self.style, default="none")
+            yield Text(self._trailing_cursor, style=style)
+
+
+class _FramedMarkdown(_ReflowSafeMarkdown):
+    elements: ClassVar[dict[str, type[MarkdownElement]]] = {
+        **_ReflowSafeMarkdown.elements,
         "fence": _FramedMarkdownCodeBlock,
         "code_block": _FramedMarkdownCodeBlock,
     }
@@ -610,10 +910,22 @@ def build_rich_markdown(
     *,
     code_theme: str,
     style: str = "",
+    live_incomplete_fences: bool = False,
+    cursor_suffix: str = "",
+    reference_definitions: str = "",
 ) -> Markdown:
-    """Build a Rich Markdown renderable with short-rule code framing for palette themes."""
-    markdown_cls = Markdown if syntax_theme_has_background(code_theme) else _FramedMarkdown
-    return markdown_cls(text, code_theme=code_theme, style=style)
+    """Build a reflow-safe Rich Markdown renderable with short-rule framing for palette themes."""
+    markdown_cls = (
+        _ReflowSafeMarkdown if syntax_theme_has_background(code_theme) else _FramedMarkdown
+    )
+    return markdown_cls(
+        text,
+        code_theme=code_theme,
+        style=style,
+        live_incomplete_fences=live_incomplete_fences,
+        cursor_suffix=cursor_suffix,
+        reference_definitions=reference_definitions,
+    )
 
 
 def _render_markdown_chunk(
@@ -622,19 +934,25 @@ def _render_markdown_chunk(
     code_theme: str,
     escape_xml: bool,
     reference_definitions: str = "",
-):
+    live_incomplete_fences: bool = False,
+    cursor_suffix: str = "",
+) -> RenderableType:
     if not text:
-        return Text("")
+        return Text(cursor_suffix)
     if not text.strip():
-        return Text(text)
+        return Text(f"{text}{cursor_suffix}")
 
     prepared = prepare_markdown_content(text, escape_xml)
     prepared = _rewrite_fence_languages(prepared)
-    if reference_definitions:
-        prepared = f"{prepared}\n\n{reference_definitions}"
     if not prepared:
-        return Text("")
-    return build_rich_markdown(prepared, code_theme=code_theme)
+        return Text(cursor_suffix)
+    return build_rich_markdown(
+        prepared,
+        code_theme=code_theme,
+        live_incomplete_fences=live_incomplete_fences,
+        cursor_suffix=cursor_suffix,
+        reference_definitions=reference_definitions,
+    )
 
 
 def _ensure_final_table_row_newline(text: str) -> str:
@@ -659,47 +977,94 @@ def _render_code_chunk(
     code_theme: str,
     code_word_wrap: bool,
     pad_code_blocks: bool = True,
-):
+    is_open: bool = False,
+    cursor_suffix: str = "",
+) -> RenderableType:
     if _is_apply_patch_language(language):
-        render_text = f"\n{text}\n" if pad_code_blocks else text
+        body_text = f"{text}{cursor_suffix}"
+        render_text = f"\n{body_text}\n" if pad_code_blocks and not is_open else body_text
         return style_apply_patch_preview_text(render_text, default_style="dim")
 
     normalized_language = _normalize_code_language(language)
-    if not syntax_theme_has_background(code_theme):
-        syntax = Syntax(
+    syntax: Syntax = (
+        CursorSyntax(
+            text,
+            normalized_language,
+            theme=code_theme,
+            word_wrap=code_word_wrap,
+            cursor_suffix=cursor_suffix,
+        )
+        if cursor_suffix
+        else Syntax(
             text,
             normalized_language,
             theme=code_theme,
             line_numbers=False,
             word_wrap=code_word_wrap,
         )
+    )
+    if not syntax_theme_has_background(code_theme):
         label = "" if normalized_language == "text" else normalized_language
+        if is_open:
+            return Group(_CodeRule(label), syntax)
         return Group(_CodeRule(label), syntax, _CodeRule())
 
-    render_text = f"\n{text}\n" if pad_code_blocks else text
-    return Syntax(
-        render_text,
-        normalized_language,
-        theme=code_theme,
-        line_numbers=False,
-        word_wrap=code_word_wrap,
-    )
+    if pad_code_blocks and not cursor_suffix:
+        render_text = f"\n{text}\n"
+        return Syntax(
+            render_text,
+            normalized_language,
+            theme=code_theme,
+            line_numbers=False,
+            word_wrap=code_word_wrap,
+        )
+    if pad_code_blocks and cursor_suffix:
+        top_pad = Text("")
+        if is_open:
+            return Group(top_pad, syntax)
+        return Group(top_pad, syntax, Text(""))
+    return syntax
 
 
 def _append_cursor_to_last_chunk(
     chunks: tuple[_RenderableChunk, ...],
     cursor_suffix: str,
+    *,
+    live_incomplete_fences: bool = False,
 ) -> list[_RenderableChunk]:
     render_chunks = list(chunks)
     if not cursor_suffix:
         return render_chunks
 
     last = render_chunks[-1]
+    if last.kind == "code":
+        is_open = live_incomplete_fences and not last.complete
+        if is_open:
+            render_chunks[-1] = _RenderableChunk(
+                kind="code",
+                text=last.text,
+                language=last.language,
+                reference_definitions=last.reference_definitions,
+                complete=last.complete,
+                cursor_suffix=cursor_suffix,
+            )
+        else:
+            render_chunks.append(
+                _RenderableChunk(
+                    kind="markdown",
+                    text="",
+                    cursor_suffix=cursor_suffix,
+                )
+            )
+        return render_chunks
+
     render_chunks[-1] = _RenderableChunk(
-        kind=last.kind,
-        text=last.text + cursor_suffix,
+        kind="markdown",
+        text=last.text,
         language=last.language,
         reference_definitions=last.reference_definitions,
+        complete=last.complete,
+        cursor_suffix=cursor_suffix,
     )
     return render_chunks
 
@@ -712,13 +1077,16 @@ def _render_chunks(
     escape_xml: bool,
     code_word_wrap: bool,
     pad_code_blocks: bool,
-):
+    live_incomplete_fences: bool = False,
+) -> RenderableType:
     renderables = [
         _render_markdown_chunk(
             chunk.text,
             code_theme=code_theme,
             escape_xml=escape_xml,
             reference_definitions=chunk.reference_definitions,
+            live_incomplete_fences=live_incomplete_fences,
+            cursor_suffix=chunk.cursor_suffix,
         )
         if chunk.kind == "markdown"
         else _render_code_chunk(
@@ -727,8 +1095,14 @@ def _render_chunks(
             code_theme=code_theme,
             code_word_wrap=code_word_wrap,
             pad_code_blocks=pad_code_blocks,
+            is_open=live_incomplete_fences and not chunk.complete,
+            cursor_suffix=chunk.cursor_suffix,
         )
-        for chunk in _append_cursor_to_last_chunk(chunks, cursor_suffix)
+        for chunk in _append_cursor_to_last_chunk(
+            chunks,
+            cursor_suffix,
+            live_incomplete_fences=live_incomplete_fences,
+        )
     ]
     if len(renderables) == 1:
         return renderables[0]
@@ -745,29 +1119,30 @@ def build_markdown_renderable(
     render_fences_with_syntax: bool = True,
     code_word_wrap: bool = True,
     pad_code_blocks: bool = True,
-):
+) -> RenderableType:
     if not text and not cursor_suffix:
         return Text("")
 
-    if close_incomplete_fences:
-        text = close_incomplete_code_blocks(text)
-
+    live_incomplete_fences = close_incomplete_fences
     if not cursor_suffix:
         text = _ensure_final_table_row_newline(text)
 
     if render_fences_with_syntax:
         code_block = extract_single_fenced_code_block(text)
         if code_block is not None:
-            code = code_block.code
-            if cursor_suffix:
-                code += cursor_suffix
-            return _render_code_chunk(
-                code,
+            is_open = live_incomplete_fences and not code_block.complete
+            rendered_code = _render_code_chunk(
+                code_block.code,
                 language=code_block.language,
                 code_theme=code_theme,
                 code_word_wrap=code_word_wrap,
                 pad_code_blocks=pad_code_blocks,
+                is_open=is_open,
+                cursor_suffix=cursor_suffix if is_open else "",
             )
+            if cursor_suffix and not is_open:
+                return Group(rendered_code, Text(cursor_suffix))
+            return rendered_code
 
         chunks = _build_renderable_chunks(text)
         if chunks:
@@ -778,18 +1153,23 @@ def build_markdown_renderable(
                 escape_xml=escape_xml,
                 code_word_wrap=code_word_wrap,
                 pad_code_blocks=pad_code_blocks,
+                live_incomplete_fences=live_incomplete_fences,
             )
 
     prepared = prepare_markdown_content(text, escape_xml)
     prepared = _rewrite_fence_languages(prepared)
-    if cursor_suffix:
-        prepared += cursor_suffix
     if not prepared:
-        return Text("")
-    return build_rich_markdown(prepared, code_theme=code_theme)
+        return Text(cursor_suffix)
+    return build_rich_markdown(
+        prepared,
+        code_theme=code_theme,
+        live_incomplete_fences=live_incomplete_fences,
+        cursor_suffix=cursor_suffix,
+    )
 
 
 __all__ = [
+    "CursorSyntax",
     "FencedCodeBlock",
     "build_markdown_renderable",
     "build_rich_markdown",

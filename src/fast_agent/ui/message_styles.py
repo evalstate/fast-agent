@@ -25,6 +25,7 @@ _SHELL_EXIT_CODE_STYLES = {
 }
 _SHELL_EXIT_CODE_ERROR_STYLE = "red reverse bold"
 SHORT_RULE_WIDTH: Final[int] = 36
+STREAM_REPRINT_BANNER_WIDTH: Final[int] = 60
 CODE_RULE_EDGE_STYLE: Final[Style] = Style(color="bright_black")
 CODE_RULE_PILL_STYLE: Final[Style] = Style(color="bright_black", reverse=True)
 
@@ -422,7 +423,7 @@ class A3MessageStyle:
         *,
         label: str | None = None,
     ) -> list[Text]:
-        banner_width = max(1, width)
+        banner_width = max(1, min(width, STREAM_REPRINT_BANNER_WIDTH))
         banner_style = "bright_green bold"
         banner_label = (label or self.stream_reprint_banner_label).strip()
         if not banner_label:

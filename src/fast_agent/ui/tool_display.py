@@ -122,6 +122,7 @@ class PreparedToolCallDisplay:
     max_item_length: int | None
     truncate_content: bool = True
     render_markdown: bool | None = None
+    code_language: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -423,6 +424,8 @@ class ToolDisplay:
             return "bash"
         if is_read_text_file_tool_name(tool_name):
             return "file read"
+        if is_write_text_file_tool_name(tool_name):
+            return "file write"
         if is_apply_patch_tool_name(tool_name) or normalized_name == EDIT_FILE_TOOL_NAME:
             return f"edit {ToolDisplay._base_tool_name(tool_name)}"
 
@@ -513,15 +516,15 @@ class ToolDisplay:
 
     def _compact_write_text_file_preview(
         self,
-        syntax: Syntax,
+        code_text: str,
         path_value: object,
         *,
+        language: str,
         max_lines: int | None,
     ) -> Group:
         path = strip_str_to_none(path_value)
-        language = syntax_language_for_path(path) if path else None
         preview = Syntax(
-            limit_preview_lines(syntax.code, max_lines=max_lines),
+            limit_preview_lines(code_text, max_lines=max_lines),
             language or "text",
             theme=self._display.code_style,
             line_numbers=False,
@@ -557,14 +560,13 @@ class ToolDisplay:
             tool_call_id=tool_call_id,
             request_count=request_count,
         )
-        if metadata.get("variant") == "code":
-            language = metadata.get("language")
+        if prepared.code_language is not None:
             line = self._compact_code_rule_line(
                 message_type=MessageType.TOOL_CALL,
                 name=name,
                 label=format_code_tool_pill_label(
                     tool_name,
-                    language if isinstance(language, str) else None,
+                    prepared.code_language,
                 ),
                 annotations=annotations,
                 show_hook_indicator=show_hook_indicator,
@@ -589,15 +591,22 @@ class ToolDisplay:
         arguments = self._display.tool_display_settings.arguments
         if arguments == "none":
             return
-        if is_write_text_file_tool_name(tool_name) and isinstance(prepared.content, Syntax):
+        if is_write_text_file_tool_name(tool_name) and prepared.code_language is not None:
+            raw_content = tool_args.get("content")
+            code_text = raw_content if isinstance(raw_content, str) else ""
             console.console.print(
                 self._compact_write_text_file_preview(
-                    prepared.content,
+                    code_text,
                     tool_args.get("path"),
+                    language=prepared.code_language,
                     max_lines=(
                         self._display.apply_patch_preview_max_lines if arguments == "auto" else None
                     ),
                 )
+            )
+            console.console.print(
+                build_code_rule(max_width=console.console.size.width),
+                markup=self._markup,
             )
             return
         if (
@@ -2236,6 +2245,7 @@ class ToolDisplay:
             }
 
         if metadata.get("variant") == "code":
+            resolved_language = str(metadata.get("language") or "text")
             content, footer_items = self._build_code_tool_call_syntax(tool_args, metadata)
             return PreparedToolCallDisplay(
                 content=content,
@@ -2245,6 +2255,7 @@ class ToolDisplay:
                 max_item_length=max(max_item_length or 0, 50) or None,
                 truncate_content=False,
                 render_markdown=False,
+                code_language=resolved_language,
             )
 
         if is_apply_patch_tool_name(tool_name):

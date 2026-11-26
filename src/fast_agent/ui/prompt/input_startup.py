@@ -197,11 +197,14 @@ def queue_startup_markdown_notice(
         return
 
     if style is not None and right_info is None and agent_name is None:
-        from rich.markdown import Markdown
+        from fast_agent.ui.markdown import build_rich_markdown
 
         if title:
             queue_startup_notice(notices, title)
-        queue_startup_notice(notices, Markdown(text, style=style or ""))
+        queue_startup_notice(
+            notices,
+            build_rich_markdown(text, code_theme="ansi_light", style=style or ""),
+        )
         return
 
     notices.append(
