@@ -25,6 +25,7 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
     session = SimpleNamespace(
         info=SimpleNamespace(
             name="session-1",
+            history_files=[],
             metadata={
                 "title": "Review auth",
                 "agent_name": "saved-agent",
@@ -89,7 +90,7 @@ def test_report_session_maps_persisted_and_active_metadata(monkeypatch) -> None:
 def test_report_session_resolves_model_reference_for_herdr(monkeypatch) -> None:
     reports: list[dict[str, object]] = []
     session = SimpleNamespace(
-        info=SimpleNamespace(name="session-1", metadata={}),
+        info=SimpleNamespace(name="session-1", history_files=[], metadata={}),
         directory=Path("/tmp/sessions/session-1"),
     )
     agent = SimpleNamespace(

@@ -9,6 +9,10 @@ from typing import TYPE_CHECKING
 
 from fast_agent.cli.asyncio_utils import set_asyncio_exception_handler
 from fast_agent.integrations.herdr_lifecycle import release_agent
+from fast_agent.integrations.program_resume import (
+    capture_program_resume_token,
+    deactivate_program_resume,
+)
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
 
@@ -50,6 +54,7 @@ def run_request(request: AgentRunRequest) -> None:
     """Run an agent request with CLI-compatible loop lifecycle semantics."""
     from .agent_setup import run_agent_request
 
+    capture_program_resume_token()
     configure_uvloop()
 
     loop = ensure_event_loop()
@@ -119,6 +124,7 @@ def run_request(request: AgentRunRequest) -> None:
             loop.run_until_complete(loop.shutdown_asyncgens())
         with suppress(BaseException):
             loop.close()
+        deactivate_program_resume()
         release_agent()
 
     if exit_code not in (None, 0):

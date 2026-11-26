@@ -9,6 +9,10 @@ from fast_agent.integrations.herdr_lifecycle import (
     report_session_metadata,
     session_reporting_enabled,
 )
+from fast_agent.integrations.program_resume import (
+    program_resume_configured,
+    report_program_resume_session,
+)
 from fast_agent.llm.model_display_name import format_model_display_name
 from fast_agent.session import extract_session_title
 from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
@@ -94,11 +98,19 @@ def _usage_metadata(
     return context_usage, " · ".join(token_parts) or None
 
 
+def _resumable_session_id(session: "Session | None") -> str | None:
+    if session is None or not session.info.history_files:
+        return None
+    return session.info.name or None
+
+
 def report_session(
     session: "Session | None",
     *,
     agent: "AgentProtocol | None" = None,
 ) -> None:
+    if program_resume_configured():
+        report_program_resume_session(_resumable_session_id(session))
     if not session_reporting_enabled():
         return
     metadata = session.info.metadata if session is not None else {}
@@ -133,7 +145,7 @@ def report_current_session(
     agent: "AgentProtocol | None" = None,
     agent_lookup: "Callable[[], AgentProtocol | None] | None" = None,
 ) -> None:
-    if not session_reporting_enabled() or manager is None:
+    if (not session_reporting_enabled() and not program_resume_configured()) or manager is None:
         return
     if agent is None and agent_lookup is not None:
         agent = agent_lookup()
