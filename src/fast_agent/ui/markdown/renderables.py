@@ -658,8 +658,8 @@ class _ReflowSafeCodeBlock(RichCodeBlock):
         is_open = False
         cursor_suffix = ""
         if isinstance(markdown, _ReflowSafeMarkdown):
-            is_open = markdown._live_incomplete_fences and _token_is_open_fence(token)
-            if is_open and token is markdown._cursor_fence_token:
+            is_open = token is markdown._open_fence_token
+            if is_open:
                 cursor_suffix = markdown._cursor_suffix
         return cls(
             lexer_name,
@@ -857,26 +857,32 @@ class _ReflowSafeMarkdown(Markdown):
     ) -> None:
         self._live_incomplete_fences = live_incomplete_fences
         self._cursor_suffix = cursor_suffix
-        self._cursor_fence_token: Token | None = None
+        self._open_fence_token: Token | None = None
         self._trailing_cursor = ""
         full_markup = f"{markup}\n\n{reference_definitions}" if reference_definitions else markup
         super().__init__(full_markup, code_theme=code_theme, style=style)
-        if not cursor_suffix:
-            return
 
         last_leaf = next(
             (token for token in reversed(self.parsed) if token.nesting == 0),
             None,
         )
+        if live_incomplete_fences and last_leaf is not None and _token_is_open_fence(last_leaf):
+            body_tokens = self.parsed
+            if reference_definitions:
+                markup_only = Markdown(markup, code_theme=code_theme, style=style)
+                body_tokens = markup_only.parsed
+            max_mapped_end = max(
+                (token.map[1] for token in body_tokens if token.map is not None),
+                default=0,
+            )
+            if max_mapped_end >= len(markup.splitlines()):
+                self._open_fence_token = last_leaf
+
+        if not cursor_suffix:
+            return
+
         if last_leaf is None or last_leaf.type in {"fence", "code_block", "hr"}:
-            if (
-                last_leaf is not None
-                and last_leaf.type == "fence"
-                and live_incomplete_fences
-                and _token_is_open_fence(last_leaf)
-            ):
-                self._cursor_fence_token = last_leaf
-            else:
+            if self._open_fence_token is None:
                 self._trailing_cursor = cursor_suffix
             return
 

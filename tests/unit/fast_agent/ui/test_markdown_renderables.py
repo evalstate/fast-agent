@@ -477,6 +477,17 @@ def test_live_incomplete_fences_omit_bottom_rule_and_keep_single_clean_cursor() 
     assert sum(line.count(STREAM_CURSOR_BLOCK) for line in nested_quote) == 1
     assert nested_quote[-1] == f"▌ a{STREAM_CURSOR_BLOCK}"
 
+    # Exiting a blockquote without an explicit closing fence closes the block and moves cursor out
+    exited_quote_blank = render_plain("> ```python\n> a\n\n")
+    assert sum(line.count(STREAM_CURSOR_BLOCK) for line in exited_quote_blank) == 1
+    assert any(line == "▌ " + "─" * 36 for line in exited_quote_blank)
+    assert exited_quote_blank[-1] == STREAM_CURSOR_BLOCK
+
+    exited_quote_prose = render_plain("> ```python\n> a\n\noutside")
+    assert sum(line.count(STREAM_CURSOR_BLOCK) for line in exited_quote_prose) == 1
+    assert any(line == "▌ " + "─" * 36 for line in exited_quote_prose)
+    assert exited_quote_prose[-1] == f"outside{STREAM_CURSOR_BLOCK}"
+
     # Under ansi_dark, cursor must not inherit Pygments red/underline error styling
     dark_renderable = _CursorStyledRenderable(
         build_markdown_renderable(
