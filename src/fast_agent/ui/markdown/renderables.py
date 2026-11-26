@@ -3,13 +3,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
 from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.errors import StyleSyntaxError
-from rich.markdown import Markdown
+from rich.markdown import CodeBlock as RichCodeBlock
+from rich.markdown import Markdown, MarkdownElement
 from rich.segment import Segment
 from rich.style import Style
 from rich.syntax import Syntax
@@ -17,6 +18,7 @@ from rich.text import Text
 
 from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
 from fast_agent.ui.markdown.content import prepare_markdown_content
+from fast_agent.ui.message_styles import build_code_rule_footer, build_code_rule_header
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
@@ -552,6 +554,80 @@ def _build_renderable_chunks(text: str) -> tuple[_RenderableChunk, ...] | None:
     return tuple(chunk for chunk in chunks if chunk.kind == "code" or chunk.text)
 
 
+@lru_cache(maxsize=64)
+def syntax_theme_has_background(code_theme: str) -> bool:
+    """Return True when the Rich/Pygments syntax theme paints its own background."""
+    theme = Syntax.get_theme(code_theme)
+    return theme.get_background_style().bgcolor is not None
+
+
+class _CodeRuleHeader:
+    def __init__(self, label: str) -> None:
+        self.label = label
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        del console
+        yield build_code_rule_header(self.label, max_width=options.max_width)
+
+
+class _CodeRuleFooter:
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        del console
+        yield build_code_rule_footer(max_width=options.max_width)
+
+
+class _FramedMarkdownCodeBlock(RichCodeBlock):
+    """Rich Markdown CodeBlock framed by short rules when the theme has no background."""
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        if syntax_theme_has_background(self.theme):
+            yield from super().__rich_console__(console, options)
+            return
+
+        code = str(self.text).rstrip("\n")
+        language = self.lexer_name.strip()
+        syntax = Syntax(
+            code,
+            language or "text",
+            theme=self.theme,
+            word_wrap=True,
+        )
+        yield build_code_rule_header(language, max_width=options.max_width)
+        yield syntax
+        yield build_code_rule_footer(max_width=options.max_width)
+
+
+class _FramedMarkdown(Markdown):
+    elements: ClassVar[dict[str, type[MarkdownElement]]] = {
+        **Markdown.elements,
+        "fence": _FramedMarkdownCodeBlock,
+        "code_block": _FramedMarkdownCodeBlock,
+    }
+
+
+def build_rich_markdown(
+    text: str,
+    *,
+    code_theme: str,
+    style: str = "",
+) -> Markdown:
+    """Build a Rich Markdown renderable with short-rule code framing for palette themes."""
+    markdown_cls = Markdown if syntax_theme_has_background(code_theme) else _FramedMarkdown
+    return markdown_cls(text, code_theme=code_theme, style=style)
+
+
 def _render_markdown_chunk(
     text: str,
     *,
@@ -570,7 +646,7 @@ def _render_markdown_chunk(
         prepared = f"{prepared}\n\n{reference_definitions}"
     if not prepared:
         return Text("")
-    return Markdown(prepared, code_theme=code_theme)
+    return build_rich_markdown(prepared, code_theme=code_theme)
 
 
 def _ensure_final_table_row_newline(text: str) -> str:
@@ -596,12 +672,26 @@ def _render_code_chunk(
     code_word_wrap: bool,
     pad_code_blocks: bool = True,
 ):
-    render_text = f"\n{text}\n" if pad_code_blocks else text
     if _is_apply_patch_language(language):
+        render_text = f"\n{text}\n" if pad_code_blocks else text
         return style_apply_patch_preview_text(render_text, default_style="dim")
+
+    normalized_language = _normalize_code_language(language)
+    if not syntax_theme_has_background(code_theme):
+        syntax = Syntax(
+            text,
+            normalized_language,
+            theme=code_theme,
+            line_numbers=False,
+            word_wrap=code_word_wrap,
+        )
+        label = normalized_language if language.strip() else ""
+        return Group(_CodeRuleHeader(label), syntax, _CodeRuleFooter())
+
+    render_text = f"\n{text}\n" if pad_code_blocks else text
     return Syntax(
         render_text,
-        _normalize_code_language(language),
+        normalized_language,
         theme=code_theme,
         line_numbers=False,
         word_wrap=code_word_wrap,
@@ -708,11 +798,13 @@ def build_markdown_renderable(
         prepared += cursor_suffix
     if not prepared:
         return Text("")
-    return Markdown(prepared, code_theme=code_theme)
+    return build_rich_markdown(prepared, code_theme=code_theme)
 
 
 __all__ = [
     "FencedCodeBlock",
+    "build_rich_markdown",
+    "syntax_theme_has_background",
     "build_markdown_renderable",
     "close_incomplete_code_blocks",
     "extract_single_fenced_code_block",

@@ -354,3 +354,22 @@ def test_extract_single_fenced_code_block_handles_incomplete_stream() -> None:
     assert block.language == "python"
     assert block.code == "print('hi')"
     assert block.complete is False
+
+
+def test_build_markdown_renderable_frames_ansi_code_blocks_with_capped_rules() -> None:
+    renderable = build_markdown_renderable(
+        "Before\n\n```python\nx = 1\n```\n\nAfter",
+        code_theme="ansi_light",
+        escape_xml=True,
+    )
+    console = Console(width=100, force_terminal=True, color_system="truecolor")
+    with console.capture() as capture:
+        console.print(renderable)
+
+    lines = [line for line in capture.get().splitlines() if line.strip()]
+    header = next(line for line in lines if "python" in line)
+    footer = lines[-2]
+    assert "──" in header
+    assert Text.from_ansi(header).cell_len == 36
+    assert Text.from_ansi(footer).cell_len == 36
+    assert Text.from_ansi(footer).plain == "─" * 36

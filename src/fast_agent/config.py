@@ -2182,7 +2182,7 @@ class LoggerSettings(BaseModel):
     """Streaming renderer for assistant responses"""
     theme_file: str | None = None
     """Optional Rich theme file for console styles. Relative paths resolve from fast-agent.yaml."""
-    code_theme: str = "native"
+    code_theme: str = "ansi_light"
     """Pygments / Rich syntax theme for fenced code blocks and markdown code rendering."""
     render_fences_with_syntax: bool = True
     """Render assistant markdown code fences with Rich Syntax instead of markdown fence blocks"""

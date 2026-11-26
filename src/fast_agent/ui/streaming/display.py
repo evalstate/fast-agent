@@ -13,7 +13,6 @@ from rich.console import Console, Group
 from rich.control import Control
 from rich.file_proxy import FileProxy
 from rich.live import Live
-from rich.markdown import Markdown
 from rich.segment import ControlType, Segment
 from rich.style import Style
 from rich.syntax import Syntax
@@ -28,9 +27,11 @@ from fast_agent.ui.context_usage_display import format_compact_context_usage_per
 from fast_agent.ui.markdown.content import prepare_markdown_content
 from fast_agent.ui.markdown.renderables import (
     build_markdown_renderable,
+    build_rich_markdown,
     close_incomplete_code_blocks,
 )
 from fast_agent.ui.markdown.truncation import MarkdownTruncator
+from fast_agent.ui.message_styles import build_code_rule_header
 from fast_agent.ui.prompt.turn_input import queued_input_count
 from fast_agent.ui.streaming.plain_text import PlainTextTruncator
 from fast_agent.ui.streaming.segments import StreamSegmentAssembler
@@ -314,9 +315,10 @@ def _style_terminal_stream_cursor(
     visible: bool = True,
 ) -> tuple[Segment, ...]:
     visible_text = "".join(segment.text for segment in segments if not segment.control)
-    terminal = visible_text.rstrip()
-    has_cursor = terminal.endswith(STREAM_CURSOR_BLOCK)
-    cursor_offset = len(terminal) - len(STREAM_CURSOR_BLOCK) if has_cursor else len(terminal)
+    trimmed = visible_text.rstrip()
+    cursor_probe = trimmed.rstrip(" \t\r\n─")
+    has_cursor = cursor_probe.endswith(STREAM_CURSOR_BLOCK)
+    cursor_offset = len(cursor_probe) - len(STREAM_CURSOR_BLOCK) if has_cursor else len(trimmed)
     output: list[Segment] = []
     offset = 0
     inserted = False
@@ -1703,7 +1705,7 @@ class StreamingMessageHandle:
             prepared_for_display = close_incomplete_code_blocks(prepared_with_cursor)
         else:
             prepared_for_display = close_incomplete_code_blocks(prepared)
-        return Markdown(
+        return build_rich_markdown(
             prepared_for_display,
             code_theme=self._display.code_style,
             style="dim italic",
@@ -1810,6 +1812,20 @@ class StreamingMessageHandle:
             self._tool_header_prefix.copy() if self._tool_header_prefix is not None else Text()
         )
         tool_name = segment.tool_name or "tool"
+        preview = segment.code_preview
+        if preview is not None and preview.variant == "code":
+            language = preview.language.strip()
+            if tool_name.lower() == "exec_sandbox":
+                pill_label = (
+                    f"{language} (sandbox)" if language and language != "text" else "sandbox"
+                )
+            elif language and language != "text":
+                pill_label = f"{language} ({tool_name})"
+            else:
+                pill_label = tool_name
+            if header_text.plain:
+                header_text.append(" ")
+            return build_code_rule_header(pill_label, prefix=header_text)
         if tool_name:
             if header_text.plain:
                 header_text.append(" ")

@@ -36,6 +36,7 @@ from fast_agent.ui.apply_patch_preview import (
 )
 from fast_agent.ui.edit_file_preview import build_edit_file_preview, format_edit_file_preview
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
+from fast_agent.ui.message_styles import build_code_rule_footer, build_code_rule_header
 from fast_agent.ui.shell_output_truncation import (
     format_shell_output_line_count,
     truncate_shell_output_lines,
@@ -277,7 +278,37 @@ class ToolDisplay:
         return TOOL_SOURCE_LABELS.get(source) if source in TOOL_SOURCE_LABELS else None
 
     @staticmethod
+    def _compact_event_prefix(
+        *,
+        message_type: MessageType,
+        name: str | None,
+        is_error: bool = False,
+        show_hook_indicator: bool = False,
+    ) -> Text:
+        config = MESSAGE_CONFIGS[message_type]
+        color = "red" if is_error else config["block_color"]
+        prefix = Text()
+        prefix.append("▎", style=color)
+        prefix.append(config["arrow"], style=config["arrow_style"])
+        if show_hook_indicator:
+            prefix.append(" ◆", style=color)
+        if name:
+            prefix.append(f" {name}", style=color)
+        return prefix
+
+    @staticmethod
+    def _compact_code_pill_label(tool_name: str, metadata: Mapping[str, Any]) -> str:
+        base_name = ToolDisplay._base_tool_name(tool_name)
+        language = str(metadata.get("language") or "").strip()
+        if normalize_tool_name(tool_name) == "exec_sandbox":
+            return f"{language} (sandbox)" if language and language != "text" else "sandbox"
+        if language and language != "text":
+            return f"{language} ({base_name})"
+        return base_name
+
+    @classmethod
     def _compact_event_line(
+        cls,
         *,
         message_type: MessageType,
         name: str | None,
@@ -286,15 +317,12 @@ class ToolDisplay:
         is_error: bool = False,
         show_hook_indicator: bool = False,
     ) -> Text:
-        config = MESSAGE_CONFIGS[message_type]
-        color = "red" if is_error else config["block_color"]
-        line = Text()
-        line.append("▎", style=color)
-        line.append(config["arrow"], style=config["arrow_style"])
-        if show_hook_indicator:
-            line.append(" ◆", style=color)
-        if name:
-            line.append(f" {name}", style=color)
+        line = cls._compact_event_prefix(
+            message_type=message_type,
+            name=name,
+            is_error=is_error,
+            show_hook_indicator=show_hook_indicator,
+        )
         line.append(f" {identity}")
         if annotations:
             line.append(" · ", style="dim")
@@ -482,23 +510,39 @@ class ToolDisplay:
         request_count: int,
         show_hook_indicator: bool,
     ) -> None:
-        identity = self._compact_tool_identity(
-            tool_name=tool_name,
+        annotations = self._compact_call_annotations(
             metadata=metadata,
-            source_label=source_label,
-            server_name=server_name,
+            tool_call_id=tool_call_id,
+            request_count=request_count,
         )
-        line = self._compact_event_line(
-            message_type=MessageType.TOOL_CALL,
-            name=name,
-            identity=identity,
-            annotations=self._compact_call_annotations(
+        if metadata.get("variant") == "code":
+            prefix = self._compact_event_prefix(
+                message_type=MessageType.TOOL_CALL,
+                name=name,
+                show_hook_indicator=show_hook_indicator,
+            )
+            prefix.append(" ")
+            suffix = Text(" · ".join(annotations), style="dim") if annotations else None
+            line = build_code_rule_header(
+                self._compact_code_pill_label(tool_name, metadata),
+                max_width=console.console.size.width,
+                prefix=prefix,
+                suffix=suffix,
+            )
+        else:
+            identity = self._compact_tool_identity(
+                tool_name=tool_name,
                 metadata=metadata,
-                tool_call_id=tool_call_id,
-                request_count=request_count,
-            ),
-            show_hook_indicator=show_hook_indicator,
-        )
+                source_label=source_label,
+                server_name=server_name,
+            )
+            line = self._compact_event_line(
+                message_type=MessageType.TOOL_CALL,
+                name=name,
+                identity=identity,
+                annotations=annotations,
+                show_hook_indicator=show_hook_indicator,
+            )
         console.ensure_blocking_console()
         console.console.print(line, markup=self._markup)
 
@@ -773,23 +817,38 @@ class ToolDisplay:
                 console.console.print(post_content, markup=self._markup)
             return
 
-        identity = self._compact_tool_identity(
-            tool_name=tool_name or "tool",
-            metadata={},
-            source_label=source_label,
-            server_name=server_name,
-        )
         annotations = [status, *(bottom_metadata or [])]
         if short_id := format_tool_call_id(tool_call_id):
             annotations.append(f"id: {short_id}")
-        line = self._compact_event_line(
-            message_type=MessageType.TOOL_RESULT,
-            name=name,
-            identity=identity,
-            annotations=annotations,
-            is_error=result.is_error,
-            show_hook_indicator=show_hook_indicator,
-        )
+        if tool_name and normalize_tool_name(tool_name) == "exec_sandbox":
+            prefix = self._compact_event_prefix(
+                message_type=MessageType.TOOL_RESULT,
+                name=name,
+                is_error=result.is_error,
+                show_hook_indicator=show_hook_indicator,
+            )
+            prefix.append(" ")
+            suffix = Text(" · ".join(annotations), style="dim") if annotations else None
+            line = build_code_rule_footer(
+                max_width=console.console.size.width,
+                prefix=prefix,
+                suffix=suffix,
+            )
+        else:
+            identity = self._compact_tool_identity(
+                tool_name=tool_name or "tool",
+                metadata={},
+                source_label=source_label,
+                server_name=server_name,
+            )
+            line = self._compact_event_line(
+                message_type=MessageType.TOOL_RESULT,
+                name=name,
+                identity=identity,
+                annotations=annotations,
+                is_error=result.is_error,
+                show_hook_indicator=show_hook_indicator,
+            )
         console.console.print(line, markup=self._markup)
 
         show_body = self._compact_result_body_visible(result=result, tool_name=tool_name)

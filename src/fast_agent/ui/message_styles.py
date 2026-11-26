@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from rich.style import Style
 from rich.text import Text
 
 
@@ -18,6 +19,72 @@ _SHELL_EXIT_CODE_STYLES = {
     1: "red reverse dim",
 }
 _SHELL_EXIT_CODE_ERROR_STYLE = "red reverse bold"
+SHORT_RULE_WIDTH = 36
+CODE_RULE_EDGE_STYLE = Style(color="bright_black")
+CODE_RULE_PILL_STYLE = Style(color="bright_black", reverse=True)
+
+
+def build_code_rule_header(
+    label: str = "",
+    *,
+    max_width: int | None = None,
+    prefix: Text | None = None,
+    suffix: Text | None = None,
+) -> Text:
+    """Build a resize-safe short rule header with an optional inverse pill label."""
+    target = SHORT_RULE_WIDTH if max_width is None else min(max_width, SHORT_RULE_WIDTH)
+    line = Text()
+    used = 0
+    if prefix is not None:
+        line.append_text(prefix)
+        used += prefix.cell_len
+    else:
+        line.append("──", style=CODE_RULE_EDGE_STYLE)
+        used += 2
+
+    clean_label = label.strip()
+    if clean_label:
+        pill = f" {clean_label} "
+        line.append(pill, style=CODE_RULE_PILL_STYLE)
+        used += len(pill)
+
+    remaining = target - used
+    if remaining >= 2:
+        line.append("─" * remaining, style=CODE_RULE_EDGE_STYLE)
+    elif clean_label and (max_width is None or used + 2 <= max_width):
+        line.append("──", style=CODE_RULE_EDGE_STYLE)
+
+    if suffix is not None and suffix.plain:
+        line.append(" ")
+        line.append_text(suffix)
+    return line
+
+
+def build_code_rule_footer(
+    *,
+    max_width: int | None = None,
+    prefix: Text | None = None,
+    suffix: Text | None = None,
+) -> Text:
+    """Build a resize-safe short closing rule with optional prefix and suffix."""
+    target = SHORT_RULE_WIDTH if max_width is None else min(max_width, SHORT_RULE_WIDTH)
+    line = Text()
+    used = 0
+    if prefix is not None:
+        line.append_text(prefix)
+        used += prefix.cell_len
+
+    remaining = max(0, target - used)
+    if remaining >= 2:
+        line.append("─" * remaining, style=CODE_RULE_EDGE_STYLE)
+    elif prefix is None and target > 0:
+        line.append("─" * target, style=CODE_RULE_EDGE_STYLE)
+
+    if suffix is not None and suffix.plain:
+        if line.plain:
+            line.append(" ")
+        line.append_text(suffix)
+    return line
 
 
 def _format_bottom_metadata_compact(
@@ -270,28 +337,27 @@ class A3MessageStyle:
     def _header_line_with_rule_fill(self, left_text: Text, right_content: str, width: int) -> Text:
         combined = Text()
         combined.append_text(left_text)
+        target_width = min(width, SHORT_RULE_WIDTH)
 
         if right_content:
             right_text = Text.from_markup(right_content)
             right_text.stylize("dim")
-            remaining = width - left_text.cell_len - right_text.cell_len
+            remaining = target_width - left_text.cell_len - right_text.cell_len
             if remaining >= 3:
                 combined.append(" ", style="default")
-                combined.append("─" * (remaining - 2), style="dim")
+                combined.append("─" * (remaining - 2), style=CODE_RULE_EDGE_STYLE)
                 combined.append(" ", style="default")
                 combined.append_text(right_text)
                 return combined
-            if remaining >= 1:
+            if width - left_text.cell_len - right_text.cell_len >= 1:
                 combined.append(" ", style="default")
             combined.append_text(right_text)
             return combined
 
-        remaining = width - left_text.cell_len
+        remaining = target_width - left_text.cell_len
         if remaining >= 2:
             combined.append(" ", style="default")
-            combined.append("─" * (remaining - 1), style="dim")
-        elif remaining == 1:
-            combined.append(" ", style="default")
+            combined.append("─" * (remaining - 1), style=CODE_RULE_EDGE_STYLE)
         return combined
 
     def metadata_line(self, content: Text) -> Text:

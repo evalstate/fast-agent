@@ -519,3 +519,35 @@ async def test_history_review_forces_full_tool_bodies() -> None:
     assert "■ structured content" in rendered
     assert rendered.count("structured-history-record") == 1
     assert structured_tail in rendered
+
+
+def test_compact_exec_sandbox_uses_python_sandbox_pill_and_short_rules() -> None:
+    display = _display()
+    result = CallToolResult(
+        content=[TextContent(type="text", text="Script completed in 0.12s")],
+        is_error=False,
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            "exec_sandbox",
+            {"code": "print(42)"},
+            name="dev",
+            metadata={"variant": "code", "code_arg": "code", "language": "python"},
+            tool_call_id="call_abcdef0123456789",
+        )
+        display.show_tool_result(
+            result,
+            name="dev",
+            tool_name="exec_sandbox",
+            tool_call_id="call_abcdef0123456789",
+            timing_ms=120.0,
+        )
+
+    lines = capture.get().splitlines()
+    assert any("▎◀ dev" in line and " python (sandbox) " in line and "─" in line for line in lines)
+    assert any("print(42)" in line for line in lines)
+    rendered = " ".join(capture.get().split())
+    assert any("▎▶ dev " in line and "─" in line for line in lines)
+    assert "120ms" in rendered
+    assert "id: call_…456789" in rendered
