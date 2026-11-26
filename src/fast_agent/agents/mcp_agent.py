@@ -694,6 +694,9 @@ class McpAgent(ABC, ToolAgent):
     def list_attached_mcp_servers(self) -> list[str]:
         return unique_preserving_order(self._aggregator.list_attached_servers())
 
+    def list_attached_mcp_server_configs(self) -> dict[str, MCPServerSettings]:
+        return self._aggregator.attached_server_configs()
+
     async def list_servers(self) -> list[str]:
         return unique_preserving_order(
             [
