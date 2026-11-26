@@ -10,11 +10,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from collections import OrderedDict
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from html import escape
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeAlias
 
 from mcp.shared.exceptions import MCPError
 from mcp_types import HEADER_MISMATCH, TextContent
@@ -43,9 +44,67 @@ MAX_ERROR_BACKOFF_MS = 300_000
 MAX_SEEN_EVENT_IDS = 1_024
 MAX_INBOX_ITEMS = 256
 MAX_LIST_PAGES = 100
+DEFAULT_MAX_MODEL_SUBSCRIPTIONS = 8
+DEFAULT_MAX_CONSECUTIVE_WAKES = 20
+
+SubscriptionOrigin: TypeAlias = Literal["user", "declared", "model"]
+
+_POLL_INTERVAL_RE = re.compile(r"^(\d+(?:\.\d+)?)\s*(ms|s|m|h)$")
+_POLL_INTERVAL_UNITS_MS: dict[str, int] = {
+    "ms": 1,
+    "s": 1_000,
+    "m": 60_000,
+    "h": 3_600_000,
+}
 
 # Poll errors answered by listing event types again before giving up.
 _RELIST_CODES = (EVENTS_NOT_FOUND, EVENTS_UNSUPPORTED, HEADER_MISMATCH)
+
+
+def parse_poll_interval_ms(value: str | int) -> int:
+    """Parse a client-side minimum poll interval into positive milliseconds.
+
+    Accepts positive integer milliseconds or duration strings with ``ms``,
+    ``s``, ``m``, or ``h`` units (for example ``"500ms"``, ``"30s"``,
+    ``"5m"``, ``"1h"``).
+    """
+    if isinstance(value, bool):
+        raise ValueError(
+            "Poll interval must be a positive duration string (e.g. '30s', '5m') "
+            "or positive integer milliseconds"
+        )
+    if isinstance(value, int):
+        if value <= 0:
+            raise ValueError("Poll interval must be greater than 0")
+        return value
+    if not isinstance(value, str):
+        raise ValueError(
+            "Poll interval must be a positive duration string (e.g. '30s', '5m') "
+            "or positive integer milliseconds"
+        )
+    match = _POLL_INTERVAL_RE.match(value.strip().lower())
+    if match is None:
+        raise ValueError(
+            f"Invalid poll interval '{value}': expected a duration like '500ms', '30s', '5m', or '1h'"
+        )
+    amount = float(match.group(1))
+    unit = match.group(2)
+    ms = int(round(amount * _POLL_INTERVAL_UNITS_MS[unit]))
+    if ms <= 0:
+        raise ValueError("Poll interval must be greater than 0")
+    return ms
+
+
+def format_poll_interval(ms: int) -> str:
+    """Format a millisecond poll interval compactly for display."""
+    if ms % 3_600_000 == 0:
+        return f"{ms // 3_600_000}h"
+    if ms % 60_000 == 0:
+        return f"{ms // 60_000}m"
+    if ms % 1_000 == 0:
+        return f"{ms // 1_000}s"
+    return f"{ms}ms"
+
 
 EVENT_MESSAGE_PREAMBLE = (
     "MCP event notifications from subscribed servers follow. "
@@ -85,11 +144,17 @@ class EventSubscription:
     arguments: dict[str, Any] = field(default_factory=dict)
     cursor: str | None = None
     """The cursor the next poll resumes from."""
-    status: Literal["active", "terminated"] = "active"
+    status: Literal["active", "completed", "terminated"] = "active"
     last_error: str | None = None
     delivered: int = 0
     wake: bool = False
     """Whether an arrival should start a turn in an idle agent. Off unless the user opts in."""
+    once: bool = False
+    """Whether to stop polling cleanly after the first non-duplicate event arrives."""
+    min_poll_ms: int | None = None
+    """Optional client-side minimum poll interval in milliseconds."""
+    origin: SubscriptionOrigin = "user"
+    """Who created this subscription: user command, declared config, or model tool."""
 
     @property
     def key(self) -> str:
@@ -244,28 +309,66 @@ class EventSubscriptionManager:
         min_poll_ms: int = MIN_POLL_INTERVAL_MS,
         default_poll_ms: int = DEFAULT_POLL_INTERVAL_MS,
         max_inbox: int = MAX_INBOX_ITEMS,
+        max_model_subscriptions: int = DEFAULT_MAX_MODEL_SUBSCRIPTIONS,
+        max_consecutive_wakes: int = DEFAULT_MAX_CONSECUTIVE_WAKES,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._poller = poller
         self._min_poll_ms = min_poll_ms
         self._default_poll_ms = default_poll_ms
         self._max_inbox = max_inbox
+        self._max_model_subscriptions = max_model_subscriptions
+        self._max_consecutive_wakes = max_consecutive_wakes
         self._sleep = sleep
         self._running: dict[str, _Running] = {}
         self._terminated: dict[str, EventSubscription] = {}
+        self._descriptor_cache: dict[str, list[EventDescriptor]] = {}
+        self._subscribe_lock = asyncio.Lock()
         self._inbox: list[EventInboxItem] = []
         # A gap notice for each subscription that lost items to a full inbox.
         self._overflow: dict[str, EventInboxItem] = {}
         self._listeners: list[Callable[[EventInboxItem], None]] = []
         self._wake = asyncio.Event()
+        self._consecutive_wakes = 0
+        self._wake_unpaused = asyncio.Event()
+        if self._max_consecutive_wakes > 0:
+            self._wake_unpaused.set()
 
     def subscriptions(self) -> list[EventSubscription]:
         active = [state.subscription for state in self._running.values()]
         return [*active, *self._terminated.values()]
 
+    def active_wake_subscriptions(self) -> list[EventSubscription]:
+        """Return currently active subscriptions with ``wake=True``."""
+        return [state.subscription for state in self._running.values() if state.subscription.wake]
+
     @property
     def pending_count(self) -> int:
         return len(self._inbox)
+
+    @property
+    def consecutive_wakes(self) -> int:
+        return self._consecutive_wakes
+
+    @property
+    def max_consecutive_wakes(self) -> int:
+        return self._max_consecutive_wakes
+
+    @property
+    def wake_paused(self) -> bool:
+        return self._consecutive_wakes >= self._max_consecutive_wakes
+
+    def record_wake_turn(self) -> None:
+        """Count one consecutive wake turn; pause further wakes once the limit is reached."""
+        self._consecutive_wakes += 1
+        if self.wake_paused:
+            self._wake_unpaused.clear()
+
+    def reset_wake_budget(self) -> None:
+        """Reset the consecutive wake counter (for example after a human-typed turn)."""
+        self._consecutive_wakes = 0
+        if self._max_consecutive_wakes > 0:
+            self._wake_unpaused.set()
 
     def add_listener(self, listener: Callable[[EventInboxItem], None]) -> None:
         """Call ``listener`` with each item that reaches the inbox."""
@@ -275,11 +378,33 @@ class EventSubscriptionManager:
         """Return once the inbox holds an item from a subscription with ``wake`` set.
 
         The host decides what to do next, normally a turn that drains the inbox.
-        Returns at once while such an item is still waiting.
+        Returns at once while such an item is still waiting, unless ``wake_paused``
+        is set (in which case it waits until ``reset_wake_budget()`` is called).
         """
-        await self._wake.wait()
+        while True:
+            await self._wake_unpaused.wait()
+            await self._wake.wait()
+            if not self.wake_paused:
+                return
 
-    async def list_event_types(self, server_name: str) -> list[EventDescriptor]:
+    def cached_descriptors(self, server_name: str) -> list[EventDescriptor] | None:
+        """Return cached ``events/list`` descriptors for ``server_name``, or None."""
+        cached = self._descriptor_cache.get(server_name)
+        return list(cached) if cached is not None else None
+
+    def clear_descriptor_cache(self, server_name: str | None = None) -> None:
+        """Clear cached descriptors for one server, or all servers when ``server_name`` is None."""
+        if server_name is None:
+            self._descriptor_cache.clear()
+        else:
+            self._descriptor_cache.pop(server_name, None)
+
+    async def list_descriptors(
+        self, server_name: str, *, refresh: bool = False
+    ) -> list[EventDescriptor]:
+        """List event types for ``server_name``, caching results lazily per server."""
+        if not refresh and server_name in self._descriptor_cache:
+            return list(self._descriptor_cache[server_name])
         descriptors: list[EventDescriptor] = []
         cursor: str | None = None
         for _ in range(MAX_LIST_PAGES):
@@ -288,7 +413,13 @@ class EventSubscriptionManager:
             cursor = page.next_cursor
             if not cursor:
                 break
-        return descriptors
+        self._descriptor_cache[server_name] = descriptors
+        return list(descriptors)
+
+    async def list_event_types(
+        self, server_name: str, *, refresh: bool = False
+    ) -> list[EventDescriptor]:
+        return await self.list_descriptors(server_name, refresh=refresh)
 
     async def subscribe(
         self,
@@ -297,42 +428,100 @@ class EventSubscriptionManager:
         arguments: dict[str, Any] | None = None,
         *,
         wake: bool = False,
+        once: bool = False,
+        min_poll_ms: int | None = None,
+        origin: SubscriptionOrigin = "user",
     ) -> EventSubscription:
         """Start a poll subscription from now.
 
-        ``wake`` marks its arrivals for ``wait_for_wake``. Subscribing again
-        with the same arguments updates the flag.
+        ``wake`` marks its arrivals for ``wait_for_wake``. ``once`` ends the
+        subscription cleanly after its first non-duplicate event arrives.
+        ``min_poll_ms`` sets a client-side floor on the interval between polls.
+        Subscribing again with the same arguments updates the flags unless a
+        ``model`` call targets a user/declared subscription.
 
         Raises ``ValueError`` when the server does not offer the event type by
-        poll, and ``MCPError`` when the server rejects the arguments.
+        poll, when arguments/limits are invalid, or when a model call attempts
+        to modify a user/declared subscription; raises ``MCPError`` when the
+        server rejects the arguments.
         """
-        subscription = EventSubscription(server_name, name, dict(arguments or {}), wake=wake)
+        if min_poll_ms is not None and min_poll_ms <= 0:
+            raise ValueError("min_poll_ms must be greater than 0")
+
+        subscription = EventSubscription(
+            server_name,
+            name,
+            dict(arguments or {}),
+            wake=wake,
+            once=once,
+            min_poll_ms=min_poll_ms,
+            origin=origin,
+        )
         key = subscription.key
-        existing = self._running.get(key)
-        if existing is not None:
-            existing.subscription.wake = wake
-            return existing.subscription
 
-        descriptor = await self._find_event_type(server_name, name)
-        if descriptor is None:
-            raise ValueError(f"Server '{server_name}' does not offer event '{name}'")
-        if not descriptor.supports("poll"):
-            offered = ", ".join(descriptor.delivery) or "no delivery modes"
-            raise ValueError(
-                f"Event '{name}' on server '{server_name}' does not support poll delivery "
-                f"(offers {offered})"
-            )
+        async with self._subscribe_lock:
+            existing = self._running.get(key)
+            if existing is not None:
+                if origin == "model" and existing.subscription.origin != "model":
+                    raise ValueError(
+                        f"Cannot modify {existing.subscription.origin}-owned subscription '{key}'"
+                    )
+                existing.subscription.wake = wake
+                existing.subscription.once = once
+                existing.subscription.min_poll_ms = min_poll_ms
+                if existing.subscription.origin == "model" and origin != "model":
+                    existing.subscription.origin = origin
+                return existing.subscription
 
-        result = await self._poller.poll_events(server_name, name, subscription.arguments)
-        self._terminated.pop(key, None)
-        state = _Running(subscription)
-        self._running[key] = state
-        self._accept(state, result)
-        self._start(state, self._next_delay_ms(result))
-        return subscription
+            if origin == "model":
+                active_model = sum(
+                    1 for state in self._running.values() if state.subscription.origin == "model"
+                )
+                if active_model >= self._max_model_subscriptions:
+                    raise ValueError(
+                        f"Model subscription limit reached ({self._max_model_subscriptions})"
+                    )
 
-    async def unsubscribe(self, key: str) -> bool:
+            descriptor = await self._find_event_type(server_name, name)
+            if descriptor is None:
+                raise ValueError(f"Server '{server_name}' does not offer event '{name}'")
+            if not descriptor.supports("poll"):
+                offered = ", ".join(descriptor.delivery) or "no delivery modes"
+                raise ValueError(
+                    f"Event '{name}' on server '{server_name}' does not support poll delivery "
+                    f"(offers {offered})"
+                )
+
+            result = await self._poller.poll_events(server_name, name, subscription.arguments)
+            self._terminated.pop(key, None)
+            state = _Running(subscription)
+            self._running[key] = state
+            delivered_now = self._accept(state, result)
+            if subscription.once and delivered_now > 0:
+                self._complete_once(state)
+            else:
+                self._start(state, self._next_delay_ms(subscription, result))
+            return subscription
+
+    async def unsubscribe(
+        self,
+        key: str,
+        *,
+        origin: SubscriptionOrigin | None = None,
+    ) -> bool:
         """Stop polling a subscription. Items already in the inbox are kept."""
+        if origin == "model":
+            running_state = self._running.get(key)
+            if running_state is not None and running_state.subscription.origin != "model":
+                raise ValueError(
+                    f"Cannot unsubscribe {running_state.subscription.origin}-owned "
+                    f"subscription '{key}'"
+                )
+            terminated_sub = self._terminated.get(key)
+            if terminated_sub is not None and terminated_sub.origin != "model":
+                raise ValueError(
+                    f"Cannot unsubscribe {terminated_sub.origin}-owned subscription '{key}'"
+                )
         if self._terminated.pop(key, None) is not None:
             return True
         state = self._running.pop(key, None)
@@ -340,6 +529,20 @@ class EventSubscriptionManager:
             return False
         await self._cancel(state)
         return True
+
+    async def unsubscribe_server(self, server_name: str) -> int:
+        """Unsubscribe all subscriptions for ``server_name`` and clear its descriptor cache."""
+        self._descriptor_cache.pop(server_name, None)
+        keys = [
+            subscription.key
+            for subscription in self.subscriptions()
+            if subscription.server_name == server_name
+        ]
+        removed = 0
+        for key in keys:
+            if await self.unsubscribe(key):
+                removed += 1
+        return removed
 
     def poll_now(self, key: str) -> bool:
         """Poll a subscription at once, from the cursor it already holds.
@@ -367,9 +570,12 @@ class EventSubscriptionManager:
         states = list(self._running.values())
         for state in states:
             await self._cancel(state)
+        self._descriptor_cache.clear()
 
-    async def _find_event_type(self, server_name: str, name: str) -> EventDescriptor | None:
-        for descriptor in await self.list_event_types(server_name):
+    async def _find_event_type(
+        self, server_name: str, name: str, *, refresh: bool = False
+    ) -> EventDescriptor | None:
+        for descriptor in await self.list_descriptors(server_name, refresh=refresh):
             if descriptor.name == name:
                 return descriptor
         return None
@@ -409,7 +615,7 @@ class EventSubscriptionManager:
                     rediscovered = True
                     # A header mismatch leaves the cursor valid.
                     if await self._rediscover(state, restart=exc.code != HEADER_MISMATCH):
-                        delay_ms = self._min_poll_ms
+                        delay_ms = max(self._min_poll_ms, subscription.min_poll_ms or 0)
                         continue
                 if exc.code in _RELIST_CODES or exc.code == EVENTS_FORBIDDEN:
                     self._terminate(state, exc.message)
@@ -425,21 +631,28 @@ class EventSubscriptionManager:
             failures = 0
             rediscovered = False
             subscription.last_error = None
-            self._accept(state, result)
-            delay_ms = self._next_delay_ms(result)
+            delivered_now = self._accept(state, result)
+            if subscription.once and delivered_now > 0:
+                self._complete_once(state)
+                return
+            delay_ms = self._next_delay_ms(subscription, result)
 
-    def _next_delay_ms(self, result: PollEventsResult) -> int:
+    def _next_delay_ms(self, subscription: EventSubscription, result: PollEventsResult) -> int:
         if result.has_more and result.events:
             return 0
         recommended = (
             result.next_poll_ms if result.next_poll_ms is not None else self._default_poll_ms
         )
-        return max(self._min_poll_ms, recommended)
+        return max(self._min_poll_ms, recommended, subscription.min_poll_ms or 0)
 
     def _record_failure(self, state: _Running, exc: Exception, failures: int) -> int:
         state.subscription.last_error = str(exc) or type(exc).__name__
         backoff = self._default_poll_ms * (2 ** min(failures - 1, 10))
-        return max(self._min_poll_ms, min(backoff, MAX_ERROR_BACKOFF_MS))
+        return max(
+            self._min_poll_ms,
+            min(backoff, MAX_ERROR_BACKOFF_MS),
+            state.subscription.min_poll_ms or 0,
+        )
 
     async def _rediscover(self, state: _Running, *, restart: bool) -> bool:
         """Re-list after the server reports the event type gone or changed.
@@ -448,7 +661,9 @@ class EventSubscriptionManager:
         """
         subscription = state.subscription
         try:
-            descriptor = await self._find_event_type(subscription.server_name, subscription.name)
+            descriptor = await self._find_event_type(
+                subscription.server_name, subscription.name, refresh=True
+            )
         except Exception:
             return False
         if descriptor is None or not descriptor.supports("poll"):
@@ -463,6 +678,14 @@ class EventSubscriptionManager:
         )
         return True
 
+    def _complete_once(self, state: _Running) -> None:
+        subscription = state.subscription
+        subscription.status = "completed"
+        subscription.last_error = None
+        self._running.pop(subscription.key, None)
+        self._terminated[subscription.key] = subscription
+        state.task = None
+
     def _terminate(self, state: _Running, reason: str) -> None:
         subscription = state.subscription
         subscription.status = "terminated"
@@ -472,18 +695,23 @@ class EventSubscriptionManager:
         state.task = None
         self._deliver(state, "terminated", detail=f"The subscription has ended: {reason}")
 
-    def _accept(self, state: _Running, result: PollEventsResult) -> None:
+    def _accept(self, state: _Running, result: PollEventsResult) -> int:
         if result.truncated and result.cursor is not None:
             self._deliver(
                 state,
                 "gap",
                 detail=("Some events were skipped. Read current state with tools if it matters."),
             )
+        delivered_now = 0
         for occurrence in result.events:
             if state.remember(occurrence.event_id):
                 self._deliver(state, "event", occurrence=occurrence)
                 state.subscription.delivered += 1
+                delivered_now += 1
+                if state.subscription.once:
+                    break
         state.subscription.cursor = result.cursor
+        return delivered_now
 
     def _deliver(
         self,

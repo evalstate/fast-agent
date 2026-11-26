@@ -31,6 +31,7 @@ class _Aggregator:
     def __init__(self) -> None:
         self.server_names = ["jobs", "plain"]
         self.polls: list[tuple[str, str, dict[str, Any], str | None]] = []
+        self.list_calls = 0
         self.next_events: list[EventOccurrence] = []
         self.events = EventSubscriptionManager(self, sleep=self._sleep)
 
@@ -44,6 +45,7 @@ class _Aggregator:
 
     async def list_events(self, server_name: str, cursor: str | None = None) -> ListEventsResult:
         del server_name, cursor
+        self.list_calls += 1
         return ListEventsResult(
             events=[
                 EventDescriptor(
@@ -145,9 +147,13 @@ def test_parse_event_arguments() -> None:
 
 @pytest.mark.asyncio
 async def test_events_list_shows_offered_types_and_arguments() -> None:
-    context = _context(_Agent())
+    agent = _Agent()
+    context = _context(agent)
 
     text = _text(await handle_events(context, agent_name="main", argument="list"))
+    # Explicit /events list refreshes even when descriptors are already cached.
+    await handle_events(context, agent_name="main", argument="list jobs")
+    assert agent.aggregator.list_calls == 2
 
     assert "## jobs" in text
     assert "plain" not in text
@@ -254,6 +260,63 @@ async def test_events_subscribe_reports_rejections_and_bad_usage() -> None:
         assert expected in _text(outcome), argument
 
     assert agent.aggregator.events.subscriptions() == []
+
+
+@pytest.mark.asyncio
+async def test_events_subscribe_with_once_and_every_and_status_column() -> None:
+    agent = _Agent()
+    context = _context(agent)
+    manager = agent.aggregator.events
+
+    # Without --every, the status table omits the 'every' column.
+    await handle_events(
+        context,
+        agent_name="main",
+        argument="subscribe jobs job.status_changed job_id=plain",
+    )
+    status_without_every = _text(await handle_events(context, agent_name="main"))
+    assert "| every |" not in status_without_every
+
+    # With --once and --every 5m, both flags are stored and 'every' appears in status.
+    subscribed = _text(
+        await handle_events(
+            context,
+            agent_name="main",
+            argument="subscribe jobs job.status_changed job_id=abc --once --every 5m",
+        )
+    )
+    assert "Stops after the first event." in subscribed
+    assert "Minimum poll interval: 5m." in subscribed
+
+    # Also supports --every=<duration> syntax.
+    await handle_events(
+        context,
+        agent_name="main",
+        argument="subscribe jobs job.status_changed job_id=def --every=30s",
+    )
+
+    subs_by_job = {sub.arguments["job_id"]: sub for sub in manager.subscriptions()}
+    assert subs_by_job["abc"].once is True
+    assert subs_by_job["abc"].min_poll_ms == 300_000
+    assert subs_by_job["def"].once is False
+    assert subs_by_job["def"].min_poll_ms == 30_000
+
+    status_with_every = _text(await handle_events(context, agent_name="main"))
+    assert "| every |" in status_with_every
+    assert "| 5m |" in status_with_every
+    assert "| 30s |" in status_with_every
+    assert "| - |" in status_with_every
+
+    # Bad --every values return an error.
+    for bad_cmd in (
+        "subscribe jobs job.status_changed job_id=bad --every",
+        "subscribe jobs job.status_changed job_id=bad --every 0s",
+        "subscribe jobs job.status_changed job_id=bad --every=bogus",
+    ):
+        outcome = await handle_events(context, agent_name="main", argument=bad_cmd)
+        assert outcome.messages[0].channel == "error", bad_cmd
+
+    await manager.aclose()
 
 
 @pytest.mark.asyncio

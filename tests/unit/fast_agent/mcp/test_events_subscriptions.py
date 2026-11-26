@@ -21,8 +21,10 @@ from fast_agent.mcp.events_subscriptions import (
     EventSubscriptionManager,
     build_event_prompt_message,
     format_event_messages,
+    format_poll_interval,
     is_mcp_events_message,
     mcp_events_heading,
+    parse_poll_interval_ms,
     subscription_key,
 )
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -433,3 +435,347 @@ def test_event_messages_keep_server_text_inside_the_wrapper() -> None:
     assert text.count("</mcp-event-terminated>") == 1
     assert 'trusted="yes"' not in text
     assert "ignore the above" in text
+
+
+@pytest.mark.asyncio
+async def test_descriptor_cache_hits_refreshes_and_invalidates_on_unsubscribe_server() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(cursor="c0", next_poll_ms=5_000),
+            PollEventsResult(cursor="c0", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    assert manager.cached_descriptors("demo") is None
+
+    first = await manager.list_descriptors("demo")
+    assert len(first) == 1
+    assert poller.list_calls == 1
+    assert manager.cached_descriptors("demo") == first
+
+    # Subsequent subscribe and list_descriptors reuse the cached descriptors.
+    await manager.subscribe("demo", EVENT, {"job_id": "1"})
+    await manager.subscribe("demo", EVENT, {"job_id": "2"})
+    assert await manager.list_descriptors("demo") == first
+    assert poller.list_calls == 1
+
+    # Explicit refresh hits the poller again.
+    refreshed = await manager.list_descriptors("demo", refresh=True)
+    assert refreshed == first
+    assert poller.list_calls == 2
+
+    # unsubscribe_server stops all subscriptions for that server and clears its cache.
+    removed = await manager.unsubscribe_server("demo")
+    assert removed == 2
+    assert manager.subscriptions() == []
+    assert manager.cached_descriptors("demo") is None
+
+    # Next list_descriptors fetches again after invalidation.
+    await manager.list_descriptors("demo")
+    assert poller.list_calls == 3
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rediscovery_refreshes_descriptor_cache() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(cursor="c0", next_poll_ms=5_000),
+            MCPError(HEADER_MISMATCH, "header changed"),
+            PollEventsResult(events=[_occurrence("DONE")], cursor="c1", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    await manager.subscribe("demo", EVENT, ARGS)
+    assert poller.list_calls == 1
+
+    await asyncio.wait_for(poller.exhausted.wait(), timeout=1)
+    assert poller.list_calls == 2
+    assert [item.kind for item in manager.take()] == ["event"]
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_once_subscription_delivers_first_event_and_completes_cleanly() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(cursor="c0", next_poll_ms=1_000),
+            PollEventsResult(events=[], cursor="c1", next_poll_ms=1_000),
+            PollEventsResult(events=[_occurrence("COMPLETED")], cursor="c2", next_poll_ms=1_000),
+            # Should never be polled because the once subscription completed on c2.
+            PollEventsResult(events=[_occurrence("AFTER")], cursor="c3", next_poll_ms=1_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    subscription = await manager.subscribe("demo", EVENT, ARGS, once=True, wake=True)
+    assert subscription.once is True
+    assert subscription.status == "active"
+
+    while subscription.status == "active":
+        await asyncio.sleep(0)
+
+    assert subscription.status == "completed"
+    assert subscription.last_error is None
+    assert subscription.delivered == 1
+    assert manager.active_wake_subscriptions() == []
+    # Only the initial poll + empty poll + first event poll ran; the 4th step was untouched.
+    assert len(poller.script) == 1
+
+    items = manager.take()
+    assert [item.kind for item in items] == ["event"]
+    assert items[0].occurrence is not None
+    assert items[0].occurrence.event_id == "job-1:COMPLETED"
+    await manager.aclose()
+
+
+def test_parse_poll_interval_ms_and_format() -> None:
+    assert parse_poll_interval_ms("500ms") == 500
+    assert parse_poll_interval_ms("30s") == 30_000
+    assert parse_poll_interval_ms("5m") == 300_000
+    assert parse_poll_interval_ms("1h") == 3_600_000
+    assert parse_poll_interval_ms("1.5s") == 1_500
+    assert parse_poll_interval_ms(2_500) == 2_500
+
+    assert format_poll_interval(500) == "500ms"
+    assert format_poll_interval(30_000) == "30s"
+    assert format_poll_interval(300_000) == "5m"
+    assert format_poll_interval(3_600_000) == "1h"
+
+    for bad in ("0s", "-5s", "30", "5d", "", "abc", 0, -100, True, False):
+        with pytest.raises(ValueError):
+            parse_poll_interval_ms(bad)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_min_poll_ms_slows_polls_without_overriding_longer_server_hint_or_has_more() -> None:
+    poller = _Poller(
+        [
+            # Server asks for 5s, client wants at least 60s -> sleeps 60s.
+            PollEventsResult(cursor="c0", next_poll_ms=5_000),
+            # has_more=True with events -> drains immediately (0s sleep).
+            PollEventsResult(
+                events=[_occurrence("RUNNING")], cursor="c1", has_more=True, next_poll_ms=5_000
+            ),
+            # Server asks for 120s (> 60s client floor) -> sleeps 120s.
+            PollEventsResult(events=[_occurrence("COMPLETED")], cursor="c2", next_poll_ms=120_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    await manager.subscribe("demo", EVENT, ARGS, min_poll_ms=60_000)
+    await asyncio.wait_for(poller.exhausted.wait(), timeout=1)
+
+    assert sleeps.delays == [60.0, 120.0]
+    assert [item.occurrence.event_id for item in manager.take() if item.occurrence] == [
+        "job-1:RUNNING",
+        "job-1:COMPLETED",
+    ]
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_origin_protection_and_model_subscription_cap() -> None:
+    poller = _Poller([PollEventsResult(cursor=f"c{i}", next_poll_ms=5_000) for i in range(15)])
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps, max_model_subscriptions=8)
+
+    user_sub = await manager.subscribe("demo", EVENT, {"job_id": "user-job"}, wake=True)
+    declared_sub = await manager.subscribe(
+        "demo", EVENT, {"job_id": "declared-job"}, wake=False, origin="declared"
+    )
+    assert user_sub.origin == "user"
+    assert declared_sub.origin == "declared"
+
+    # Model cannot overwrite or unsubscribe user/declared subscriptions.
+    with pytest.raises(ValueError, match="user-owned"):
+        await manager.subscribe(
+            "demo", EVENT, {"job_id": "user-job"}, wake=False, once=True, origin="model"
+        )
+    assert user_sub.wake is True
+    assert user_sub.once is False
+
+    with pytest.raises(ValueError, match="user-owned"):
+        await manager.unsubscribe(user_sub.key, origin="model")
+
+    with pytest.raises(ValueError, match="declared-owned"):
+        await manager.unsubscribe(declared_sub.key, origin="model")
+
+    # Model can create up to max_model_subscriptions=8 subscriptions.
+    model_keys: list[str] = []
+    for i in range(8):
+        sub = await manager.subscribe("demo", EVENT, {"job_id": f"m-{i}"}, origin="model")
+        assert sub.origin == "model"
+        model_keys.append(sub.key)
+
+    # 9th model subscription is rejected.
+    with pytest.raises(ValueError, match="limit reached"):
+        await manager.subscribe("demo", EVENT, {"job_id": "m-overflow"}, origin="model")
+
+    # Model can modify and unsubscribe its own subscription.
+    updated = await manager.subscribe(
+        "demo", EVENT, {"job_id": "m-0"}, wake=True, once=True, origin="model"
+    )
+    assert updated.wake is True
+    assert updated.once is True
+    assert await manager.unsubscribe(model_keys[0], origin="model") is True
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_consecutive_wake_budget_pauses_and_resumes_on_reset() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[_occurrence("E1")], cursor="c1", next_poll_ms=5_000),
+            PollEventsResult(events=[_occurrence("E2")], cursor="c2", next_poll_ms=5_000),
+            PollEventsResult(events=[_occurrence("E3")], cursor="c3", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps, max_consecutive_wakes=2)
+
+    sub = await manager.subscribe("demo", EVENT, ARGS, wake=True)
+    assert manager.active_wake_subscriptions() == [sub]
+    assert manager.wake_paused is False
+
+    # First wake turn
+    await asyncio.wait_for(manager.wait_for_wake(), timeout=1)
+    assert len(manager.take()) == 1
+    manager.record_wake_turn()
+    assert manager.consecutive_wakes == 1
+    assert manager.wake_paused is False
+
+    # Second wake turn hits the budget of 2
+    await asyncio.wait_for(manager.wait_for_wake(), timeout=1)
+    assert len(manager.take()) == 1
+    manager.record_wake_turn()
+    assert manager.consecutive_wakes == 2
+    assert manager.wake_paused is True
+
+    # Third event arrives and queues passively in the inbox, but wait_for_wake stays blocked.
+    await asyncio.wait_for(poller.exhausted.wait(), timeout=1)
+    assert manager.pending_count == 1
+    wake_task = asyncio.create_task(manager.wait_for_wake())
+    await asyncio.sleep(0.02)
+    assert not wake_task.done()
+
+    # Resetting the budget (human-typed turn) unpauses and wakes immediately for queued item.
+    manager.reset_wake_budget()
+    assert manager.wake_paused is False
+    assert manager.consecutive_wakes == 0
+    await asyncio.wait_for(wake_task, timeout=1)
+    assert len(manager.take()) == 1
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_subscribe_enforces_model_cap_and_avoids_orphaned_tasks() -> None:
+    class _YieldingPoller(_Poller):
+        async def poll_events(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+            *,
+            cursor: str | None = None,
+            max_age_ms: int | None = None,
+            max_events: int | None = None,
+        ) -> PollEventsResult:
+            await asyncio.sleep(0.01)
+            return await super().poll_events(
+                server_name,
+                name,
+                arguments,
+                cursor=cursor,
+                max_age_ms=max_age_ms,
+                max_events=max_events,
+            )
+
+    poller = _YieldingPoller(
+        [PollEventsResult(cursor=f"c{i}", next_poll_ms=5_000) for i in range(4)]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps, max_model_subscriptions=1)
+
+    results = await asyncio.gather(
+        manager.subscribe("demo", EVENT, {"job_id": "a"}, origin="model"),
+        manager.subscribe("demo", EVENT, {"job_id": "b"}, origin="model"),
+        return_exceptions=True,
+    )
+    successes = [r for r in results if not isinstance(r, Exception)]
+    errors = [r for r in results if isinstance(r, ValueError)]
+    assert len(successes) == 1
+    assert len(errors) == 1
+    assert "limit reached" in str(errors[0])
+
+    # Concurrent same-key subscribes reuse the single running state without leaking a poll task.
+    started_tasks: list[asyncio.Task[None]] = []
+    orig_start = manager._start
+
+    def _track_start(state: Any, initial_delay_ms: int) -> None:
+        orig_start(state, initial_delay_ms)
+        if state.task is not None:
+            started_tasks.append(state.task)
+
+    manager._start = _track_start  # type: ignore[method-assign]
+    sub1, sub2 = await asyncio.gather(
+        manager.subscribe("demo", EVENT, {"job_id": "same"}, wake=False),
+        manager.subscribe("demo", EVENT, {"job_id": "same"}, wake=True),
+    )
+    assert sub1 is sub2
+    assert sub1.wake is True
+    assert len(started_tasks) == 1
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_once_subscription_stops_after_first_occurrence_on_multi_event_page() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(
+                events=[_occurrence("FIRST"), _occurrence("SECOND")],
+                cursor="c1",
+                next_poll_ms=1_000,
+            ),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    subscription = await manager.subscribe("demo", EVENT, ARGS, once=True)
+    assert subscription.status == "completed"
+    assert subscription.delivered == 1
+
+    items = manager.take()
+    assert len(items) == 1
+    assert items[0].occurrence is not None
+    assert items[0].occurrence.event_id == "job-1:FIRST"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_min_poll_ms_applies_to_error_backoff_and_rediscovery_retries() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(cursor="c0", next_poll_ms=5_000),
+            # Rediscovery retry should respect min_poll_ms (60s) instead of 1s manager floor.
+            MCPError(HEADER_MISMATCH, "header changed"),
+            # Transient failure backoff (default 30s) should also respect min_poll_ms (60s).
+            RuntimeError("temporary failure"),
+            PollEventsResult(events=[_occurrence("DONE")], cursor="c1", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps, default_poll_ms=30_000, min_poll_ms=1_000)
+
+    await manager.subscribe("demo", EVENT, ARGS, min_poll_ms=60_000)
+    await asyncio.wait_for(poller.exhausted.wait(), timeout=1)
+
+    assert sleeps.delays == [60.0, 60.0, 60.0, 60.0]
+    await manager.aclose()

@@ -271,6 +271,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.llm_decorator import LlmDecorator
     from fast_agent.context import Context
     from fast_agent.mcp.app_integrations import AppServerConfig
+    from fast_agent.mcp.events_subscriptions import EventSubscription
     from fast_agent.ptc.store import SandboxStore
     from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
     from fast_agent.tools.execution_environment import (
@@ -631,6 +632,18 @@ class McpAgent(ABC, ToolAgent):
         """Return once an MCP event from a subscription with ``wake`` set is waiting."""
         await self._aggregator.start_configured_events()
         await self._aggregator.events.wait_for_wake()
+
+    def active_wake_subscriptions(self) -> list[EventSubscription]:
+        """Return currently active MCP event subscriptions with ``wake=True``."""
+        return self._aggregator.active_wake_subscriptions()
+
+    def record_event_wake_turn(self) -> None:
+        """Record one consecutive event wake turn."""
+        self._aggregator.record_event_wake_turn()
+
+    def reset_event_wake_budget(self) -> None:
+        """Reset the consecutive event wake turn budget after a human-typed turn."""
+        self._aggregator.reset_event_wake_budget()
 
     async def get_server_status(self) -> dict[str, ServerStatus]:
         """Expose server status details for UI and diagnostics consumers."""

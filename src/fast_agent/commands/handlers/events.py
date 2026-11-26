@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from mcp.shared.exceptions import MCPError
 
 from fast_agent.commands.results import CommandOutcome
+from fast_agent.mcp.events_subscriptions import format_poll_interval, parse_poll_interval_ms
 from fast_agent.utils.commandline import split_commandline
 from fast_agent.utils.markdown import escape_markdown_table_cell, markdown_code_span
 from fast_agent.utils.text import strip_casefold
@@ -18,10 +20,50 @@ if TYPE_CHECKING:
     from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
 
 EVENTS_USAGE = (
-    "Usage: /events [list [server]|subscribe <server> <event> [key=value ...] [--wake]|"
-    "poll <id>|unsubscribe <id>|unsubscribe all]"
+    "Usage: /events [list [server]|subscribe <server> <event> [key=value ...] "
+    "[--wake] [--once] [--every <duration>]|poll <id>|unsubscribe <id>|unsubscribe all]"
 )
 WAKE_FLAG = "--wake"
+ONCE_FLAG = "--once"
+EVERY_FLAG = "--every"
+
+
+@dataclass(frozen=True, slots=True)
+class _SubscribeOptions:
+    argument_tokens: list[str]
+    wake: bool = False
+    once: bool = False
+    min_poll_ms: int | None = None
+
+
+def _parse_subscribe_options(tokens: list[str]) -> _SubscribeOptions:
+    argument_tokens: list[str] = []
+    wake = False
+    once = False
+    min_poll_ms: int | None = None
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token == WAKE_FLAG:
+            wake = True
+        elif token == ONCE_FLAG:
+            once = True
+        elif token == EVERY_FLAG:
+            index += 1
+            if index >= len(tokens):
+                raise ValueError("Expected a duration after '--every' (e.g. --every 5m)")
+            min_poll_ms = parse_poll_interval_ms(tokens[index])
+        elif token.startswith(f"{EVERY_FLAG}="):
+            min_poll_ms = parse_poll_interval_ms(token.removeprefix(f"{EVERY_FLAG}="))
+        else:
+            argument_tokens.append(token)
+        index += 1
+    return _SubscribeOptions(
+        argument_tokens=argument_tokens,
+        wake=wake,
+        once=once,
+        min_poll_ms=min_poll_ms,
+    )
 
 
 class _EventsAggregator(Protocol):
@@ -97,20 +139,32 @@ async def handle_events(
             text = await _render_event_types(aggregator, rest[0] if rest else None)
             _add_markdown(outcome, text, "events list")
         elif action == "subscribe" and len(rest) >= 2:
-            wake = WAKE_FLAG in rest
-            arguments = [token for token in rest[2:] if token != WAKE_FLAG]
+            options = _parse_subscribe_options(rest[2:])
             subscription = await aggregator.events.subscribe(
-                rest[0], rest[1], parse_event_arguments(arguments), wake=wake
+                rest[0],
+                rest[1],
+                parse_event_arguments(options.argument_tokens),
+                wake=options.wake,
+                once=options.once,
+                min_poll_ms=options.min_poll_ms,
             )
             delivery = (
                 "Events start a turn when the prompt is idle."
-                if wake
+                if options.wake
                 else "Events are added to the next model call."
             )
+            extras: list[str] = []
+            if options.once:
+                extras.append("Stops after the first event.")
+            if options.min_poll_ms is not None:
+                extras.append(
+                    f"Minimum poll interval: {format_poll_interval(options.min_poll_ms)}."
+                )
+            extra_text = (" " + " ".join(extras)) if extras else ""
             _add_markdown(
                 outcome,
                 f"Subscribed to `{subscription.name}` on `{subscription.server_name}` "
-                f"as `{subscription.key}`. {delivery}",
+                f"as `{subscription.key}`. {delivery}{extra_text}",
                 "events subscribe",
             )
         elif action == "poll" and len(rest) == 1:
@@ -136,21 +190,34 @@ def _render_status(aggregator: _EventsAggregator) -> str:
     if not subscriptions:
         return "No event subscriptions. Use `/events list` to see what servers offer."
 
-    lines = [
-        "| id | server | event | arguments | wake | status | delivered |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
-    ]
+    show_every = any(subscription.min_poll_ms is not None for subscription in subscriptions)
+    if show_every:
+        lines = [
+            "| id | server | event | arguments | wake | every | status | delivered |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    else:
+        lines = [
+            "| id | server | event | arguments | wake | status | delivered |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
+        ]
     for subscription in subscriptions:
         status = subscription.status
         if subscription.last_error:
             status = f"{status}: {subscription.last_error}"
         arguments = json.dumps(subscription.arguments, sort_keys=True)
+        every_cell = (
+            f"| {format_poll_interval(subscription.min_poll_ms) if subscription.min_poll_ms is not None else '-'} "
+            if show_every
+            else ""
+        )
         lines.append(
             f"| `{subscription.key}` "
             f"| {escape_markdown_table_cell(subscription.server_name)} "
             f"| {escape_markdown_table_cell(subscription.name)} "
             f"| {escape_markdown_table_cell(markdown_code_span(arguments))} "
             f"| {'yes' if subscription.wake else 'no'} "
+            f"{every_cell}"
             f"| {escape_markdown_table_cell(status)} "
             f"| {subscription.delivered} |"
         )
@@ -173,7 +240,7 @@ async def _render_event_types(aggregator: _EventsAggregator, server_name: str | 
 
     sections: list[str] = []
     for name in server_names:
-        descriptors = await aggregator.events.list_event_types(name)
+        descriptors = await aggregator.events.list_descriptors(name, refresh=True)
         lines = [f"## {name}", ""]
         if not descriptors:
             lines.append("No event types offered.")

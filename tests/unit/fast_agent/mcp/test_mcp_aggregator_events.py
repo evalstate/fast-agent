@@ -271,3 +271,156 @@ async def test_toolbar_pending_event_count_is_scoped_per_aggregator_and_cleared_
         await agg_one.close()
         await agg_two.close()
         notification_tracker.clear()
+
+
+@pytest.mark.asyncio
+async def test_declared_events_pass_once_every_and_origin_and_aggregator_wake_helpers() -> None:
+    from pydantic import ValidationError
+
+    from fast_agent.config import MCPEventSubscriptionSettings, MCPServerSettings
+    from fast_agent.mcp.events_extension import EventDescriptor
+
+    with pytest.raises(ValidationError):
+        MCPEventSubscriptionSettings(name="job.status_changed", every="invalid")
+    with pytest.raises(ValidationError):
+        MCPEventSubscriptionSettings(name="job.status_changed", every=True)  # type: ignore[arg-type]
+
+    class _DeclaredAggregator(_BaseAggregator):
+        async def list_events(
+            self, server_name: str, cursor: str | None = None
+        ) -> ListEventsResult:
+            del server_name, cursor
+            return ListEventsResult(
+                events=[EventDescriptor(name="job.status_changed", delivery=["poll"])]
+            )
+
+        async def poll_events(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+            *,
+            cursor: str | None = None,
+            max_age_ms: int | None = None,
+            max_events: int | None = None,
+        ) -> PollEventsResult:
+            del server_name, name, arguments, cursor, max_age_ms, max_events
+            return PollEventsResult(cursor="c1", next_poll_ms=60_000)
+
+    aggregator = _DeclaredAggregator(
+        server_names=["demo"],
+        connection_persistence=False,
+        context=Context(),
+    )
+    aggregator._attached_server_names.append("demo")
+    aggregator._attachment_configs["demo"] = MCPServerSettings(
+        name="demo",
+        command="echo",
+        events=[
+            MCPEventSubscriptionSettings(
+                name="job.status_changed",
+                arguments={"job_id": "1"},
+                wake=True,
+                once=True,
+                every="5m",
+            )
+        ],
+    )
+    try:
+        await aggregator.start_configured_events()
+        [sub] = aggregator.events.subscriptions()
+        assert sub.origin == "declared"
+        assert sub.wake is True
+        assert sub.once is True
+        assert sub.min_poll_ms == 300_000
+        assert aggregator.active_wake_subscriptions() == [sub]
+
+        # Model cannot modify or unsubscribe declared subscriptions.
+        with pytest.raises(ValueError, match="declared-owned"):
+            await aggregator.events.unsubscribe(sub.key, origin="model")
+
+        # Wake budget helpers pass through to EventSubscriptionManager.
+        for _ in range(aggregator.events.max_consecutive_wakes):
+            aggregator.record_event_wake_turn()
+        assert aggregator.event_wake_paused is True
+        aggregator.reset_event_wake_budget()
+        assert aggregator.event_wake_paused is False
+    finally:
+        await aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_interactive_prompt_does_not_reset_wake_budget_on_hc_messages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typing import cast
+
+    from fast_agent.agents.agent_types import AgentType
+    from fast_agent.core.agent_app import AgentRefreshResult
+    from fast_agent.ui import interactive_prompt
+    from fast_agent.ui.interactive_prompt import InteractivePrompt
+
+    class _BudgetAgent:
+        def __init__(self) -> None:
+            self.message_history: list[Any] = []
+            self.resets = 0
+            self.records = 0
+
+        def record_event_wake_turn(self) -> None:
+            self.records += 1
+
+        def reset_event_wake_budget(self) -> None:
+            self.resets += 1
+
+    class _App:
+        def __init__(self) -> None:
+            self.agent = _BudgetAgent()
+            self.no_home_mode = False
+            self.missing_shell_cwd_policy_override = None
+
+        async def refresh_if_needed(self) -> bool:
+            return False
+
+        def latest_refresh_result(self) -> AgentRefreshResult:
+            return AgentRefreshResult(changed=False)
+
+        def _agent(self, _name: str) -> _BudgetAgent:
+            return self.agent
+
+        def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+            del force_include
+            return ["agent1"]
+
+        def visible_agent_types(self, *, force_include: str | None = None) -> dict[str, AgentType]:
+            del force_include
+            return {"agent1": AgentType.BASIC}
+
+        def registered_agent_names(self) -> list[str]:
+            return ["agent1"]
+
+        def registered_agents(self) -> dict[str, _BudgetAgent]:
+            return {"agent1": self.agent}
+
+        def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+            return agent_name or "agent1"
+
+    app = _App()
+    inputs = iter(['<hc from="peer">automated ping</hc>', "hello human", "STOP"])
+
+    async def fake_get_enhanced_input(*_args: Any, **_kwargs: Any) -> str:
+        return next(inputs)
+
+    monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
+
+    async def fake_send(_payload: Any, _agent_name: str) -> str:
+        return "ok"
+
+    await InteractivePrompt().prompt_loop(
+        send_func=fake_send,
+        default_agent="agent1",
+        available_agents=["agent1"],
+        prompt_provider=cast("Any", app),
+    )
+
+    # Only the human-typed turn reset the budget; the <hc> turn did not.
+    assert app.agent.resets == 1

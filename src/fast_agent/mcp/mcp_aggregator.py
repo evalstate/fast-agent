@@ -79,6 +79,7 @@ from fast_agent.mcp.events_extension import (
 )
 from fast_agent.mcp.events_subscriptions import (
     EventInboxItem,
+    EventSubscription,
     EventSubscriptionManager,
     build_event_prompt_message,
     format_event_messages,
@@ -934,7 +935,13 @@ class MCPAggregator(ContextDependent):
         for declared in config.events:
             try:
                 await self.events.subscribe(
-                    server_name, declared.name, declared.arguments, wake=declared.wake
+                    server_name,
+                    declared.name,
+                    declared.arguments,
+                    wake=declared.wake,
+                    once=declared.once,
+                    min_poll_ms=declared.min_poll_ms,
+                    origin="declared",
                 )
             except (ValueError, MCPError) as exc:
                 logger.warning(
@@ -958,6 +965,8 @@ class MCPAggregator(ContextDependent):
 
         async with self._capabilities_cache_lock:
             self._capabilities_cache.clear()
+        if self._events is not None:
+            self._events.clear_descriptor_cache()
 
         self._app_integration_configs.clear()
         self._mcp_skill_registries.clear()
@@ -1057,6 +1066,10 @@ class MCPAggregator(ContextDependent):
                     server_config=server_config,
                     options=options,
                 )
+        if self._events is not None:
+            self._events.clear_descriptor_cache(server_name)
+            if result.server_name != server_name:
+                self._events.clear_descriptor_cache(result.server_name)
         # load_servers subscribes for the servers it attaches once it has finished.
         if self.initialized and self._configured_events_started:
             await self._subscribe_configured_events(server_name)
@@ -1461,9 +1474,9 @@ class MCPAggregator(ContextDependent):
             async with self._attachment_locks.setdefault(server_name, Lock()):
                 result = await self._detach_server_locked(server_name)
         if result.detached and self._events is not None:
-            for subscription in self._events.subscriptions():
-                if subscription.server_name in (server_name, result.server_name):
-                    await self._events.unsubscribe(subscription.key)
+            await self._events.unsubscribe_server(server_name)
+            if result.server_name != server_name:
+                await self._events.unsubscribe_server(result.server_name)
         return result
 
     async def _detach_server_locked(self, server_name: str) -> MCPDetachResult:
@@ -4087,6 +4100,27 @@ class MCPAggregator(ContextDependent):
         if not items:
             return []
         return [build_event_prompt_message(items)]
+
+    def active_wake_subscriptions(self) -> list[EventSubscription]:
+        """Return currently active event subscriptions with ``wake=True``."""
+        if self._events is None:
+            return []
+        return self._events.active_wake_subscriptions()
+
+    def record_event_wake_turn(self) -> None:
+        """Record one consecutive wake turn on the event subscription manager."""
+        if self._events is not None:
+            self._events.record_wake_turn()
+
+    def reset_event_wake_budget(self) -> None:
+        """Reset the consecutive wake turn budget after a human-typed turn."""
+        if self._events is not None:
+            self._events.reset_wake_budget()
+
+    @property
+    def event_wake_paused(self) -> bool:
+        """Whether consecutive wake turns have reached the configured budget."""
+        return self._events is not None and self._events.wake_paused
 
     async def supports_events(self, server_name: str) -> bool:
         """Whether a server declared the SEP-3415 Events extension."""
