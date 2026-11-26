@@ -142,6 +142,9 @@ def _first_positional_argument(arguments: list[str]) -> str | None:
 
 def main():
     """Main entry point that handles auto-routing to 'go' command."""
+    from fast_agent.integrations.program_resume import capture_program_resume_token
+
+    capture_program_resume_token()
     if os.getenv(FAST_AGENT_SHELL_CHILD_ENV):
         print(
             "fast-agent is already running inside a fast-agent shell command. "

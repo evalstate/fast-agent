@@ -1673,7 +1673,21 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         resolve_hc_startup_recovery,
         should_check_hc_recovery,
     )
+    from fast_agent.cli.runtime.program_resume import build_cli_resume_command
     from fast_agent.integrations.herdr_lifecycle import herdr_startup_hold
+    from fast_agent.integrations.program_resume import configure_program_resume
+
+    if request.mode == "interactive" and request.is_repl and not request.no_home:
+        startup_cwd = (request.workspace or Path.cwd()).resolve()
+        configure_program_resume(
+            lambda session_id: build_cli_resume_command(
+                request,
+                session_id,
+                cwd=startup_cwd,
+            )
+        )
+    else:
+        configure_program_resume(None)
 
     try:
         if should_check_hc_recovery(request):

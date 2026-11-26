@@ -80,6 +80,25 @@ usage summary in its agents panel requires a custom mod reading the terminal's
 `report.msg`; the old Herdr TUI's `$context`/`$cost` row configuration does not
 carry over.
 
+## Terminal program resume (OSC 7577)
+
+When a supporting terminal (such as Rex or Herdr) supplies `OSC7577_TOKEN` in
+the environment, interactive fast-agent sessions emit the
+[Program Resume Protocol (OSC 7577)](https://www.superlogical.com/rex/docs/build/program-resume)
+so the terminal can automatically restore the session with
+`fast-agent go --resume <session-id>` after a terminal restart or machine
+reboot.
+
+- `OSC7577_TOKEN` is removed from the process environment at startup so shell
+  tools, MCP servers, and child processes cannot inherit or spoof it.
+- The resume command is published once the active session has persisted
+  history, updated when switching or forking sessions, re-emitted on `SIGCONT`
+  after `Ctrl+Z`, and cleared on intentional exit (`STOP`, `EXIT`, `Ctrl+D`, or
+  double `Ctrl+C`). Exiting due to terminal close, `SIGHUP`, or `SIGTERM`
+  leaves the record intact so the terminal can restore it.
+- To disable OSC 7577 reporting while still stripping `OSC7577_TOKEN` from
+  child environments, set `FAST_AGENT_DISABLE_PROGRAM_RESUME=1`.
+
 ## Terminal images
 
 Image rendering automatically uses reported terminal graphics support, including

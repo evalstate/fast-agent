@@ -50,6 +50,7 @@ from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.queued_input import queued_input_source
 from fast_agent.integrations.herdr_lifecycle import herdr_blocked
+from fast_agent.integrations.program_resume import clear_program_resume
 from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
 from fast_agent.tools.execution_environment import ShellExecutionResult
 from fast_agent.types import PromptMessageExtended
@@ -552,6 +553,7 @@ class InteractivePrompt:
     ) -> None:
         now = time.monotonic()
         if runtime_state.ctrl_c_deadline is not None and now <= runtime_state.ctrl_c_deadline:
+            clear_program_resume()
             self._print_session_exit(
                 runtime_state=runtime_state,
                 lead="Second Ctrl+C received; ",
@@ -1452,17 +1454,22 @@ class InteractivePrompt:
             buffer_prefill = input_phase.buffer_prefill
             user_input = input_phase.user_input
 
-            command_phase = await self._process_turn_command_phase(
-                prompt_provider=prompt_provider,
-                agent_state=agent_state,
-                user_input=user_input,
-                buffer_prefill=buffer_prefill,
-                pinned_agent=pinned_agent,
-                runtime_state=runtime_state,
-                ctrl_c_exit_window_seconds=ctrl_c_exit_window_seconds,
-                session_manager=session_manager,
-            )
+            try:
+                command_phase = await self._process_turn_command_phase(
+                    prompt_provider=prompt_provider,
+                    agent_state=agent_state,
+                    user_input=user_input,
+                    buffer_prefill=buffer_prefill,
+                    pinned_agent=pinned_agent,
+                    runtime_state=runtime_state,
+                    ctrl_c_exit_window_seconds=ctrl_c_exit_window_seconds,
+                    session_manager=session_manager,
+                )
+            except PromptExitError:
+                clear_program_resume()
+                raise
             if command_phase.should_return:
+                clear_program_resume()
                 return result
 
             agent_state = command_phase.agent_state
