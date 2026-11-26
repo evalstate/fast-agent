@@ -75,7 +75,7 @@ def test_compact_mcp_call_shows_arguments_and_hides_successful_result() -> None:
     rendered = " ".join(capture.get().split())
     assert "▎◀ agent tool (MCP) huggingface hf_fs · id: call_…456789" in rendered
     assert (
-        "▎▶ agent tool (MCP) huggingface hf_fs · text only 17 chars · 12.0s · id: call_…456789"
+        "▎▶ agent tool (MCP) huggingface hf_fs · text (17 chars) · 12.0s · id: call_…456789"
     ) in rendered
     assert "datasets/example" in rendered
     assert "large result body" not in rendered
@@ -549,5 +549,38 @@ def test_compact_exec_sandbox_uses_python_sandbox_pill_and_short_rules() -> None
     assert any("print(42)" in line for line in lines)
     rendered = " ".join(capture.get().split())
     assert any("▎▶ dev " in line and "─" in line for line in lines)
+    assert "text (25 chars)" in rendered
     assert "120ms" in rendered
     assert "id: call_…456789" in rendered
+
+
+def test_compact_exec_sandbox_omits_default_agent_name() -> None:
+    display = _display()
+    result = CallToolResult(
+        content=[TextContent(type="text", text="ok")],
+        is_error=False,
+    )
+    previous = progress_display.default_agent_name
+    progress_display.set_default_agent_name("agent")
+    try:
+        with console.console.capture() as capture:
+            display.show_tool_call(
+                "exec_sandbox",
+                {"code": "print(1)"},
+                name="agent",
+                metadata={"variant": "code", "code_arg": "code", "language": "python"},
+                tool_call_id="call_abcdef0123456789",
+            )
+            display.show_tool_result(
+                result,
+                name="agent",
+                tool_name="exec_sandbox",
+                tool_call_id="call_abcdef0123456789",
+            )
+    finally:
+        progress_display.set_default_agent_name(previous)
+
+    lines = capture.get().splitlines()
+    assert any(line.startswith("▎◀  python (sandbox) ") for line in lines)
+    assert any(line.startswith("▎▶ ─") for line in lines)
+    assert not any("agent" in line for line in lines)

@@ -18,7 +18,7 @@ from rich.text import Text
 
 from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
 from fast_agent.ui.markdown.content import prepare_markdown_content
-from fast_agent.ui.message_styles import build_code_rule_footer, build_code_rule_header
+from fast_agent.ui.message_styles import build_code_rule
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
@@ -561,8 +561,8 @@ def syntax_theme_has_background(code_theme: str) -> bool:
     return theme.get_background_style().bgcolor is not None
 
 
-class _CodeRuleHeader:
-    def __init__(self, label: str) -> None:
+class _CodeRule:
+    def __init__(self, label: str = "") -> None:
         self.label = label
 
     def __rich_console__(
@@ -571,42 +571,30 @@ class _CodeRuleHeader:
         options: ConsoleOptions,
     ) -> RenderResult:
         del console
-        yield build_code_rule_header(self.label, max_width=options.max_width)
+        yield build_code_rule(self.label, max_width=options.max_width)
 
 
-class _CodeRuleFooter:
+class _FramedMarkdownCodeBlock(RichCodeBlock):
+    """Rich Markdown CodeBlock framed by short rules for backgroundless themes."""
+
     def __rich_console__(
         self,
         console: Console,
         options: ConsoleOptions,
     ) -> RenderResult:
         del console
-        yield build_code_rule_footer(max_width=options.max_width)
-
-
-class _FramedMarkdownCodeBlock(RichCodeBlock):
-    """Rich Markdown CodeBlock framed by short rules when the theme has no background."""
-
-    def __rich_console__(
-        self,
-        console: Console,
-        options: ConsoleOptions,
-    ) -> RenderResult:
-        if syntax_theme_has_background(self.theme):
-            yield from super().__rich_console__(console, options)
-            return
-
         code = str(self.text).rstrip("\n")
-        language = self.lexer_name.strip()
+        normalized_language = _normalize_code_language(self.lexer_name)
+        label = "" if normalized_language == "text" else normalized_language
         syntax = Syntax(
             code,
-            language or "text",
+            normalized_language,
             theme=self.theme,
             word_wrap=True,
         )
-        yield build_code_rule_header(language, max_width=options.max_width)
+        yield build_code_rule(label, max_width=options.max_width)
         yield syntax
-        yield build_code_rule_footer(max_width=options.max_width)
+        yield build_code_rule(max_width=options.max_width)
 
 
 class _FramedMarkdown(Markdown):
@@ -685,8 +673,8 @@ def _render_code_chunk(
             line_numbers=False,
             word_wrap=code_word_wrap,
         )
-        label = normalized_language if language.strip() else ""
-        return Group(_CodeRuleHeader(label), syntax, _CodeRuleFooter())
+        label = "" if normalized_language == "text" else normalized_language
+        return Group(_CodeRule(label), syntax, _CodeRule())
 
     render_text = f"\n{text}\n" if pad_code_blocks else text
     return Syntax(
@@ -803,9 +791,8 @@ def build_markdown_renderable(
 
 __all__ = [
     "FencedCodeBlock",
-    "build_rich_markdown",
-    "syntax_theme_has_background",
     "build_markdown_renderable",
+    "build_rich_markdown",
     "close_incomplete_code_blocks",
     "extract_single_fenced_code_block",
     "style_markdown_renderable",

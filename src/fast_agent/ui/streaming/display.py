@@ -31,7 +31,7 @@ from fast_agent.ui.markdown.renderables import (
     close_incomplete_code_blocks,
 )
 from fast_agent.ui.markdown.truncation import MarkdownTruncator
-from fast_agent.ui.message_styles import build_code_rule_header
+from fast_agent.ui.message_styles import build_code_rule, format_code_tool_pill_label
 from fast_agent.ui.prompt.turn_input import queued_input_count
 from fast_agent.ui.streaming.plain_text import PlainTextTruncator
 from fast_agent.ui.streaming.segments import StreamSegmentAssembler
@@ -857,6 +857,7 @@ class StreamingMessageHandle:
         self._header_left = header_left
         self._header_right = header_right
         self._context_baseline = context_baseline
+        self._tool_header_name: str | None = tool_header_name
         self._tool_header_prefix: Text | None = None
         self._tool_header_prefix_plain = ""
         self._tool_header_color: str | None = None
@@ -1814,18 +1815,30 @@ class StreamingMessageHandle:
         tool_name = segment.tool_name or "tool"
         preview = segment.code_preview
         if preview is not None and preview.variant == "code":
-            language = preview.language.strip()
-            if tool_name.lower() == "exec_sandbox":
-                pill_label = (
-                    f"{language} (sandbox)" if language and language != "text" else "sandbox"
+            from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
+            from fast_agent.ui.progress_display import progress_display
+
+            if progress_display.is_default_agent_name(self._tool_header_name):
+                config = MESSAGE_CONFIGS[MessageType.TOOL_CALL]
+                code_prefix = Text.from_markup(
+                    self._display.build_header_left(
+                        block_color=config["block_color"],
+                        arrow=config["arrow"],
+                        arrow_style=config["arrow_style"],
+                        name=None,
+                        is_error=False,
+                        show_hook_indicator=False,
+                    )
                 )
-            elif language and language != "text":
-                pill_label = f"{language} ({tool_name})"
             else:
-                pill_label = tool_name
-            if header_text.plain:
-                header_text.append(" ")
-            return build_code_rule_header(pill_label, prefix=header_text)
+                code_prefix = header_text
+            if code_prefix.plain:
+                code_prefix.append(" ")
+            return build_code_rule(
+                format_code_tool_pill_label(tool_name, preview.language),
+                max_width=console.console.size.width,
+                prefix=code_prefix,
+            )
         if tool_name:
             if header_text.plain:
                 header_text.append(" ")

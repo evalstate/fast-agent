@@ -36,7 +36,7 @@ from fast_agent.ui.apply_patch_preview import (
 )
 from fast_agent.ui.edit_file_preview import build_edit_file_preview, format_edit_file_preview
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
-from fast_agent.ui.message_styles import build_code_rule_footer, build_code_rule_header
+from fast_agent.ui.message_styles import build_code_rule, format_code_tool_pill_label
 from fast_agent.ui.shell_output_truncation import (
     format_shell_output_line_count,
     truncate_shell_output_lines,
@@ -296,15 +296,34 @@ class ToolDisplay:
             prefix.append(f" {name}", style=color)
         return prefix
 
-    @staticmethod
-    def _compact_code_pill_label(tool_name: str, metadata: Mapping[str, Any]) -> str:
-        base_name = ToolDisplay._base_tool_name(tool_name)
-        language = str(metadata.get("language") or "").strip()
-        if normalize_tool_name(tool_name) == "exec_sandbox":
-            return f"{language} (sandbox)" if language and language != "text" else "sandbox"
-        if language and language != "text":
-            return f"{language} ({base_name})"
-        return base_name
+    @classmethod
+    def _compact_code_rule_line(
+        cls,
+        *,
+        message_type: MessageType,
+        name: str | None,
+        label: str = "",
+        annotations: list[str],
+        is_error: bool = False,
+        show_hook_indicator: bool = False,
+    ) -> Text:
+        from fast_agent.ui.progress_display import progress_display
+
+        display_name = None if progress_display.is_default_agent_name(name) else name
+        prefix = cls._compact_event_prefix(
+            message_type=message_type,
+            name=display_name,
+            is_error=is_error,
+            show_hook_indicator=show_hook_indicator,
+        )
+        prefix.append(" ")
+        suffix = Text(" · ".join(annotations), style="dim") if annotations else None
+        return build_code_rule(
+            label,
+            max_width=console.console.size.width,
+            prefix=prefix,
+            suffix=suffix,
+        )
 
     @classmethod
     def _compact_event_line(
@@ -516,18 +535,16 @@ class ToolDisplay:
             request_count=request_count,
         )
         if metadata.get("variant") == "code":
-            prefix = self._compact_event_prefix(
+            language = metadata.get("language")
+            line = self._compact_code_rule_line(
                 message_type=MessageType.TOOL_CALL,
                 name=name,
+                label=format_code_tool_pill_label(
+                    tool_name,
+                    language if isinstance(language, str) else None,
+                ),
+                annotations=annotations,
                 show_hook_indicator=show_hook_indicator,
-            )
-            prefix.append(" ")
-            suffix = Text(" · ".join(annotations), style="dim") if annotations else None
-            line = build_code_rule_header(
-                self._compact_code_pill_label(tool_name, metadata),
-                max_width=console.console.size.width,
-                prefix=prefix,
-                suffix=suffix,
             )
         else:
             identity = self._compact_tool_identity(
@@ -801,6 +818,7 @@ class ToolDisplay:
         is_app_integration_tool: bool,
         structured_content: object,
         app_resource_uri: str | None,
+        show_structured_content: bool = False,
     ) -> None:
         result_policy = self._display.tool_display_settings.results
         collapse_shell_exit = (
@@ -821,18 +839,12 @@ class ToolDisplay:
         if short_id := format_tool_call_id(tool_call_id):
             annotations.append(f"id: {short_id}")
         if tool_name and normalize_tool_name(tool_name) == "exec_sandbox":
-            prefix = self._compact_event_prefix(
+            line = self._compact_code_rule_line(
                 message_type=MessageType.TOOL_RESULT,
                 name=name,
+                annotations=annotations,
                 is_error=result.is_error,
                 show_hook_indicator=show_hook_indicator,
-            )
-            prefix.append(" ")
-            suffix = Text(" · ".join(annotations), style="dim") if annotations else None
-            line = build_code_rule_footer(
-                max_width=console.console.size.width,
-                prefix=prefix,
-                suffix=suffix,
             )
         else:
             identity = self._compact_tool_identity(
@@ -869,6 +881,11 @@ class ToolDisplay:
             self._render_app_integration_structured_content(
                 structured_content=structured_content,
                 resource_uri=app_resource_uri,
+            )
+        elif show_structured_content and structured_content is not None:
+            self._render_structured_content(
+                structured_content=structured_content,
+                label="■ structured content",
             )
 
     @classmethod
@@ -1451,7 +1468,7 @@ class ToolDisplay:
         if len(content) == 1 and is_text_content(content[0]):
             text_content = get_text(content[0])
             char_count = len(text_content) if text_content else 0
-            return f"text only {format_count(char_count, 'char')}"
+            return f"text ({format_count(char_count, 'char')})"
 
         text_count = sum(1 for item in content if is_text_content(item))
         if text_count == len(content):
@@ -1878,6 +1895,7 @@ class ToolDisplay:
                     is_app_integration_tool=(app_integration_details.is_app_integration_tool),
                     structured_content=structured_content,
                     app_resource_uri=app_integration_details.resource_uri,
+                    show_structured_content=show_structured_content,
                 )
                 return
 

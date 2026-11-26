@@ -373,3 +373,16 @@ def test_build_markdown_renderable_frames_ansi_code_blocks_with_capped_rules() -
     assert Text.from_ansi(header).cell_len == 36
     assert Text.from_ansi(footer).cell_len == 36
     assert Text.from_ansi(footer).plain == "─" * 36
+
+    unlabelled = build_markdown_renderable(
+        "```\nplain line\n```",
+        code_theme="ansi_light",
+        escape_xml=True,
+    )
+    with console.capture() as capture:
+        console.print(unlabelled)
+    unlabelled_lines = [
+        Text.from_ansi(line).plain for line in capture.get().splitlines() if line.strip()
+    ]
+    assert unlabelled_lines[0] == "─" * 36
+    assert "text" not in unlabelled_lines[0]

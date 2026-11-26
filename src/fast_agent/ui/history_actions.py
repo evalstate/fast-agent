@@ -342,7 +342,11 @@ async def display_history_turn(
                     "show_chat": True,
                     "show_tools": True,
                     "tool_display": replay_config.logger.tool_display.model_copy(
-                        update={"layout": "full"}
+                        update={
+                            "arguments": "all",
+                            "results": "all",
+                            "show_successful_file_reads": True,
+                        }
                     ),
                 }
             )

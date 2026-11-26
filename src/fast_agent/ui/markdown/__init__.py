@@ -2,7 +2,6 @@ from fast_agent.ui.markdown.content import prepare_markdown_content
 from fast_agent.ui.markdown.renderables import (
     build_markdown_renderable,
     build_rich_markdown,
-    syntax_theme_has_background,
 )
 from fast_agent.ui.markdown.truncation import MarkdownTruncator
 
@@ -11,5 +10,4 @@ __all__ = [
     "build_markdown_renderable",
     "build_rich_markdown",
     "prepare_markdown_content",
-    "syntax_theme_has_background",
 ]

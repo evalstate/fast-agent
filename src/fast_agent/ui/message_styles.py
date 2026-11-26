@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from typing import Final
+
+from rich.cells import cell_len
 from rich.style import Style
 from rich.text import Text
+
+from fast_agent.utils.tool_names import normalize_tool_name
 
 
 def _shorten_items(items: list[str], max_length: int) -> list[str]:
@@ -19,65 +24,53 @@ _SHELL_EXIT_CODE_STYLES = {
     1: "red reverse dim",
 }
 _SHELL_EXIT_CODE_ERROR_STYLE = "red reverse bold"
-SHORT_RULE_WIDTH = 36
-CODE_RULE_EDGE_STYLE = Style(color="bright_black")
-CODE_RULE_PILL_STYLE = Style(color="bright_black", reverse=True)
+SHORT_RULE_WIDTH: Final[int] = 36
+CODE_RULE_EDGE_STYLE: Final[Style] = Style(color="bright_black")
+CODE_RULE_PILL_STYLE: Final[Style] = Style(color="bright_black", reverse=True)
 
 
-def build_code_rule_header(
+def format_code_tool_pill_label(tool_name: str, language: str | None) -> str:
+    """Format the inverse pill label for code-variant tool calls."""
+    normalized = normalize_tool_name(tool_name)
+    base_name = tool_name.rsplit("__", 1)[-1] if "__" in tool_name else tool_name
+    clean_lang = (language or "").strip()
+    if normalized == "exec_sandbox":
+        return f"{clean_lang} (sandbox)" if clean_lang and clean_lang != "text" else "sandbox"
+    if clean_lang and clean_lang != "text":
+        return f"{clean_lang} ({base_name})"
+    return base_name
+
+
+def build_code_rule(
     label: str = "",
     *,
     max_width: int | None = None,
     prefix: Text | None = None,
     suffix: Text | None = None,
 ) -> Text:
-    """Build a resize-safe short rule header with an optional inverse pill label."""
+    """Build a resize-safe short rule line with optional prefix, inverse pill, and suffix."""
     target = SHORT_RULE_WIDTH if max_width is None else min(max_width, SHORT_RULE_WIDTH)
+    clean_label = label.strip()
     line = Text()
     used = 0
     if prefix is not None:
         line.append_text(prefix)
         used += prefix.cell_len
-    else:
+    elif clean_label:
         line.append("──", style=CODE_RULE_EDGE_STYLE)
         used += 2
 
-    clean_label = label.strip()
     if clean_label:
         pill = f" {clean_label} "
         line.append(pill, style=CODE_RULE_PILL_STYLE)
-        used += len(pill)
+        used += cell_len(pill)
 
     remaining = target - used
     if remaining >= 2:
         line.append("─" * remaining, style=CODE_RULE_EDGE_STYLE)
     elif clean_label and (max_width is None or used + 2 <= max_width):
         line.append("──", style=CODE_RULE_EDGE_STYLE)
-
-    if suffix is not None and suffix.plain:
-        line.append(" ")
-        line.append_text(suffix)
-    return line
-
-
-def build_code_rule_footer(
-    *,
-    max_width: int | None = None,
-    prefix: Text | None = None,
-    suffix: Text | None = None,
-) -> Text:
-    """Build a resize-safe short closing rule with optional prefix and suffix."""
-    target = SHORT_RULE_WIDTH if max_width is None else min(max_width, SHORT_RULE_WIDTH)
-    line = Text()
-    used = 0
-    if prefix is not None:
-        line.append_text(prefix)
-        used += prefix.cell_len
-
-    remaining = max(0, target - used)
-    if remaining >= 2:
-        line.append("─" * remaining, style=CODE_RULE_EDGE_STYLE)
-    elif prefix is None and target > 0:
+    elif prefix is None and not clean_label and target > 0:
         line.append("─" * target, style=CODE_RULE_EDGE_STYLE)
 
     if suffix is not None and suffix.plain:
