@@ -1717,9 +1717,6 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             serve_permissions_enabled=serve_permissions_enabled,
         )
         clear_program_resume()
-    except PromptExitError as exc:
-        clear_program_resume()
-        raise SystemExit(0) from exc
     except SystemExit as exc:
         if exc.code in (None, 0):
             clear_program_resume()
