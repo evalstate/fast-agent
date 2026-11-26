@@ -8,7 +8,6 @@ by determining the best agent for a request and dispatching to it.
 import json
 from typing import TYPE_CHECKING, Any
 
-from google.protobuf.json_format import MessageToDict
 from mcp import Tool
 from opentelemetry import trace
 from pydantic import BaseModel
@@ -163,7 +162,9 @@ class RouterAgent(LlmAgent):
         Returns:
             Complete routing instruction with agent cards formatted
         """
-        # Generate agent descriptions
+        # Protobuf is only needed when building a router's agent descriptions.
+        from google.protobuf.json_format import MessageToDict
+
         agent_descriptions = []
         for agent in agents:
             agent_card: AgentCard = await agent.agent_card()

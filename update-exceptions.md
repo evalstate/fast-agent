@@ -77,6 +77,7 @@ When upgrading any dependency listed below:
   - Mutates `client._custom_headers` after `AsyncOpenAI(...)` construction to
     isolate/strip ambient `OPENAI_CUSTOM_HEADERS` and `Authorization` headers;
     Copilot gateway client also passes `_enforce_credentials=False`.
+  - `src/fast_agent/llm/provider/openai/client.py` overrides `_validate_headers` for explicit no-auth clients.
   - Check on upgrade: verify `AsyncOpenAI` still stores merged custom headers on
     `_custom_headers` and accepts `_enforce_credentials`, or switch to a public
     opt-out if added.

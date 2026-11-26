@@ -671,14 +671,16 @@ class ShellRuntime:
                 snapshots.append(self._durable_managed_snapshot(durable))
         return tuple(snapshots)
 
-    async def discover_durable_processes(self) -> tuple[DurableProcessSnapshot, ...]:
-        """Return all durable local processes visible in this fast-agent home."""
+    async def discover_durable_processes(
+        self, *, active_only: bool = False
+    ) -> tuple[DurableProcessSnapshot, ...]:
+        """Return durable local processes, optionally excluding completed records."""
 
         store = self._durable_process_store
         if store is None:
             return ()
         try:
-            return tuple(await asyncio.to_thread(store.discover))
+            return tuple(await asyncio.to_thread(store.discover, active_only=active_only))
         except (DurableProcessRecordError, OSError) as exc:
             self._logger.warning(f"Could not discover durable processes: {exc}")
             return ()

@@ -81,6 +81,8 @@ class ShellRuntimeStartupProvider(Protocol):
 class DurableProcessStartupRuntime(Protocol):
     async def discover_durable_processes(
         self,
+        *,
+        active_only: bool = False,
     ) -> tuple[DurableProcessStartupSnapshot, ...]: ...
 
     async def process_snapshots(self) -> tuple[ManagedProcessStartupSnapshot, ...]: ...
@@ -366,7 +368,7 @@ async def show_shell_startup(
 
     rich_print(format_shell_notice(shell_context.access_modes, shell_context.runtime))
     if isinstance(shell_context.runtime, DurableProcessStartupRuntime):
-        durable_processes = await shell_context.runtime.discover_durable_processes()
+        durable_processes = await shell_context.runtime.discover_durable_processes(active_only=True)
         runtimes: list[DurableProcessStartupRuntime] = [shell_context.runtime]
         if agent_provider is not None:
             for agent in agent_provider.registered_agents().values():

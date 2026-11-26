@@ -47,7 +47,10 @@ class _StartupProcessRuntime:
         self._snapshots = snapshots
         self._cwd = cwd
 
-    async def discover_durable_processes(self) -> tuple[_ProcessSnapshot, ...]:
+    async def discover_durable_processes(
+        self, *, active_only: bool = False
+    ) -> tuple[_ProcessSnapshot, ...]:
+        assert active_only
         return self._snapshots
 
     async def process_snapshots(self) -> tuple[_ManagedProcessSnapshot, ...]:

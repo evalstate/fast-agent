@@ -1,36 +1,21 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import os
-from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import asdict, dataclass, field
 from functools import partial
-from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, ClassVar, Protocol, cast, runtime_checkable
 
 import httpx
-from mcp import Tool
 from mcp_types import (
     CallToolRequest,
     CallToolRequestParams,
     ContentBlock,
     TextContent,
 )
-from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient, Omit
-from openai.lib.streaming.chat import ChatCompletionStreamState
-
-# from openai.types.beta.chat import
-from openai.types.chat import (
-    ChatCompletionMessage,
-    ChatCompletionMessageParam,
-    ChatCompletionMessageToolCall,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionToolParam,
-    ChatCompletionUserMessageParam,
-)
-from openai.types.chat.chat_completion_message_tool_call import Function
-from openai.types.completion_usage import CompletionUsage
 from pydantic import BaseModel
 from pydantic_core import from_json
 
@@ -56,7 +41,6 @@ from fast_agent.llm.provider.openai._stream_capture import (
 from fast_agent.llm.provider.openai._stream_capture import (
     stream_capture_filename as _stream_capture_filename,
 )
-from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.schema_sanitizer import (
     sanitize_tool_input_schema,
@@ -87,6 +71,19 @@ from fast_agent.utils.reasoning_chunk_join import (
 from fast_agent.utils.text import strip_casefold, strip_to_none
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+
+    from mcp import Tool
+    from openai import AsyncOpenAI
+    from openai.types.chat import (
+        ChatCompletionMessage,
+        ChatCompletionMessageParam,
+        ChatCompletionMessageToolCall,
+        ChatCompletionToolParam,
+    )
+    from openai.types.completion_usage import CompletionUsage
+
     from fast_agent.config import OpenAISettings
 
 _logger = get_logger(__name__)
@@ -116,6 +113,8 @@ class _OpenAIChoicesHolder(Protocol):
 
 
 def _coerce_openai_usage(value: object) -> CompletionUsage | None:
+    from openai.types.completion_usage import CompletionUsage
+
     if isinstance(value, CompletionUsage):
         return value
     if isinstance(value, dict):
@@ -206,20 +205,6 @@ class _OpenAIStopResult:
     requested_tool_calls: dict[str, CallToolRequest] | None = None
 
 
-_REAL_ASYNC_OPENAI = AsyncOpenAI
-
-
-class _NoAuthAsyncOpenAI(AsyncOpenAI):
-    """AsyncOpenAI subclass that permits requests with Authorization explicitly omitted."""
-
-    def _validate_headers(
-        self,
-        headers: Any,
-        custom_headers: Any,
-    ) -> None:
-        return None
-
-
 def build_async_openai_client(
     *,
     api_key: str,
@@ -232,6 +217,8 @@ def build_async_openai_client(
     client_cls: Callable[..., AsyncOpenAI] | None = None,
 ) -> AsyncOpenAI:
     """Build an AsyncOpenAI client with optional no-auth and ambient-header isolation."""
+    from openai import AsyncOpenAI, Omit
+
     effective_headers: dict[str, str] | None = (
         {
             k: v
@@ -255,10 +242,11 @@ def build_async_openai_client(
         kwargs["project"] = ""
         kwargs["admin_api_key"] = ""
 
-    resolved_cls: Callable[..., AsyncOpenAI] = AsyncOpenAI if client_cls is None else client_cls
-    factory: Callable[..., AsyncOpenAI] = (
-        _NoAuthAsyncOpenAI if no_auth and resolved_cls is _REAL_ASYNC_OPENAI else resolved_cls
-    )
+    factory = AsyncOpenAI if client_cls is None else client_cls
+    if no_auth and factory is AsyncOpenAI:
+        from fast_agent.llm.provider.openai.client import NoAuthAsyncOpenAI
+
+        factory = NoAuthAsyncOpenAI
     client = factory(**kwargs)
 
     explicit_authorization = bool(
@@ -297,7 +285,7 @@ class OpenAILLM(
     OpenAIStructuredOutputMixin,
     OpenAIToolNotificationMixin,
     ResponsesFileMixin,
-    FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage],
+    FastAgentLLM["ChatCompletionMessageParam", "ChatCompletionMessage"],
 ):
     # Config section name override (falls back to provider value)
     config_section: str | None = None
@@ -530,6 +518,8 @@ class OpenAILLM(
         Note: The returned client should be used within an async context manager
         to ensure proper cleanup of aiohttp sessions.
         """
+        from openai import AuthenticationError, DefaultAioHttpClient
+
         try:
             no_auth = self._uses_explicit_no_auth()
             return build_async_openai_client(
@@ -888,6 +878,8 @@ class OpenAILLM(
         capture_filename: Path | None = None,
     ) -> tuple[Any, list[str]]:
         """Process the streaming response and display real-time token usage."""
+        from openai.lib.streaming.chat import ChatCompletionStreamState
+
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
         reasoning_active = False
@@ -1131,6 +1123,9 @@ class OpenAILLM(
     def _manual_stream_tool_calls(
         state: _ManualOpenAIStreamState,
     ) -> list[ChatCompletionMessageToolCall] | None:
+        from openai.types.chat import ChatCompletionMessageToolCall
+        from openai.types.chat.chat_completion_message_tool_call import Function
+
         tool_calls = []
         for idx in sorted(state.tool_calls_map):
             tool_call_data = state.tool_calls_map[idx]
@@ -1169,6 +1164,8 @@ class OpenAILLM(
         raise RuntimeError(format_incomplete_tool_call_error(incomplete_tools))
 
     def _manual_stream_completion(self, state: _ManualOpenAIStreamState) -> Any:
+        from openai.types.chat import ChatCompletionMessage
+
         message = ChatCompletionMessage(
             content=state.accumulated_content,
             role=cast("Any", state.role),
@@ -1202,6 +1199,8 @@ class OpenAILLM(
         completion: object,
         reasoning_parts: list[str],
     ) -> bool:
+        from openai.types.chat import ChatCompletionMessage
+
         if any(part.strip() for part in reasoning_parts):
             return True
 
@@ -1330,6 +1329,8 @@ class OpenAILLM(
         message: list[ChatCompletionMessageParam] | None,
         request_params: RequestParams,
     ) -> list[ChatCompletionMessageParam]:
+        from openai.types.chat import ChatCompletionSystemMessageParam
+
         messages: list[ChatCompletionMessageParam] = []
         system_prompt = self.instruction or request_params.system_prompt
         if system_prompt:
@@ -1369,6 +1370,8 @@ class OpenAILLM(
         request: _OpenAICompletionRequest,
         capture_filename: Path | None,
     ) -> _OpenAICompletionResponse:
+        from openai.types.chat import ChatCompletionMessage
+
         timeout = request.params.streaming_timeout
         streamed = True
         try:
@@ -1504,6 +1507,8 @@ class OpenAILLM(
             self.logger.warning(f"Failed to track usage: {e}")
 
     def _raise_openai_response_error(self, response: Any) -> None:
+        from openai import AuthenticationError
+
         if isinstance(response, AuthenticationError):
             raise ProviderKeyError(
                 "Rejected OpenAI API key",
@@ -1749,6 +1754,8 @@ class OpenAILLM(
         tools: list[Tool] | None,
     ) -> PromptMessageExtended:
         """One request, built fresh: finalizing appends the reply to its messages."""
+        from openai import APIError
+
         request = self._openai_completion_request(message, request_params, tools)
         try:
             completion = await self._run_openai_completion_request(request)
@@ -1766,6 +1773,8 @@ class OpenAILLM(
 
     def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:
         """Persist exhausted provider failures without hiding programming/config errors."""
+        from openai import APIError
+
         if isinstance(error, (APIError, TimeoutError, EmptyStreamError)):
             model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
             return build_stream_failure_response(self.provider, error, model_name)
@@ -1785,6 +1794,8 @@ class OpenAILLM(
         Provider-specific prompt application.
         Templates are handled by the agent; messages already include them.
         """
+        from openai.types.chat import ChatCompletionUserMessageParam
+
         # Determine effective params
         req_params = self.get_request_params(request_params)
 
@@ -1956,6 +1967,8 @@ class OpenAILLM(
         Returns:
             List of OpenAI ChatCompletionMessageParam objects
         """
+        from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
+
         converted: list[ChatCompletionMessageParam] = []
         model = self.default_request_params.model
         reasoning_mode = self._get_model_reasoning(model)

@@ -28,8 +28,12 @@ assert 'import-smoke' in result.output, result.output
 
 # Loading interactive command dispatch must also leave remote SDKs deferred.
 import fast_agent.ui.interactive.command_dispatch
+import fast_agent.ui.prompt.agent_info
 
-unused = {'a2a', 'requests', 'opentelemetry.exporter.otlp.proto.http.trace_exporter'}
+unused = {
+    'a2a', 'requests', 'google.protobuf.json_format',
+    'opentelemetry.exporter.otlp.proto.http.trace_exporter',
+}
 loaded = unused.intersection(sys.modules)
 assert not loaded, loaded
 """,
