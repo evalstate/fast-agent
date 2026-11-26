@@ -230,7 +230,9 @@ async def test_events_subscribe_with_wake_and_poll() -> None:
     [subscription] = manager.subscriptions()
     assert subscription.wake
     assert subscription.arguments == {"job_id": "abc"}
-    assert "| yes | active |" in _text(await handle_events(context, agent_name="main"))
+    status_text = _text(await handle_events(context, agent_name="main"))
+    assert "| yes | user | active |" in status_text
+    assert "/events select" in status_text
 
     polled = _text(
         await handle_events(context, agent_name="main", argument=f"poll {subscription.key}")

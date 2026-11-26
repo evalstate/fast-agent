@@ -11,6 +11,7 @@ import asyncio
 import json
 import re
 import shlex
+import textwrap
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -142,7 +143,7 @@ class EventsPickerItem:
             f"{shlex.quote(self.name)} {arg_placeholders}"
         )
 
-    def format_row(self) -> str:
+    def format_row(self, *, subscribed: bool = False) -> str:
         """Render the single-line list row label."""
         if self.kind == "subscribed" and self.subscription is not None:
             sub = self.subscription
@@ -153,11 +154,12 @@ class EventsPickerItem:
             mode = "wake" if sub.wake else "passive"
             return f"{head} · {mode} · {sub.delivered} delivered · {sub.status}"
 
+        bullet = "●" if subscribed else "○"
         req = self.required_args
         req_text = f" ({', '.join(f'{arg}*' for arg in req)})" if req else ""
         delivery = " ".join(self.descriptor.delivery) if self.descriptor is not None else ""
         suffix = f" {delivery}" if delivery else ""
-        return f"○ {self.server_name} {self.name}{req_text}{suffix}"
+        return f"{bullet} {self.server_name} {self.name}{req_text}{suffix}"
 
     def matches(self, query: str) -> bool:
         """Whether ``query`` matches this row by substring or word-prefix terms."""
@@ -379,6 +381,17 @@ class EventsPickerState:
     def move_to(self, index: int) -> None:
         self.cursor = 0
         self.move(index)
+
+    def is_item_subscribed(self, item: EventsPickerItem) -> bool:
+        """Whether an available item has an active subscription (showing ● on the server tab)."""
+        if item.kind == "subscribed":
+            return item.is_active
+        return any(
+            sub_item.is_active
+            and sub_item.server_name == item.server_name
+            and sub_item.name == item.name
+            for sub_item in self.subscriptions
+        )
 
     def detail_fragments(self) -> StyleAndTextTuples:
         return format_event_detail_fragments(self.current)
@@ -716,7 +729,10 @@ class _EventsPicker:
         for index, item in enumerate(visible):
             highlighted = index == self.state.cursor
             marker = "❯ " if highlighted else "  "
-            text = truncate_picker_text(item.format_row(), max(width - len(marker), 4))
+            text = truncate_picker_text(
+                item.format_row(subscribed=self.state.is_item_subscribed(item)),
+                max(width - len(marker), 4),
+            )
             if highlighted and item.is_dimmed:
                 style = "class:selected class:muted"
             elif highlighted:
@@ -731,7 +747,34 @@ class _EventsPicker:
         return fragments
 
     def _render_detail(self) -> StyleAndTextTuples:
-        return self.state.detail_fragments()
+        width = max(self._detail_width(), 24)
+        wrapped: StyleAndTextTuples = []
+        for fragment in self.state.detail_fragments():
+            style, text = fragment[0], fragment[1]
+            if not text:
+                continue
+            lines = text.split("\n")
+            for idx, line in enumerate(lines):
+                has_newline = idx < len(lines) - 1
+                if len(line) > width:
+                    wrapped_line = textwrap.fill(
+                        line,
+                        width=width,
+                        break_long_words=False,
+                        break_on_hyphens=False,
+                    )
+                else:
+                    wrapped_line = line
+                wrapped.append((style, wrapped_line + ("\n" if has_newline else "")))
+        return wrapped
+
+    def _detail_width(self) -> int:
+        try:
+            cols = self.app.output.get_size().columns
+        except Exception:
+            return 72
+        # Match single_list_picker_layout's right pane (~half width minus borders/padding).
+        return max((cols // 2) - 6, 24)
 
     def _render_footer(self) -> StyleAndTextTuples:
         status = self.state.status_message or (f"{len(self.state.subscriptions)} subscription(s)")

@@ -256,13 +256,13 @@ def _render_status(aggregator: _EventsAggregator) -> str:
     show_every = any(subscription.min_poll_ms is not None for subscription in subscriptions)
     if show_every:
         lines = [
-            "| id | server | event | arguments | wake | every | status | delivered |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| id | server | event | arguments | wake | origin | every | status | delivered |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     else:
         lines = [
-            "| id | server | event | arguments | wake | status | delivered |",
-            "| --- | --- | --- | --- | --- | --- | --- |",
+            "| id | server | event | arguments | wake | origin | status | delivered |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |",
         ]
     for subscription in subscriptions:
         status = subscription.status
@@ -280,12 +280,19 @@ def _render_status(aggregator: _EventsAggregator) -> str:
             f"| {escape_markdown_table_cell(subscription.name)} "
             f"| {escape_markdown_table_cell(markdown_code_span(arguments))} "
             f"| {'yes' if subscription.wake else 'no'} "
+            f"| {escape_markdown_table_cell(subscription.origin)} "
             f"{every_cell}"
             f"| {escape_markdown_table_cell(status)} "
             f"| {subscription.delivered} |"
         )
     if manager.pending_count:
         lines.extend(["", f"{manager.pending_count} waiting for the next model call."])
+    lines.extend(
+        [
+            "",
+            "Use `/events select`, `/events poll <id>`, or `/events unsubscribe <id>`.",
+        ]
+    )
     return "\n".join(lines)
 
 
