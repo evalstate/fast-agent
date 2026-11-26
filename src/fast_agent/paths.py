@@ -37,6 +37,9 @@ def resolve_settings_start_path(
     fallback_path: Path | None = None,
 ) -> Path:
     """Resolve the project base path implied by settings config/env metadata."""
+    resolved_fallback = (
+        fallback_path.resolve() if fallback_path is not None else Path.cwd().resolve()
+    )
     if settings is not None:
         override_home = (
             Path(settings._fast_agent_home).expanduser().resolve()
@@ -44,9 +47,18 @@ def resolve_settings_start_path(
             and settings._fast_agent_home_source in {"cli", "FAST_AGENT_HOME"}
             else None
         )
+        default_home = (
+            Path(settings._fast_agent_home).expanduser().resolve()
+            if settings._fast_agent_home and settings._fast_agent_home_source == "default"
+            else None
+        )
         config_file = settings._config_file
         if config_file:
             config_parent = Path(config_file).expanduser().resolve().parent
+            if default_home is not None and config_parent == default_home:
+                local_default_home = resolved_fallback / DEFAULT_HOME_DIR
+                if local_default_home.is_symlink() and local_default_home.resolve() == default_home:
+                    return resolved_fallback
             if override_home is None or config_parent != override_home:
                 if config_parent.name == DEFAULT_HOME_DIR:
                     return config_parent.parent
@@ -58,10 +70,7 @@ def resolve_settings_start_path(
             if home_root.is_absolute():
                 return home_root.resolve().parent
 
-    if fallback_path is not None:
-        return fallback_path.resolve()
-
-    return Path.cwd().resolve()
+    return resolved_fallback
 
 
 def resolve_home_dir(
