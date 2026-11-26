@@ -4,14 +4,19 @@ import base64
 import hashlib
 import io
 import re
+import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
 
-from fast_agent.cli.runtime.program_resume import build_cli_resume_command
-from fast_agent.cli.runtime.run_request import AgentRunRequest
+from fast_agent.cli.runtime.program_resume import (
+    _resolve_cli_executable,
+    build_cli_resume_command,
+    capture_cli_invocation,
+)
+from fast_agent.cli.runtime.request_builders import build_command_run_request
 from fast_agent.integrations import herdr_lifecycle, herdr_session, program_resume
 from fast_agent.integrations.program_resume import (
     PROGRAM_RESUME_TOKEN_ENV,
@@ -25,6 +30,8 @@ from fast_agent.session.session_manager import Session, SessionInfo
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
+
+    from fast_agent.cli.runtime.run_request import AgentRunRequest
 
 
 class TtyStream(io.StringIO):
@@ -46,24 +53,23 @@ def _decode_argv(encoded: str) -> list[str]:
 def _make_request(
     *,
     name: str = "fast-agent",
-    server_list: list[str] | None = None,
     model: str | None = "sonnet",
     message: str | None = None,
-    home: Path | None = None,
     no_home: bool = False,
-    shell_runtime: bool = False,
+    shell_enabled: bool = False,
     mode: Literal["interactive", "serve"] = "interactive",
     workspace: Path | None = None,
-    subagents: bool | None = None,
     model_base_url: str | None = None,
     isolated: bool = False,
-    ptc: bool | None = None,
 ) -> AgentRunRequest:
-    return AgentRunRequest(
+    return build_command_run_request(
         name=name,
-        instruction=None,
+        instruction_option=None,
         config_path=None,
-        server_list=server_list,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
         agent_cards=None,
         card_tools=None,
         model=model,
@@ -71,37 +77,29 @@ def _make_request(
         prompt_file=None,
         result_file=None,
         resume=None,
-        startup_mcp_servers=None,
-        mcp_startup_notices=(),
-        agent_name=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
         target_agent_name=None,
         skills_directory=None,
-        home=home,
-        no_home=no_home,
-        shell_runtime=shell_runtime,
-        no_shell=False,
+        home=None,
+        shell_enabled=shell_enabled,
         mode=mode,
-        transport="http",
-        host="127.0.0.1",
-        port=8000,
-        tool_description=None,
-        tool_name_template=None,
-        instance_scope="shared",
-        permissions_enabled=True,
-        reload=False,
-        watch=False,
-        workspace=workspace,
-        subagents=subagents,
-        model_base_url=model_base_url,
+        no_home=no_home,
         isolated=isolated,
-        ptc=ptc,
+        workspace=workspace,
+        model_base_url=model_base_url,
     )
 
 
 @pytest.fixture
 def resume_terminal(monkeypatch: pytest.MonkeyPatch) -> Iterator[TtyStream]:
     stream = TtyStream()
-    monkeypatch.setattr(program_resume, "sys", SimpleNamespace(stdout=stream))
+    monkeypatch.setattr(
+        program_resume,
+        "sys",
+        SimpleNamespace(stdout=stream, platform=sys.platform),
+    )
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.delenv("FAST_AGENT_DISABLE_PROGRAM_RESUME", raising=False)
     program_resume._reset_for_tests()
@@ -201,19 +199,116 @@ def test_reporter_clears_stale_record_when_next_command_is_unreportable(
     assert reporter.reported_command is None
 
 
+def test_plain_build_command_run_request_formats_valid_osc_7577(tmp_path: Path) -> None:
+    """Smoke test with real build_command_run_request (multiline DEFAULT_AGENT_INSTRUCTION)."""
+    request = _make_request(workspace=tmp_path)
+    cmd = build_cli_resume_command(
+        request,
+        "2611260946-abc123",
+        raw_argv=("fast-agent", "go"),
+        cwd=tmp_path,
+    )
+    assert cmd is not None
+    seq = format_program_resume(cmd, token="t" * 32, pid=1234, now=1795543200)
+    assert seq is not None
+    rec = _parse_7577(seq)[0]
+    decoded = _decode_argv(rec["argv"])
+    assert decoded[-3:] == ["go", "--resume", "2611260946-abc123"]
+    assert "--instruction" not in decoded
+    assert "--agent" not in decoded
+
+
+def test_replay_argv_preserves_flags_strips_resume_and_single_model_and_skips_unsafe(
+    tmp_path: Path,
+) -> None:
+    req = _make_request(workspace=tmp_path)
+
+    # Auto-routed invocation without "go": preserves --card/--agent/--url/--shell,
+    # strips old --resume and single --model, inserts "go", appends new --resume.
+    cmd = build_cli_resume_command(
+        req,
+        "sess-42",
+        raw_argv=(
+            "fast-agent",
+            "--card",
+            "cards/reviewer.md",
+            "--agent",
+            "reviewer",
+            "--url",
+            "https://example.com/mcp",
+            "--model",
+            "sonnet",
+            "--resume",
+            "old-sess",
+            "--shell",
+        ),
+        cwd=tmp_path,
+    )
+    assert cmd is not None
+    assert cmd.cwd == str(tmp_path.resolve())
+    assert cmd.argv[1:] == (
+        "go",
+        "--card",
+        "cards/reviewer.md",
+        "--agent",
+        "reviewer",
+        "--url",
+        "https://example.com/mcp",
+        "--shell",
+        "--resume",
+        "sess-42",
+    )
+
+    # Multi-model fan-out is preserved; bare -r is stripped.
+    multi = build_cli_resume_command(
+        req,
+        "sess-42",
+        raw_argv=("fast-agent", "go", "--model", "sonnet,opus", "-r"),
+        cwd=tmp_path,
+    )
+    assert multi is not None
+    assert multi.argv[1:] == ("go", "--model", "sonnet,opus", "--resume", "sess-42")
+
+    # python -m fallback targets fast_agent.cli (fast_agent/__main__.py does not exist).
+    exe = _resolve_cli_executable("-m")
+    assert exe[1:] == ("-m", "fast_agent.cli")
+
+    # Unsafe / non-resumable invocations return None.
+    for bad_argv in (
+        ("fast-agent", "local"),
+        ("fast-agent", "go", "--local"),
+        ("fast-agent", "go", "--model-url", "http://localhost:8080"),
+        ("fast-agent", "go", "--model-auth", "secret"),
+        ("fast-agent", "go", "--auth", "bearer-secret"),
+    ):
+        assert build_cli_resume_command(req, "sess-42", raw_argv=bad_argv, cwd=tmp_path) is None
+
+    assert build_cli_resume_command(_make_request(no_home=True), "sess-42", cwd=tmp_path) is None
+    assert build_cli_resume_command(_make_request(isolated=True), "sess-42", cwd=tmp_path) is None
+    assert build_cli_resume_command(_make_request(message="hi"), "sess-42", cwd=tmp_path) is None
+    assert build_cli_resume_command(_make_request(mode="serve"), "sess-42", cwd=tmp_path) is None
+    assert (
+        build_cli_resume_command(
+            _make_request(model_base_url="http://localhost:8080"),
+            "sess-42",
+            cwd=tmp_path,
+        )
+        is None
+    )
+
+
 def test_capture_strips_token_and_lifecycle_reports_refreshes_and_preserves_on_deactivate(
     monkeypatch: pytest.MonkeyPatch,
     resume_terminal: TtyStream,
     tmp_path: Path,
 ) -> None:
     monkeypatch.setenv(PROGRAM_RESUME_TOKEN_ENV, "secret-token-0123456789abcdef")
-    assert program_resume.capture_program_resume_token() is True
+    program_resume.capture_program_resume_token()
     assert PROGRAM_RESUME_TOKEN_ENV not in program_resume.os.environ
 
-    request = _make_request(shell_runtime=True, workspace=tmp_path)
-    program_resume.configure_program_resume(
-        lambda sid: build_cli_resume_command(request, sid, cwd=tmp_path)
-    )
+    capture_cli_invocation(("fast-agent", "go", "--shell", "--model", "opus"), cwd=tmp_path)
+    request = _make_request(shell_enabled=True, workspace=tmp_path)
+    program_resume.configure_program_resume(lambda sid: build_cli_resume_command(request, sid))
 
     now = datetime.now(timezone.utc)
     empty_session = cast(
@@ -244,8 +339,7 @@ def test_capture_strips_token_and_lifecycle_reports_refreshes_and_preserves_on_d
     records = _parse_7577(resume_terminal.getvalue())
     assert len(records) == 1
     decoded = _decode_argv(records[0]["argv"])
-    assert "go" in decoded and "--resume" in decoded and "2611260946-abc123" in decoded
-    assert "--shell" in decoded
+    assert decoded[1:] == ["go", "--shell", "--resume", "2611260946-abc123"]
     assert "--model" not in decoded
 
     # SIGCONT refresh re-emits the current command.
@@ -277,7 +371,7 @@ def test_disable_env_suppresses_output_while_still_stripping_token(
 ) -> None:
     monkeypatch.setenv(PROGRAM_RESUME_TOKEN_ENV, "secret-token-0123456789abcdef")
     monkeypatch.setenv("FAST_AGENT_DISABLE_PROGRAM_RESUME", "1")
-    assert program_resume.capture_program_resume_token() is True
+    program_resume.capture_program_resume_token()
     assert PROGRAM_RESUME_TOKEN_ENV not in program_resume.os.environ
 
     program_resume.configure_program_resume(
@@ -287,39 +381,3 @@ def test_disable_env_suppresses_output_while_still_stripping_token(
     )
     program_resume.report_program_resume_session("sess-1")
     assert resume_terminal.getvalue() == ""
-
-
-def test_build_cli_resume_command_respects_mode_and_flags(tmp_path: Path) -> None:
-    req = _make_request(
-        name="worker-1",
-        home=tmp_path / "home",
-        shell_runtime=True,
-        subagents=False,
-        ptc=True,
-        server_list=["srv1", "srv2"],
-        model="opus",
-    )
-    cmd = build_cli_resume_command(req, "sess-42", cwd=tmp_path)
-    assert cmd is not None
-    assert cmd.cwd == str(tmp_path.resolve())
-    assert "--resume" in cmd.argv and "sess-42" in cmd.argv
-    assert "--name" in cmd.argv and "worker-1" in cmd.argv
-    assert "--shell" in cmd.argv
-    assert "--no-subagents" in cmd.argv
-    assert "--ptc" in cmd.argv
-    assert "--servers" in cmd.argv and "srv1,srv2" in cmd.argv
-    assert "--model" not in cmd.argv
-
-    # Non-resumable modes return None.
-    assert build_cli_resume_command(_make_request(no_home=True), "sess-42", cwd=tmp_path) is None
-    assert build_cli_resume_command(_make_request(isolated=True), "sess-42", cwd=tmp_path) is None
-    assert build_cli_resume_command(_make_request(message="hi"), "sess-42", cwd=tmp_path) is None
-    assert build_cli_resume_command(_make_request(mode="serve"), "sess-42", cwd=tmp_path) is None
-    assert (
-        build_cli_resume_command(
-            _make_request(model_base_url="http://localhost:8080"),
-            "sess-42",
-            cwd=tmp_path,
-        )
-        is None
-    )

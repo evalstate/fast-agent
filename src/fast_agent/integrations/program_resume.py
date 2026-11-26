@@ -11,12 +11,12 @@ parent's resume record.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import os
 import signal
 import sys
-import threading
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -28,9 +28,6 @@ from fast_agent.utils.env import is_truthy_env_value
 
 if TYPE_CHECKING:
     from collections.abc import Callable, MutableMapping, Sequence
-    from types import FrameType
-
-type _SignalHandler = Callable[[int, FrameType | None], object] | int | None
 
 PROGRAM_RESUME_TOKEN_ENV = "OSC7577_TOKEN"
 DISABLE_PROGRAM_RESUME_ENV = "FAST_AGENT_DISABLE_PROGRAM_RESUME"
@@ -210,88 +207,62 @@ class ProgramResumeReporter:
         return True
 
 
-_lock = threading.Lock()
 _captured_token: str | None = None
-_creator_pid: int | None = None
 _reporter: ProgramResumeReporter | None = None
 _command_builder: Callable[[str | None], ProgramResumeCommand | None] | None = None
-_previous_sigcont_handler: _SignalHandler = None
-_sigcont_installed = False
+_sigcont_loop: asyncio.AbstractEventLoop | None = None
 
 
 def _after_fork_child() -> None:
-    global _lock, _captured_token, _creator_pid, _reporter, _command_builder
-    global _previous_sigcont_handler, _sigcont_installed
+    global _captured_token, _reporter, _command_builder, _sigcont_loop
 
-    _lock = threading.Lock()
     _captured_token = None
-    _creator_pid = None
     _reporter = None
     _command_builder = None
-    _previous_sigcont_handler = None
-    _sigcont_installed = False
+    _sigcont_loop = None
 
 
-if hasattr(os, "register_at_fork"):
+if sys.platform != "win32":
     os.register_at_fork(after_in_child=_after_fork_child)
 
 
-def capture_program_resume_token() -> bool:
+def capture_program_resume_token() -> None:
     """Pop ``OSC7577_TOKEN`` from ``os.environ`` once and retain it privately.
 
     Always strips the variable from ``os.environ`` so child processes (shell
     tools, MCP servers, sandboxes) cannot inherit it.
     """
-    global _captured_token, _creator_pid
+    global _captured_token
 
-    current_pid = os.getpid()
-    with _lock:
-        token = take_program_resume_token()
-        if token is not None:
-            _captured_token = token
-            _creator_pid = current_pid
-        return _captured_token is not None and _creator_pid == current_pid
+    token = take_program_resume_token()
+    if token is not None:
+        _captured_token = token
 
 
-def _sigcont_handler(signum: int, frame: FrameType | None) -> None:
-    refresh_program_resume()
-    previous = _previous_sigcont_handler
-    if callable(previous):
-        previous(signum, frame)
+def _install_sigcont_handler() -> None:
+    global _sigcont_loop
 
-
-def _install_sigcont_handler_locked() -> None:
-    global _previous_sigcont_handler, _sigcont_installed
-
-    if _sigcont_installed or not hasattr(signal, "SIGCONT"):
-        return
-    if threading.current_thread() is not threading.main_thread():
+    if sys.platform == "win32" or _sigcont_loop is not None:
         return
     try:
-        _previous_sigcont_handler = signal.getsignal(signal.SIGCONT)
-        signal.signal(signal.SIGCONT, _sigcont_handler)
-        _sigcont_installed = True
-    except (OSError, ValueError):
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(signal.SIGCONT, refresh_program_resume)
+        _sigcont_loop = loop
+    except (RuntimeError, NotImplementedError, OSError, ValueError):
         pass
 
 
-def _restore_sigcont_handler_locked() -> None:
-    global _previous_sigcont_handler, _sigcont_installed
+def _remove_sigcont_handler() -> None:
+    global _sigcont_loop
 
-    if not _sigcont_installed or not hasattr(signal, "SIGCONT"):
-        return
-    if threading.current_thread() is not threading.main_thread():
-        _sigcont_installed = False
-        _previous_sigcont_handler = None
+    loop = _sigcont_loop
+    _sigcont_loop = None
+    if sys.platform == "win32" or loop is None or loop.is_closed():
         return
     try:
-        if _previous_sigcont_handler is not None:
-            signal.signal(signal.SIGCONT, _previous_sigcont_handler)
-    except (OSError, ValueError):
+        loop.remove_signal_handler(signal.SIGCONT)
+    except (RuntimeError, NotImplementedError, OSError, ValueError):
         pass
-    finally:
-        _sigcont_installed = False
-        _previous_sigcont_handler = None
 
 
 def configure_program_resume(
@@ -300,85 +271,67 @@ def configure_program_resume(
     """Attach (or clear) the session-to-command builder for this process."""
     global _reporter, _command_builder
 
-    capture_program_resume_token()
-    current_pid = os.getpid()
-    with _lock:
-        _command_builder = command_builder
-        if command_builder is None or _captured_token is None or _creator_pid != current_pid:
-            _restore_sigcont_handler_locked()
-            return
-        if _reporter is None:
-            _reporter = ProgramResumeReporter(_captured_token, pid=current_pid)
-        _install_sigcont_handler_locked()
+    _command_builder = command_builder
+    if command_builder is None or _captured_token is None:
+        _remove_sigcont_handler()
+        return
+    if _reporter is None:
+        _reporter = ProgramResumeReporter(_captured_token)
+    _install_sigcont_handler()
 
 
 def program_resume_configured() -> bool:
     """Whether OSC 7577 reporting has both a captured token and a command builder."""
-    current_pid = os.getpid()
-    with _lock:
-        return (
-            _captured_token is not None
-            and _creator_pid == current_pid
-            and _command_builder is not None
-        )
+    return _captured_token is not None and _command_builder is not None
 
 
 def report_program_resume_session(session_id: str | None) -> None:
     """Update the OSC 7577 record for ``session_id`` (or clear when ``None``)."""
-    current_pid = os.getpid()
     try:
-        with _lock:
-            if _creator_pid != current_pid or _reporter is None or _command_builder is None:
-                return
-            command = _command_builder(session_id)
-            _reporter.report(command)
+        if _reporter is None or _command_builder is None:
+            return
+        command = _command_builder(session_id)
+        _reporter.report(command)
     except Exception:
         pass
 
 
 def refresh_program_resume() -> None:
     """Re-emit the active OSC 7577 record (used after ``SIGCONT``)."""
-    current_pid = os.getpid()
     try:
-        with _lock:
-            if _creator_pid != current_pid or _reporter is None:
-                return
-            _reporter.report_again()
+        if _reporter is None:
+            return
+        _reporter.report_again()
     except Exception:
         pass
 
 
 def clear_program_resume() -> None:
     """Send ``clear=1`` when the user intentionally exits the session."""
-    current_pid = os.getpid()
     try:
-        with _lock:
-            if _creator_pid != current_pid or _reporter is None:
-                return
-            _reporter.clear()
+        if _reporter is None:
+            return
+        _reporter.clear()
     except Exception:
         pass
 
 
 def deactivate_program_resume() -> None:
-    """Detach callbacks and restore ``SIGCONT`` without sending ``clear=1``.
+    """Detach callbacks and remove ``SIGCONT`` without sending ``clear=1``.
 
     Preserves any reported record when the process ends due to terminal close,
     ``SIGHUP``, ``SIGTERM``, or an unexpected error.
     """
     global _command_builder
 
-    with _lock:
-        _command_builder = None
-        _restore_sigcont_handler_locked()
+    _command_builder = None
+    _remove_sigcont_handler()
 
 
 def _reset_for_tests() -> None:
-    global _captured_token, _creator_pid, _reporter, _command_builder
+    global _captured_token, _reporter, _command_builder
 
-    with _lock:
-        _restore_sigcont_handler_locked()
-        _captured_token = None
-        _creator_pid = None
-        _reporter = None
-        _command_builder = None
+    _remove_sigcont_handler()
+    _captured_token = None
+    _reporter = None
+    _command_builder = None

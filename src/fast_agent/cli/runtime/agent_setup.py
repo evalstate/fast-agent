@@ -1675,17 +1675,13 @@ async def run_agent_request(request: AgentRunRequest) -> None:
     )
     from fast_agent.cli.runtime.program_resume import build_cli_resume_command
     from fast_agent.integrations.herdr_lifecycle import herdr_startup_hold
-    from fast_agent.integrations.program_resume import configure_program_resume
+    from fast_agent.integrations.program_resume import (
+        clear_program_resume,
+        configure_program_resume,
+    )
 
     if request.mode == "interactive" and request.is_repl and not request.no_home:
-        startup_cwd = (request.workspace or Path.cwd()).resolve()
-        configure_program_resume(
-            lambda session_id: build_cli_resume_command(
-                request,
-                session_id,
-                cwd=startup_cwd,
-            )
-        )
+        configure_program_resume(lambda session_id: build_cli_resume_command(request, session_id))
     else:
         configure_program_resume(None)
 
@@ -1720,7 +1716,13 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             instruction=instruction,
             serve_permissions_enabled=serve_permissions_enabled,
         )
-    except SystemExit:
+        clear_program_resume()
+    except PromptExitError as exc:
+        clear_program_resume()
+        raise SystemExit(0) from exc
+    except SystemExit as exc:
+        if exc.code in (None, 0):
+            clear_program_resume()
         # Already reported (the harness renders startup errors before exiting).
         await _rollback_cli_startup(fast, request)
         raise

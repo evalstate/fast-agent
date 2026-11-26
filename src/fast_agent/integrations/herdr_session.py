@@ -14,7 +14,7 @@ from fast_agent.integrations.program_resume import (
     report_program_resume_session,
 )
 from fast_agent.llm.model_display_name import format_model_display_name
-from fast_agent.session import SessionInfo, extract_session_title
+from fast_agent.session import extract_session_title
 from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.utils.count_display import format_compact_count
 
@@ -99,9 +99,7 @@ def _usage_metadata(
 
 
 def _resumable_session_id(session: "Session | None") -> str | None:
-    if session is None or not isinstance(session.info, SessionInfo):
-        return None
-    if not session.info.history_files:
+    if session is None or not session.info.history_files:
         return None
     return session.info.name or None
 
