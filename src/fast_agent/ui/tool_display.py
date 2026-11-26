@@ -42,7 +42,11 @@ from fast_agent.ui.shell_output_truncation import (
     truncate_shell_output_lines,
 )
 from fast_agent.ui.streaming.json_prefix import format_json_prefix
-from fast_agent.ui.syntax_highlighting import shell_syntax_blocks, syntax_language_for_path
+from fast_agent.ui.syntax_highlighting import (
+    python_syntax_blocks,
+    shell_syntax_blocks,
+    syntax_language_for_path,
+)
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.numeric import positive_int_or_none
@@ -218,7 +222,7 @@ class ToolDisplay:
         self,
         tool_args: Mapping[str, Any],
         metadata: Mapping[str, Any],
-    ) -> tuple[Syntax, list[str]]:
+    ) -> tuple[RenderableType, list[str]]:
         code_arg = str(metadata.get("code_arg") or "code")
         language = str(metadata.get("language") or "text")
         raw_code = tool_args.get(code_arg)
@@ -236,6 +240,25 @@ class ToolDisplay:
                 continue
             rendered = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
             footer_items.append(f"{key}: {rendered}")
+
+        if language.lower() == "python":
+            blocks = python_syntax_blocks(code_text, language=language)
+            if len(blocks) > 1:
+                return (
+                    Group(
+                        *(
+                            Syntax(
+                                block.code,
+                                block.language,
+                                theme=self._display.code_style,
+                                line_numbers=False,
+                                word_wrap=self._display.code_word_wrap,
+                            )
+                            for block in blocks
+                        )
+                    ),
+                    footer_items,
+                )
 
         return (
             Syntax(

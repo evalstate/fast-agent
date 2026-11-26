@@ -1,4 +1,6 @@
+import io
 import re
+import tokenize
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -113,4 +115,107 @@ def shell_syntax_blocks(
         cursor = span.end
     if shell_text := command[cursor:].rstrip():
         blocks.append(SyntaxBlock(shell_text, shell_language))
+    return blocks
+
+
+def _triple_quoted_inner_span(token_text: str) -> tuple[int, int] | None:
+    """Return (start, end) offsets inside a non-f multiline triple-quoted Python string."""
+    for quote in ('"""', "'''"):
+        quote_index = token_text.find(quote)
+        if quote_index == -1 or not token_text.endswith(quote):
+            continue
+        prefix = token_text[:quote_index].lower()
+        if "f" in prefix:
+            return None
+        inner_start = quote_index + 3
+        inner_end = len(token_text) - 3
+        if inner_end <= inner_start or "\n" not in token_text[inner_start:inner_end]:
+            return None
+        return inner_start, inner_end
+    return None
+
+
+def _python_embedded_spans(code: str) -> list[_LanguageSpan]:
+    lines = code.splitlines(keepends=True)
+    if not lines:
+        return []
+
+    line_starts: list[int] = [0]
+    for line in lines:
+        line_starts.append(line_starts[-1] + len(line))
+
+    spans: list[_LanguageSpan] = []
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(code).readline))
+    except (tokenize.TokenError, IndentationError):
+        return []
+
+    for tok in tokens:
+        if tok.type != tokenize.STRING:
+            continue
+        inner_bounds = _triple_quoted_inner_span(tok.string)
+        if inner_bounds is None:
+            continue
+        tok_start = line_starts[tok.start[0] - 1] + tok.start[1]
+        inner_offset, inner_end_offset = inner_bounds
+        inner_start = tok_start + inner_offset
+        inner_text = tok.string[inner_offset:inner_end_offset]
+
+        heredoc_spans: list[_LanguageSpan] = []
+        for body in shell_heredoc_bodies(inner_text, include_incomplete=False):
+            language = _syntax_language_for_interpreter(body.stdin_interpreter) or (
+                syntax_language_for_path(body.target_path) if body.target_path else None
+            )
+            if language is None or not inner_text[body.start : body.end].strip():
+                continue
+            abs_start = inner_start + body.start
+            abs_end = inner_start + body.end
+            # Only split on whole-line boundaries so outer/inner blocks align cleanly.
+            if abs_start > 0 and code[abs_start - 1] != "\n":
+                continue
+            if abs_end < len(code) and code[abs_end - 1] != "\n":
+                continue
+            heredoc_spans.append(_LanguageSpan(abs_start, abs_end, language))
+
+        if not heredoc_spans:
+            continue
+
+        spans.extend(heredoc_spans)
+        # Isolate the closing triple-quote line as plain text so its closing quotes
+        # do not re-open a string in Pygments for subsequent Python lines.
+        end_line_index = tok.end[0] - 1
+        closing_line_start = line_starts[end_line_index]
+        closing_line_end = line_starts[end_line_index + 1]
+        if closing_line_start >= heredoc_spans[-1].end and closing_line_end > closing_line_start:
+            spans.append(_LanguageSpan(closing_line_start, closing_line_end, "text"))
+
+    spans.sort(key=lambda span: span.start)
+    merged: list[_LanguageSpan] = []
+    for span in spans:
+        if merged and span.start < merged[-1].end:
+            continue
+        merged.append(span)
+    return merged
+
+
+def python_syntax_blocks(
+    code: str,
+    *,
+    language: str = "python",
+) -> list[SyntaxBlock]:
+    """Split Python source when triple-quoted strings contain whole-line shell heredocs."""
+    embedded_spans = _python_embedded_spans(code)
+    if not embedded_spans:
+        return [SyntaxBlock(code.rstrip(), language)]
+
+    blocks: list[SyntaxBlock] = []
+    cursor = 0
+    for span in embedded_spans:
+        if outer_text := code[cursor : span.start].rstrip("\r\n"):
+            blocks.append(SyntaxBlock(outer_text, language))
+        if inner_text := code[span.start : span.end].rstrip("\r\n"):
+            blocks.append(SyntaxBlock(inner_text, span.language))
+        cursor = span.end
+    if tail_text := code[cursor:].rstrip():
+        blocks.append(SyntaxBlock(tail_text, language))
     return blocks

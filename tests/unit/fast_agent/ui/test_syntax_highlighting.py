@@ -1,6 +1,10 @@
 import pytest
 
-from fast_agent.ui.syntax_highlighting import SyntaxBlock, shell_syntax_blocks
+from fast_agent.ui.syntax_highlighting import (
+    SyntaxBlock,
+    python_syntax_blocks,
+    shell_syntax_blocks,
+)
 
 
 def test_shell_syntax_blocks_highlights_static_heredoc_body_by_target_extension() -> None:
@@ -216,3 +220,36 @@ def test_shell_syntax_blocks_prefers_heredoc_over_inline_inside_body() -> None:
     assert blocks[1].code == "print('python -c ignore')"
     assert blocks[3].code == "print(1)"
     assert blocks[4].code == "'"
+
+
+def test_python_syntax_blocks_highlights_shell_heredoc_inside_triple_quoted_string() -> None:
+    code = (
+        'r = await shell(command=r"""uv run python - <<\'PY\'\n'
+        "import asyncio\n"
+        'print("hi", 42)\n'
+        'PY""")\n'
+        "print(show(r))"
+    )
+
+    blocks = python_syntax_blocks(code)
+
+    assert blocks == [
+        SyntaxBlock(code='r = await shell(command=r"""uv run python - <<\'PY\'', language="python"),
+        SyntaxBlock(code='import asyncio\nprint("hi", 42)', language="python"),
+        SyntaxBlock(code='PY""")', language="text"),
+        SyntaxBlock(code="print(show(r))", language="python"),
+    ]
+
+
+def test_python_syntax_blocks_highlights_file_target_heredoc_and_skips_fstrings() -> None:
+    json_heredoc = (
+        'await shell(command="""cat <<\'EOF\' > config.json\n{"enabled": true}\nEOF""")\n'
+    )
+    blocks = python_syntax_blocks(json_heredoc)
+    assert [block.language for block in blocks] == ["python", "json", "text"]
+    assert blocks[1].code == '{"enabled": true}'
+
+    fstring_heredoc = 'await shell(command=f"""python - <<\'PY\'\nprint({value})\nPY""")\n'
+    assert python_syntax_blocks(fstring_heredoc) == [
+        SyntaxBlock(code=fstring_heredoc.rstrip(), language="python")
+    ]
