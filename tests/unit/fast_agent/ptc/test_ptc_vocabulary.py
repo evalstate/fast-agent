@@ -106,8 +106,9 @@ async def test_catalog_ptc_contract(model: str, profile: ShellToolProfile) -> No
         set_harness_tools(agent, True)
         surface = await agent.tool_surface()
         functions = {t.python_name: t for t in surface.exposed(ToolExposure.PROGRAMMATIC)}
-        assert functions.keys() == PTC_BUILTIN_FUNCTIONS
-        assert list(functions) == list(PTC_BUILTIN_ORDER)
+        expected_order = [name for name in PTC_BUILTIN_ORDER if name != "events"]
+        assert functions.keys() == PTC_BUILTIN_FUNCTIONS - {"events"}
+        assert list(functions) == expected_order
         assert {name: f.signature for name, f in functions.items()} == SIGNATURES
         assert all(t.python_name == t.tool.name for t in functions.values())
         assert surface.programmatic is not None

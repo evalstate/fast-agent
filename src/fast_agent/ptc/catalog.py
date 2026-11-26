@@ -198,17 +198,44 @@ def _entry_line(entry: SourceEntry) -> str:
     return f"{line} ({entry.note})" if entry.note else line
 
 
+def _events_source_note(server: str) -> str:
+    return f'supports events — use events(action="list", server="{server}")'
+
+
+def _join_notes(*notes: str | None) -> str | None:
+    parts = [note for note in notes if note]
+    return "; ".join(parts) if parts else None
+
+
 def build_roster(
-    sources: Mapping[str, str], deferred: Collection[str], unavailable: Mapping[str, str]
+    sources: Mapping[str, str],
+    deferred: Collection[str],
+    unavailable: Mapping[str, str],
+    *,
+    events_sources: Collection[str] = (),
 ) -> SourceRoster:
     """Count deferred functions per source; ``unavailable`` maps empty sources to a note."""
+    events_set = frozenset(events_sources)
     counts: dict[str, int] = {}
     for python_name in deferred:
         source = sources[python_name]
         counts[source] = counts.get(source, 0) + 1
-    entries = [SourceEntry(name, count) for name, count in counts.items()]
+    entries = [
+        SourceEntry(name, count, _events_source_note(name) if name in events_set else None)
+        for name, count in counts.items()
+    ]
     entries.extend(
-        SourceEntry(name, 0, note) for name, note in unavailable.items() if name not in counts
+        SourceEntry(
+            name,
+            0,
+            _join_notes(note, _events_source_note(name) if name in events_set else None),
+        )
+        for name, note in unavailable.items()
+        if name not in counts
+    )
+    seen = set(counts) | set(unavailable)
+    entries.extend(
+        SourceEntry(name, 0, _events_source_note(name)) for name in events_set if name not in seen
     )
     return SourceRoster(tuple(sorted(entries, key=lambda entry: entry.name.casefold())))
 

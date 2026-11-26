@@ -14,7 +14,7 @@ import fnmatch
 import json
 import re
 import time
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from contextlib import AsyncExitStack, suppress
 from dataclasses import dataclass, field, replace
 from io import StringIO
@@ -335,6 +335,7 @@ class ProgrammaticToolRuntime:
         file_write: bool = False,
         sources: Mapping[str, str] | None = None,
         unavailable_sources: Mapping[str, str] | None = None,
+        events_sources: Collection[str] = (),
         routes: Mapping[str, ToolRoute] | None = None,
     ) -> list[Tool]:
         """Replace the agent's tools with the code tool, keeping configured direct tools.
@@ -378,6 +379,7 @@ class ProgrammaticToolRuntime:
             direct_names={tool.name for tool in direct},
             sources=sources or {},
             unavailable_sources=unavailable_sources or {},
+            events_sources=events_sources,
             routes=routes or {},
         )
         return [self.tool(), *direct]
@@ -389,6 +391,7 @@ class ProgrammaticToolRuntime:
         direct_names: set[str],
         sources: Mapping[str, str],
         unavailable_sources: Mapping[str, str],
+        events_sources: Collection[str] = (),
         routes: Mapping[str, ToolRoute],
     ) -> PtcCatalog:
         canonical = self.vocabulary == 1
@@ -433,7 +436,12 @@ class ProgrammaticToolRuntime:
             deferred=deferred,
             search_active=search_active,
             roster=(
-                build_roster(function_sources, deferred, unavailable_sources)
+                build_roster(
+                    function_sources,
+                    deferred,
+                    unavailable_sources,
+                    events_sources=events_sources,
+                )
                 if search_active
                 else SourceRoster()
             ),

@@ -19,12 +19,26 @@ import shutil
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
+
+
+class EventWaitSubscription(Protocol):
+    """Minimal subscription shape needed to render idle event-wait indicators."""
+
+    @property
+    def server_name(self) -> str: ...
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def arguments(self) -> Mapping[str, Any]: ...
+
 
 _COMMAND_TIMEOUT_SECONDS = 2.0
 _LIST_COMMAND_TIMEOUT_SECONDS = 4.5
@@ -357,7 +371,37 @@ def _count(count: int, noun: str, plural: str | None = None) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {plural or noun + 's'}"
 
 
-def format_turn_end_lines(attachments: HcAttachments, background_processes: int) -> list[str]:
+@runtime_checkable
+class _EventWaitAgent(Protocol):
+    def event_wait_state(self) -> tuple[Sequence[EventWaitSubscription], bool]: ...
+
+
+def active_event_waits(agent: object) -> tuple[tuple[EventWaitSubscription, ...], bool]:
+    """Return ``(active_wake_subscriptions, wake_paused)`` for an agent."""
+    if not isinstance(agent, _EventWaitAgent):
+        return (), False
+    waits_seq, wake_paused = agent.event_wait_state()
+    waits = tuple(waits_seq)
+    if not waits:
+        return (), False
+    return waits, bool(wake_paused)
+
+
+def _format_event_wait_label(subscription: EventWaitSubscription) -> str:
+    label = f"{subscription.server_name}/{subscription.name}"
+    if subscription.arguments:
+        args = ", ".join(f"{key}={value}" for key, value in sorted(subscription.arguments.items()))
+        return f"{label} ({args})"
+    return label
+
+
+def format_turn_end_lines(
+    attachments: HcAttachments,
+    background_processes: int,
+    *,
+    event_waits: Sequence[EventWaitSubscription] = (),
+    event_wake_paused: bool = False,
+) -> list[str]:
     """Scrollback lines saying what will, and will not, bring this session back."""
     lines: list[str] = []
     resuming = attachments.resuming
@@ -367,9 +411,23 @@ def format_turn_end_lines(attachments: HcAttachments, background_processes: int)
     if resuming:
         names = ", ".join(child.label for child in resuming)
         pronoun = "it reports or exits" if len(resuming) == 1 else "they report or exit"
-        lines.append(f"⧗ hc · waiting on {names} · resumes when {pronoun}{services}")
-    elif services:
-        lines.append(f"hc{services}")
+        events_suffix = ""
+        if event_waits:
+            events_suffix = f" · {_count(len(event_waits), 'event')}"
+            if event_wake_paused:
+                events_suffix += " (wake paused)"
+        lines.append(f"⧗ hc · waiting on {names} · resumes when {pronoun}{services}{events_suffix}")
+    else:
+        if services:
+            lines.append(f"hc{services}")
+        if event_waits:
+            target = (
+                _format_event_wait_label(event_waits[0])
+                if len(event_waits) == 1
+                else _count(len(event_waits), "event")
+            )
+            tail = "wake paused" if event_wake_paused else "resumes when an event arrives"
+            lines.append(f"⧗ events · waiting on {target} · {tail}")
     if background_processes > 0:
         pronoun = "it ends" if background_processes == 1 else "they end"
         lines.append(
@@ -379,12 +437,26 @@ def format_turn_end_lines(attachments: HcAttachments, background_processes: int)
     return lines
 
 
-def format_status_summary(attachments: HcAttachments, background_processes: int) -> str | None:
+def format_status_summary(
+    attachments: HcAttachments,
+    background_processes: int,
+    *,
+    event_waits: Sequence[EventWaitSubscription] = (),
+    event_wake_paused: bool = False,
+) -> str | None:
     """One short phrase for the terminal status message and the toolbar."""
     parts: list[str] = []
     if attachments.resuming:
         names = ", ".join(child.name or child.address for child in attachments.resuming)
         parts.append(f"waiting on {len(attachments.resuming)}: {names}")
+    if event_waits:
+        paused = " (wake paused)" if event_wake_paused else ""
+        if attachments.resuming:
+            parts.append(f"{_count(len(event_waits), 'event')}{paused}")
+        elif len(event_waits) == 1:
+            parts.append(f"waiting on {_format_event_wait_label(event_waits[0])}{paused}")
+        else:
+            parts.append(f"waiting on {_count(len(event_waits), 'event')}{paused}")
     if attachments.services:
         parts.append(_count(attachments.services, "service"))
     if background_processes > 0:

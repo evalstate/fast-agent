@@ -325,3 +325,53 @@ async def test_events_requires_an_mcp_agent() -> None:
 
     assert outcome.messages[0].channel == "warning"
     assert "not available for this agent" in _text(outcome)
+
+
+@pytest.mark.asyncio
+async def test_events_select_non_tui_fallback_shows_status_and_usage() -> None:
+    agent = _Agent()
+    context = _context(agent)
+
+    outcome = await handle_events(context, agent_name="main", argument="select")
+    text = _text(outcome)
+
+    assert "No event subscriptions" in text
+    assert "Usage: /events" in text
+
+    for removed_alias in ("browse", "explore"):
+        bad = await handle_events(context, agent_name="main", argument=removed_alias)
+        assert bad.messages[0].channel == "error"
+
+
+@pytest.mark.asyncio
+async def test_events_select_tui_propagates_buffer_prefill_and_refreshes() -> None:
+    from fast_agent.commands.handlers.events import EventsPickerResult
+
+    class _TuiIO(_IO):
+        async def pick_events(
+            self,
+            *,
+            manager: object,
+            descriptors_by_server: object,
+        ) -> EventsPickerResult:
+            del manager
+            assert isinstance(descriptors_by_server, dict)
+            assert "jobs" in descriptors_by_server
+            return EventsPickerResult(
+                buffer_prefill="/events subscribe jobs job.status_changed job_id=",
+            )
+
+    agent = _Agent()
+    await agent.aggregator.events.list_descriptors("jobs")
+    assert agent.aggregator.list_calls == 1
+
+    context = CommandContext(
+        agent_provider=StaticAgentProvider({"main": agent}),
+        current_agent_name="main",
+        io=_TuiIO(),
+        no_home=True,
+    )
+    outcome = await handle_events(context, agent_name="main", argument="select")
+
+    assert outcome.buffer_prefill == "/events subscribe jobs job.status_changed job_id="
+    assert agent.aggregator.list_calls == 2

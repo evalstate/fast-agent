@@ -4122,6 +4122,47 @@ class MCPAggregator(ContextDependent):
         """Whether consecutive wake turns have reached the configured budget."""
         return self._events is not None and self._events.wake_paused
 
+    async def reset_events(self) -> None:
+        """Reset session-scoped event subscriptions, inbox, wake budget, and toolbar notices."""
+        if self._events is not None:
+            await self._events.reset()
+        from fast_agent.ui import notification_tracker
+
+        notification_tracker.clear_mcp_events(owner=self._event_notification_owner())
+
+    def cached_capabilities(self, server_name: str) -> ServerCapabilities | None:
+        """Return cached server capabilities without opening new connections."""
+        server_name = self._resolve_server_key(server_name)
+        cached = self._capabilities_cache.get(server_name)
+        if cached is not None:
+            return cached
+        registry = self.context.server_registry if self.context else None
+        if registry is not None:
+            reg_caps = registry.get_server_capabilities(server_name)
+            if reg_caps is not None:
+                return reg_caps
+        manager = self._persistent_connection_manager
+        if self.connection_persistence and manager is not None:
+            server_conn = manager.running_servers.get(server_name)
+            if server_conn is not None:
+                return server_conn.server_capabilities
+        return None
+
+    def events_capable_servers(self) -> frozenset[str]:
+        """Return attached server display names that declared MCP Events support (cached only)."""
+        capable: set[str] = set()
+        for server_name in self.server_names:
+            display_name = self.server_display_name(server_name)
+            if server_supports_mcp_events(self.cached_capabilities(server_name)) or (
+                self._events is not None
+                and (
+                    self._events.cached_descriptors(server_name) is not None
+                    or self._events.cached_descriptors(display_name) is not None
+                )
+            ):
+                capable.add(display_name)
+        return frozenset(capable)
+
     async def supports_events(self, server_name: str) -> bool:
         """Whether a server declared the SEP-3415 Events extension."""
         if not self.initialized:

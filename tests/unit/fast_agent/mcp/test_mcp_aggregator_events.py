@@ -424,3 +424,39 @@ async def test_interactive_prompt_does_not_reset_wake_budget_on_hc_messages(
 
     # Only the human-typed turn reset the budget; the <hc> turn did not.
     assert app.agent.resets == 1
+
+
+@pytest.mark.asyncio
+async def test_clear_agent_histories_calls_reset_events() -> None:
+    from fast_agent.commands.handlers.shared import clear_agent_histories
+
+    class _ResettableAgent:
+        def __init__(self) -> None:
+            self.name = "main"
+            self.usage_accumulator = None
+            self.cleared = False
+            self.events_reset = False
+
+        def clear(self, *, clear_prompts: bool = False) -> None:
+            del clear_prompts
+            self.cleared = True
+
+        def pop_last_message(self) -> Any:
+            return None
+
+        @property
+        def message_history(self) -> list[Any]:
+            return []
+
+        def load_message_history(self, messages: list[Any]) -> None:
+            del messages
+
+        async def reset_events(self) -> None:
+            self.events_reset = True
+
+    agent = _ResettableAgent()
+    cleared = await clear_agent_histories({"main": agent})
+
+    assert cleared == ["main"]
+    assert agent.cleared is True
+    assert agent.events_reset is True

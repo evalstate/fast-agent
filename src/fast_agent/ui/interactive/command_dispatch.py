@@ -981,13 +981,13 @@ async def _dispatch_display_payload(
     if handler is None:
         return None
 
-    await _run_command_handler(
+    outcome = await _run_command_handler(
         prompt_provider=prompt_provider,
         agent=agent,
         handler=handler,
         session_manager=session_manager,
     )
-    return DispatchResult(handled=True)
+    return DispatchResult(handled=True, buffer_prefill=outcome.buffer_prefill)
 
 
 def _history_command_target_agent(payload: CommandPayload) -> str | None:

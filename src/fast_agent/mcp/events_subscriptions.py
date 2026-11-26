@@ -566,6 +566,22 @@ class EventSubscriptionManager:
         self._wake.clear()
         return items
 
+    async def reset(self) -> None:
+        """Cancel non-declared subscriptions, clear queued events, and reset wake budget."""
+        non_declared_keys = [
+            key for key, state in self._running.items() if state.subscription.origin != "declared"
+        ]
+        for key in non_declared_keys:
+            state = self._running.pop(key, None)
+            if state is not None:
+                await self._cancel(state)
+        for key in [key for key, sub in self._terminated.items() if sub.origin != "declared"]:
+            self._terminated.pop(key, None)
+        self._inbox = []
+        self._overflow = {}
+        self._wake.clear()
+        self.reset_wake_budget()
+
     async def aclose(self) -> None:
         states = list(self._running.values())
         for state in states:

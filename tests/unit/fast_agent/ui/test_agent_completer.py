@@ -3232,3 +3232,122 @@ async def test_run_async_completion_on_owner_loop_does_not_create_coroutine() ->
 
     assert result is None
     assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_events_command_completions_subcommands_servers_events_args_and_ids() -> None:
+    from types import SimpleNamespace
+    from typing import cast
+
+    from fast_agent.commands.context import StaticAgentProvider
+    from fast_agent.mcp.events_extension import (
+        EventDescriptor,
+        ListEventsResult,
+        PollEventsResult,
+    )
+    from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
+
+    class _EventAggregator:
+        def __init__(self) -> None:
+            self.server_names = ["jobs", "my jobs", "plain"]
+            self.list_calls = 0
+            self.events = EventSubscriptionManager(self)
+
+        def events_capable_servers(self) -> frozenset[str]:
+            return frozenset({"jobs", "my jobs"})
+
+        async def list_events(
+            self, server_name: str, cursor: str | None = None
+        ) -> ListEventsResult:
+            del server_name, cursor
+            self.list_calls += 1
+            return ListEventsResult(
+                events=[
+                    EventDescriptor(
+                        name="job.status_changed",
+                        description="Job stage changed",
+                        delivery=["poll"],
+                        input_schema={
+                            "type": "object",
+                            "properties": {
+                                "verbose": {"type": "boolean"},
+                                "job_id": {"type": "string", "description": "Job ID"},
+                            },
+                            "required": ["job_id"],
+                        },
+                    ),
+                    EventDescriptor(name="job.log_line", delivery=["push"]),
+                ]
+            )
+
+        async def poll_events(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, object] | None = None,
+            *,
+            cursor: str | None = None,
+            max_age_ms: int | None = None,
+            max_events: int | None = None,
+        ) -> PollEventsResult:
+            del server_name, name, arguments, cursor, max_age_ms, max_events
+            return PollEventsResult(events=[], cursor="c1")
+
+    aggregator = _EventAggregator()
+    agent = SimpleNamespace(aggregator=aggregator)
+    provider = StaticAgentProvider({"main": agent})
+    completer = AgentCompleter(
+        agents=["main"],
+        agent_provider=cast("AgentApp", provider),
+        current_agent="main",
+    )
+
+    def _complete(text: str) -> list[str]:
+        return [
+            completion.text
+            for completion in completer.get_completions(Document(text), CompleteEvent())
+        ]
+
+    # 1. Subcommands
+    assert set(_complete("/events ")) == {"list", "subscribe", "poll", "unsubscribe", "select"}
+
+    # 2. Events-capable servers for list and subscribe (spaces quoted via shlex.quote)
+    assert _complete("/events list ") == ["jobs", "'my jobs'"]
+    assert _complete("/events subscribe ") == ["jobs", "'my jobs'"]
+    quoted_completions = list(
+        completer.get_completions(Document("/events subscribe 'my"), CompleteEvent())
+    )
+    assert [(c.text, c.start_position) for c in quoted_completions] == [("'my jobs'", -3)]
+
+    # 3. Uncached descriptors: never blocks, schedules background fetch
+    assert _complete("/events subscribe jobs ") == []
+    await asyncio.sleep(0)
+    assert aggregator.list_calls == 1
+
+    # 4. Cached descriptors: pollable only (including quoted server name with spaces)
+    assert _complete("/events subscribe jobs ") == ["job.status_changed"]
+    await aggregator.events.list_descriptors("my jobs")
+    assert _complete("/events subscribe 'my jobs' ") == ["job.status_changed"]
+    assert _complete("/events subscribe 'my jobs' job.status_changed ") == [
+        "job_id=",
+        "verbose=",
+        "--wake",
+        "--once",
+        "--every",
+    ]
+
+    # 5. Arguments (required first) + flags, skipping present keys/flags
+    args_and_flags = _complete("/events subscribe jobs job.status_changed ")
+    assert args_and_flags == ["job_id=", "verbose=", "--wake", "--once", "--every"]
+    assert _complete("/events subscribe jobs job.status_changed job_id=abc --wake ") == [
+        "verbose=",
+        "--once",
+        "--every",
+    ]
+    assert _complete("/events subscribe jobs job.status_changed --every ") == []
+
+    # 6. Poll and unsubscribe IDs
+    sub = await aggregator.events.subscribe("jobs", "job.status_changed", {"job_id": "abc"})
+    assert _complete("/events poll ") == [sub.key]
+    assert _complete("/events unsubscribe ") == [sub.key, "all"]
+    await aggregator.events.aclose()

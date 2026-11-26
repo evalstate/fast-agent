@@ -15,12 +15,14 @@ from fast_agent.utils.markdown import escape_markdown_table_cell, markdown_code_
 from fast_agent.utils.text import strip_casefold
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from fast_agent.commands.context import CommandContext
     from fast_agent.mcp.events_extension import EventDescriptor
     from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
 
 EVENTS_USAGE = (
-    "Usage: /events [list [server]|subscribe <server> <event> [key=value ...] "
+    "Usage: /events [select|list [server]|subscribe <server> <event> [key=value ...] "
     "[--wake] [--once] [--every <duration>]|poll <id>|unsubscribe <id>|unsubscribe all]"
 )
 WAKE_FLAG = "--wake"
@@ -81,6 +83,28 @@ class _EventsAgent(Protocol):
     def aggregator(self) -> _EventsAggregator: ...
 
 
+@dataclass(frozen=True, slots=True)
+class EventsPickerResult:
+    """Outcome returned when the interactive events picker closes."""
+
+    buffer_prefill: str | None = None
+    message: str | None = None
+
+
+@runtime_checkable
+class EventsPickerIO(Protocol):
+    """Command IO that can run the interactive MCP events picker."""
+
+    async def pick_events(
+        self,
+        *,
+        manager: EventSubscriptionManager,
+        descriptors_by_server: Mapping[str, Sequence[EventDescriptor]],
+    ) -> EventsPickerResult | None:
+        """Return the picker outcome, or None when cancelled."""
+        ...
+
+
 def parse_event_arguments(tokens: list[str]) -> dict[str, Any]:
     """Parse ``key=value`` tokens, or one JSON object, into subscription arguments.
 
@@ -135,6 +159,8 @@ async def handle_events(
     try:
         if action == "status" and not rest:
             _add_markdown(outcome, _render_status(aggregator), "events")
+        elif action == "select" and not rest:
+            await _handle_select(ctx, outcome, aggregator)
         elif action == "list" and len(rest) <= 1:
             text = await _render_event_types(aggregator, rest[0] if rest else None)
             _add_markdown(outcome, text, "events list")
@@ -182,6 +208,43 @@ async def handle_events(
 
 def _add_markdown(outcome: CommandOutcome, text: str, right_info: str) -> None:
     outcome.add_message(text, right_info=right_info, render_markdown=True)
+
+
+async def _handle_select(
+    ctx: CommandContext,
+    outcome: CommandOutcome,
+    aggregator: _EventsAggregator,
+) -> None:
+    if not isinstance(ctx.io, EventsPickerIO):
+        status = _render_status(aggregator)
+        _add_markdown(outcome, f"{status}\n\n{EVENTS_USAGE}", "events select")
+        return
+
+    descriptors_by_server: dict[str, list[EventDescriptor]] = {}
+    for name in aggregator.server_names:
+        if await aggregator.supports_events(name):
+            descriptors_by_server[name] = await aggregator.events.list_descriptors(
+                name, refresh=True
+            )
+
+    if not descriptors_by_server and not aggregator.events.subscriptions():
+        _add_markdown(
+            outcome,
+            "No attached server supports the MCP events extension.",
+            "events select",
+        )
+        return
+
+    result = await ctx.io.pick_events(
+        manager=aggregator.events,
+        descriptors_by_server=descriptors_by_server,
+    )
+    if result is None:
+        return
+    if result.buffer_prefill:
+        outcome.buffer_prefill = result.buffer_prefill
+    if result.message:
+        _add_markdown(outcome, result.message, "events select")
 
 
 def _render_status(aggregator: _EventsAggregator) -> str:

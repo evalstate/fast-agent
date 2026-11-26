@@ -729,3 +729,30 @@ def test_toolbar_services_alone_are_quiet_text_not_a_badge(
 
     assert " | <style fg='ansiblack' bg='ansicyan'>hc: 1 service</style>" in markup
     assert "⧗" not in text and _BADGE_STYLE not in markup
+
+
+def test_toolbar_badge_shows_active_event_waits_and_combines_with_hc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.mcp.events_subscriptions import EventSubscription
+
+    subs = (
+        EventSubscription(server_name="jobs", name="job.status_changed", wake=True),
+        EventSubscription(server_name="ci", name="build.finished", wake=True),
+    )
+
+    monkeypatch.setattr(renderer, "active_event_waits", lambda _agent: (subs, False))
+    markup, text = _render_toolbar_text(monkeypatch, width=200)
+    assert f"{_BADGE_STYLE} ⧗ 2 ev </style>" in markup
+    assert "⧗ 2 ev" in text
+
+    monkeypatch.setattr(renderer, "active_event_waits", lambda _agent: (subs, True))
+    markup_paused, _ = _render_toolbar_text(monkeypatch, width=200)
+    assert f"{_BADGE_STYLE} ⧗ 2 ev ⏸ </style>" in markup_paused
+
+    monkeypatch.setattr(renderer, "active_event_waits", lambda _agent: (subs, False))
+    hc_one = HcAttachments(resuming=(HcChild("t7"),))
+    markup_both, _ = _render_toolbar_text(
+        monkeypatch, width=200, attachments=hc_one, waited_seconds=720
+    )
+    assert f"{_BADGE_STYLE} ⧗ t7, 2 ev · 12m </style>" in markup_both

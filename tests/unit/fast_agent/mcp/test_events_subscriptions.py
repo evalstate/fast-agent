@@ -779,3 +779,36 @@ async def test_min_poll_ms_applies_to_error_backoff_and_rediscovery_retries() ->
 
     assert sleeps.delays == [60.0, 60.0, 60.0, 60.0]
     await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_reset_cancels_non_declared_subscriptions_clears_inbox_and_wake_budget() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[_occurrence("A")], cursor="c1", next_poll_ms=5_000),
+            PollEventsResult(events=[], cursor="c2", next_poll_ms=5_000),
+            PollEventsResult(events=[], cursor="c3", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps, max_consecutive_wakes=1)
+
+    user_sub = await manager.subscribe("demo", EVENT, {"job_id": "u1"}, wake=True, origin="user")
+    model_sub = await manager.subscribe("demo", EVENT, {"job_id": "m1"}, wake=True, origin="model")
+    declared_sub = await manager.subscribe(
+        "demo", EVENT, {"job_id": "d1"}, wake=True, origin="declared"
+    )
+    manager.record_wake_turn()
+    assert manager.wake_paused is True
+    assert manager.pending_count > 0
+
+    await manager.reset()
+
+    remaining_keys = {sub.key for sub in manager.subscriptions()}
+    assert declared_sub.key in remaining_keys
+    assert user_sub.key not in remaining_keys
+    assert model_sub.key not in remaining_keys
+    assert manager.pending_count == 0
+    assert manager.wake_paused is False
+    assert manager.consecutive_wakes == 0
+    await manager.aclose()
