@@ -578,6 +578,77 @@ async def test_render_mcp_status_shows_skills_hint_above_capability_bar() -> Non
 
 
 @pytest.mark.asyncio
+async def test_render_mcp_status_shows_events_hint_and_ev_badge() -> None:
+    agent = _FakeAgent(
+        {
+            "events-server": ServerStatus(
+                server_name="events-server",
+                is_connected=True,
+                staleness_seconds=12,
+                transport="stdio",
+                mcp_events_enabled=True,
+                transport_channels=TransportSnapshot(
+                    activity_bucket_seconds=30,
+                    activity_bucket_count=4,
+                    stdio=ChannelSnapshot(
+                        state="connected",
+                        message_count=1,
+                        request_count=1,
+                        activity_buckets=("request",),
+                    ),
+                ),
+            )
+        },
+        "",
+    )
+
+    original_console = _set_console_size(120)
+    try:
+        with console.console.capture() as capture:
+            await render_mcp_status(agent, indent="  ")
+        output = strip_ansi(capture.get())
+    finally:
+        _restore_console_size(original_console)
+
+    lines = output.splitlines()
+    events_index = next(
+        index
+        for index, line in enumerate(lines)
+        if "Events are available: use `/events list events-server` to inspect them" in line
+    )
+    capability_index = next(index for index, line in enumerate(lines) if "─| " in line)
+
+    assert events_index < capability_index
+    assert " Ev " in lines[capability_index] or " Ev" in lines[capability_index]
+
+
+@pytest.mark.asyncio
+async def test_render_mcp_status_quotes_server_name_with_spaces_in_events_hint() -> None:
+    agent = _FakeAgent(
+        {
+            "my jobs": ServerStatus(
+                server_name="my jobs",
+                is_connected=True,
+                staleness_seconds=5,
+                transport="stdio",
+                mcp_events_enabled=True,
+            )
+        },
+        "",
+    )
+
+    original_console = _set_console_size(120)
+    try:
+        with console.console.capture() as capture:
+            await render_mcp_status(agent, indent="  ")
+        output = strip_ansi(capture.get())
+    finally:
+        _restore_console_size(original_console)
+
+    assert "Events are available: use `/events list 'my jobs'` to inspect them" in output
+
+
+@pytest.mark.asyncio
 async def test_render_mcp_status_reports_when_no_server_status_is_available() -> None:
     class _NoStatusAgent:
         config = _FakeConfig("")

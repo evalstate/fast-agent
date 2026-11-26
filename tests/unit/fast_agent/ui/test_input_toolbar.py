@@ -123,6 +123,19 @@ def test_build_notification_segment_pluralizes_multiple_event_types() -> None:
         notification_tracker.clear()
 
 
+def test_build_notification_segment_clears_mcp_events_when_consumed() -> None:
+    notification_tracker.clear()
+    notification_tracker.add_mcp_event("jobs")
+    notification_tracker.add_mcp_event("jobs")
+
+    try:
+        assert _build_notification_segment() == " | ◀ 2 events"
+        assert notification_tracker.clear_mcp_events(server_name="jobs") == 2
+        assert _build_notification_segment() == ""
+    finally:
+        notification_tracker.clear()
+
+
 def test_build_notification_segment_escapes_active_server_name() -> None:
     notification_tracker.clear()
     notification_tracker.start_sampling("server<one&two>")

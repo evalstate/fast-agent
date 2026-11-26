@@ -228,3 +228,5 @@ DOCUMENTED_ENV_VARS = (
 )
 
 SHELL_NOTICE_PREFIX = "[yellow][bold]Agents have shell[/bold][/yellow]"
+
+MCP_EVENTS_BLOCK_META = "fast-agent-mcp-events"

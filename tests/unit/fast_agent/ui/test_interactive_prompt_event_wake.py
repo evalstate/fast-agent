@@ -1,12 +1,21 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.core.agent_app import AgentRefreshResult
+from fast_agent.mcp.events_extension import EventOccurrence
+from fast_agent.mcp.events_subscriptions import (
+    EventInboxItem,
+    build_event_prompt_message,
+    is_mcp_events_message,
+)
 from fast_agent.ui import interactive_prompt
+
+if TYPE_CHECKING:
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.ui.command_payloads import EventWakeCommand
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 
@@ -14,9 +23,25 @@ from fast_agent.ui.interactive_prompt import InteractivePrompt
 class _WakeAgent:
     def __init__(self) -> None:
         self.message_history: list[Any] = []
-        self.pending = ["<mcp-event>one</mcp-event>"]
+        self.pending_message = build_event_prompt_message(
+            [
+                EventInboxItem(
+                    "event",
+                    "k1",
+                    "demo",
+                    "job.status_changed",
+                    occurrence=EventOccurrence(
+                        event_id="ev-1",
+                        name="job.status_changed",
+                        timestamp="2026-11-12T10:00:00Z",
+                        data={"stage": "COMPLETED"},
+                    ),
+                )
+            ]
+        )
+        self.pending: list[PromptMessageExtended] = [self.pending_message]
 
-    def take_event_messages(self) -> list[str]:
+    def take_event_prompt_messages(self) -> list[PromptMessageExtended]:
         messages, self.pending = self.pending, []
         return messages
 
@@ -82,7 +107,8 @@ async def test_event_wake_starts_a_turn_and_returns_the_typed_text(monkeypatch) 
         prompt_provider=cast("Any", app),
     )
 
-    assert sent == ["<mcp-event>one</mcp-event>"]
+    assert sent == [app.agent.pending_message]
+    assert is_mcp_events_message(sent[0])
     assert result == "ok"
     assert prompts[0]["wait_for_wake"] == app.agent.wait_for_event_wake
     assert prompts[1]["pre_populate_buffer"] == "draft"

@@ -47,7 +47,7 @@ class _AgentConfig(Protocol):
 class _EventMessageSource(Protocol):
     async def start_configured_events(self) -> None: ...
 
-    def take_event_messages(self) -> list[str]: ...
+    def take_event_prompt_messages(self) -> list[PromptMessageExtended]: ...
 
 
 class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
@@ -229,8 +229,8 @@ class ToolRunner:
         # MCP events are appended after the user's own message on the first step.
         if isinstance(self._agent, _EventMessageSource):
             await self._agent.start_configured_events()
-            for text in self._agent.take_event_messages():
-                self._append_input_message(text)
+            for event_message in self._agent.take_event_prompt_messages():
+                self._append_input_message(event_message)
 
         await self._run_before_llm_hook()
         assistant_message = await self._call_llm()
@@ -239,8 +239,8 @@ class ToolRunner:
 
         return assistant_message
 
-    def _append_input_message(self, text: str) -> None:
-        self.append_messages(text)
+    def _append_input_message(self, message: str | PromptMessageExtended) -> None:
+        self.append_messages(message)
         message = self._delta_messages[-1]
         self._turn_messages.append(message)
         self._pending_input_messages.append(message)

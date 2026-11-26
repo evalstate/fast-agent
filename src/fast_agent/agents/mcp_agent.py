@@ -619,6 +619,10 @@ class McpAgent(ABC, ToolAgent):
         """Drain MCP events delivered since the last model call."""
         return self._aggregator.take_event_messages()
 
+    def take_event_prompt_messages(self) -> list[PromptMessageExtended]:
+        """Drain MCP events delivered since the last model call as structured messages."""
+        return self._aggregator.take_event_prompt_messages()
+
     async def start_configured_events(self) -> None:
         """Start the MCP event subscriptions this agent's server settings declare."""
         await self._aggregator.start_configured_events()

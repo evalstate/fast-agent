@@ -1014,3 +1014,40 @@ async def test_handle_mcp_connect_defaults_url_no_oauth_timeout_to_10_seconds() 
 
     assert manager.last_options is not None
     assert manager.last_options.startup_timeout_seconds == 10.0
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_emits_events_hint_when_supported() -> None:
+    class _EventsManager(_Manager):
+        async def attach_mcp_server(
+            self, agent_name, server_name, server_config=None, options=None
+        ):
+            result = await super().attach_mcp_server(
+                agent_name,
+                server_name,
+                server_config=server_config,
+                options=options,
+            )
+            return MCPAttachResult(
+                server_name=result.server_name,
+                transport=result.transport,
+                attached=result.attached,
+                already_attached=result.already_attached,
+                tools_added=result.tools_added,
+                prompts_added=result.prompts_added,
+                warnings=result.warnings,
+                events_supported=True,
+            )
+
+    manager = _EventsManager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        request=_request("--name jobs https://example.com --no-oauth"),
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "Events are available: inspect them with `/events list jobs`." in message_text

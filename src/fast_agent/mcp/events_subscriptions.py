@@ -17,8 +17,9 @@ from html import escape
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from mcp.shared.exceptions import MCPError
-from mcp_types import HEADER_MISMATCH
+from mcp_types import HEADER_MISMATCH, TextContent
 
+from fast_agent.constants import MCP_EVENTS_BLOCK_META
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.events_extension import (
     EVENTS_FORBIDDEN,
@@ -29,6 +30,7 @@ from fast_agent.mcp.events_extension import (
     ListEventsResult,
     PollEventsResult,
 )
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -108,7 +110,11 @@ def format_event_messages(items: list[EventInboxItem]) -> str:
     """Render inbox items as one user message for the model."""
     blocks: list[str] = [EVENT_MESSAGE_PREAMBLE]
     for item in items:
-        attributes = f'server="{escape(item.server_name)}" name="{escape(item.name)}"'
+        attributes = (
+            f'server="{escape(item.server_name)}" '
+            f'name="{escape(item.name)}" '
+            f'subscription="{escape(item.subscription_key)}"'
+        )
         if item.kind == "event" and item.occurrence is not None:
             occurrence = item.occurrence
             # Server text must not be able to close the wrapper or add attributes.
@@ -130,6 +136,86 @@ def format_event_messages(items: list[EventInboxItem]) -> str:
                 "</mcp-event-terminated>"
             )
     return "\n\n".join(blocks)
+
+
+def build_event_prompt_message(items: list[EventInboxItem]) -> PromptMessageExtended:
+    """Wrap inbox items in a meta-tagged user message for the model."""
+    metadata: dict[str, Any] = {
+        "count": len(items),
+        "items": [
+            {
+                "server": item.server_name,
+                "name": item.name,
+                "kind": item.kind,
+                "subscription": item.subscription_key,
+            }
+            for item in items
+        ],
+    }
+    return PromptMessageExtended(
+        role="user",
+        content=[
+            TextContent(
+                type="text",
+                text=format_event_messages(items),
+                meta={MCP_EVENTS_BLOCK_META: metadata},
+            )
+        ],
+    )
+
+
+def is_mcp_events_message(message: PromptMessageExtended) -> bool:
+    """True when ``message`` is a user message carrying an MCP events block."""
+    return message.role == "user" and any(
+        MCP_EVENTS_BLOCK_META in (block.meta or {}) for block in message.content
+    )
+
+
+def mcp_events_heading(message: PromptMessageExtended) -> str | None:
+    """A panel heading for an MCP events message, or None for other messages."""
+    if message.role != "user":
+        return None
+    pairs: list[tuple[str, str]] = []
+    fallback_count = 0
+    found = False
+    for block in message.content:
+        meta = block.meta or {}
+        if MCP_EVENTS_BLOCK_META not in meta:
+            continue
+        found = True
+        payload = meta[MCP_EVENTS_BLOCK_META]
+        if not isinstance(payload, dict):
+            continue
+        raw_items = payload.get("items")
+        if isinstance(raw_items, list):
+            for entry in raw_items:
+                if not isinstance(entry, dict):
+                    continue
+                server = entry.get("server")
+                name = entry.get("name")
+                if isinstance(server, str) and isinstance(name, str) and server and name:
+                    pairs.append((server, name))
+        raw_count = payload.get("count")
+        if isinstance(raw_count, int) and raw_count > 0:
+            fallback_count += raw_count
+
+    if not found:
+        return None
+
+    total = len(pairs) or fallback_count
+    distinct = list(dict.fromkeys(pairs))
+    if len(distinct) == 1:
+        server, name = distinct[0]
+        if total > 1:
+            return f"events · {server}/{name} ×{total}"
+        return f"events · {server}/{name}"
+    if len(distinct) == 2:
+        (s1, n1), (s2, n2) = distinct
+        return f"events · {s1}/{n1}, {s2}/{n2}"
+    if total > 0:
+        noun = "event" if total == 1 else "events"
+        return f"events · {total} {noun}"
+    return "events"
 
 
 @dataclass

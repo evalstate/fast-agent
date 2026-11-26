@@ -143,7 +143,7 @@ class _ShellRuntimeProvider(Protocol):
 
 @runtime_checkable
 class _EventWakeAgent(Protocol):
-    def take_event_messages(self) -> list[str]: ...
+    def take_event_prompt_messages(self) -> list[PromptMessageExtended]: ...
 
     async def wait_for_event_wake(self) -> None: ...
 
@@ -1386,12 +1386,20 @@ class InteractivePrompt:
     ) -> PromptLoopResult | None:
         """Start a turn whose input is the MCP events that ended the prompt."""
         wake_agent = self._event_wake_agent(prompt_provider, agent_name)
-        messages = wake_agent.take_event_messages() if wake_agent else []
+        messages = wake_agent.take_event_prompt_messages() if wake_agent else []
         if not messages:
             return None
+        prompt_payload = (
+            messages[0]
+            if len(messages) == 1
+            else PromptMessageExtended(
+                role="user",
+                content=[block for message in messages for block in message.content],
+            )
+        )
         return await self._send_regular_message(
             send_func=send_func,
-            prompt_payload="\n\n".join(messages),
+            prompt_payload=prompt_payload,
             prompt_provider=prompt_provider,
             agent_name=agent_name,
             runtime_state=runtime_state,

@@ -34,9 +34,10 @@ def snapshot_current_user_message(
     """Copy the latest current external user message without metadata or generated context."""
     for message in reversed(messages):
         if message.role == "user" and not message.tool_results and not message.is_template:
-            return CurrentUserMessage(
-                content=tuple(deepcopy(user_authored_content(message.content)))
-            )
+            content = tuple(deepcopy(user_authored_content(message.content)))
+            if not content:
+                continue
+            return CurrentUserMessage(content=content)
     return None
 
 

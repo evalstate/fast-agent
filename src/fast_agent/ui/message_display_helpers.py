@@ -11,6 +11,12 @@ from fast_agent.integrations.hc_children import (
     hc_message_heading,
     unwrap_hc_message,
 )
+from fast_agent.mcp.events_subscriptions import (
+    EVENT_MESSAGE_PREAMBLE,
+    MCP_EVENTS_BLOCK_META,
+    is_mcp_events_message,
+    mcp_events_heading,
+)
 from fast_agent.mcp.helpers.content_helpers import (
     get_text,
     is_image_content,
@@ -128,6 +134,24 @@ def _message_display_text(message: PromptMessageExtended, *, unwrap_hc: bool = F
     return unwrap_hc_message(text) if unwrap_hc else text
 
 
+def _mcp_events_display_text(message: PromptMessageExtended) -> str:
+    from mcp_types import TextContent
+
+    parts: list[str] = []
+    for content in message.content:
+        if not isinstance(content, TextContent):
+            continue
+        if MCP_EVENTS_BLOCK_META not in (content.meta or {}):
+            continue
+        text = content.text
+        if text.startswith(EVENT_MESSAGE_PREAMBLE):
+            stripped = text[len(EVENT_MESSAGE_PREAMBLE) :].lstrip("\n")
+            text = stripped or text
+        if text:
+            parts.append(text)
+    return "\n\n".join(parts)
+
+
 def _message_text(message: PromptMessageExtended) -> str:
     from mcp_types import TextContent
 
@@ -145,6 +169,8 @@ def _message_text(message: PromptMessageExtended) -> str:
         text = get_text(content)
         if text is not None:
             return text
+    if is_mcp_events_message(message):
+        return _mcp_events_display_text(message)
     return ""
 
 
@@ -176,19 +202,24 @@ def build_user_message_display(
     return "\n".join(lines), None
 
 
+def _user_message_sender_heading(message: PromptMessageExtended) -> str | None:
+    events_heading = mcp_events_heading(message)
+    if events_heading is not None:
+        return events_heading
+    return hc_message_heading([message.first_text()])
+
+
 def group_user_messages_by_sender(
     messages: Sequence[PromptMessageExtended],
 ) -> list[tuple[str | None, list[PromptMessageExtended]]]:
-    """Split consecutive user messages into panels, each with its hc heading.
+    """Split consecutive user messages into panels, each with its sender heading.
 
-    Input delivered by herdr-core gets a heading per sender; a person did not type it.
+    Input delivered by herdr-core or MCP events gets a heading; a person did not type it.
     The heading is None for typed input.
     """
     return [
         (heading, list(group))
-        for heading, group in groupby(
-            messages, key=lambda message: hc_message_heading([message.first_text()])
-        )
+        for heading, group in groupby(messages, key=_user_message_sender_heading)
     ]
 
 

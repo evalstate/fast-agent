@@ -56,10 +56,31 @@ def add_tool_update(server_name: str) -> None:
     notifications.append(_notification("tool_update", server=server_name))
 
 
-def add_mcp_event(server_name: str) -> None:
+def add_mcp_event(server_name: str, *, owner: str | None = None) -> None:
     """Add a notification for an MCP event waiting for the next model call."""
-    notifications.append(_notification("mcp_event", server=server_name))
+    payload = {"server": server_name}
+    if owner is not None:
+        payload["owner"] = owner
+    notifications.append(_notification("mcp_event", **payload))
     _invalidate_prompt()
+
+
+def clear_mcp_events(*, server_name: str | None = None, owner: str | None = None) -> int:
+    """Clear pending MCP event notifications, optionally scoped by server and/or owner."""
+    before = len(notifications)
+    notifications[:] = [
+        n
+        for n in notifications
+        if not (
+            n["type"] == "mcp_event"
+            and (server_name is None or n.get("server") == server_name)
+            and (owner is None or n.get("owner") == owner)
+        )
+    ]
+    removed = before - len(notifications)
+    if removed:
+        _invalidate_prompt()
+    return removed
 
 
 def add_warning(

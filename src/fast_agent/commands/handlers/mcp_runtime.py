@@ -152,6 +152,10 @@ def _skills_browse_command(server_name: str) -> str:
     )
 
 
+def _events_list_command(server_name: str) -> str:
+    return join_commandline(["/events", "list", server_name], syntax="posix")
+
+
 def _configured_connect_server(
     ctx: "CommandContext",
     parsed: ParsedMcpConnectRequest,
@@ -412,6 +416,14 @@ async def handle_mcp_attach(
             right_info="mcp",
             agent_name=agent_name,
         )
+    if result.events_supported:
+        events_command = _events_list_command(server_name)
+        outcome.add_message(
+            f"Events are available: inspect them with `{events_command}`.",
+            channel="info",
+            right_info="mcp",
+            agent_name=agent_name,
+        )
     for warning in result.warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
     return outcome
@@ -606,6 +618,14 @@ async def _add_connect_success_messages(
         browse_command = _skills_browse_command(server_name)
         outcome.add_message(
             f"Browse this server's skills with `{browse_command}`.",
+            channel="info",
+            right_info="mcp",
+            agent_name=agent_name,
+        )
+    if result.events_supported:
+        events_command = _events_list_command(server_name)
+        outcome.add_message(
+            f"Events are available: inspect them with `{events_command}`.",
             channel="info",
             right_info="mcp",
             agent_name=agent_name,

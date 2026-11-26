@@ -371,6 +371,46 @@ def test_build_user_message_display_hides_generated_only_messages() -> None:
     assert build_user_message_display([message])[0] == ""
 
 
+def test_mcp_events_message_grouping_and_display_text() -> None:
+    from fast_agent.mcp.events_extension import EventOccurrence
+    from fast_agent.mcp.events_subscriptions import (
+        EVENT_MESSAGE_PREAMBLE,
+        EventInboxItem,
+        build_event_prompt_message,
+    )
+    from fast_agent.ptc.context_blocks import user_authored_text
+
+    event_message = build_event_prompt_message(
+        [
+            EventInboxItem(
+                "event",
+                "sub123",
+                "jobs",
+                "job.status_changed",
+                occurrence=EventOccurrence(
+                    event_id="ev-1",
+                    name="job.status_changed",
+                    timestamp="2026-11-12T10:00:00Z",
+                    data={"stage": "COMPLETED"},
+                ),
+            )
+        ]
+    )
+    typed = PromptMessageExtended(role="user", content=[TextContent(type="text", text="hello")])
+
+    assert user_authored_text(event_message.content) == ""
+    grouped = group_user_messages_by_sender([typed, event_message])
+    assert [(heading, len(group)) for heading, group in grouped] == [
+        (None, 1),
+        ("events · jobs/job.status_changed", 1),
+    ]
+    display_text, attachments = build_user_message_display([event_message])
+    assert attachments is None
+    assert EVENT_MESSAGE_PREAMBLE not in display_text
+    assert 'subscription="sub123"' in display_text
+    assert '"stage": "COMPLETED"' in display_text
+
+
 def test_content_metadata_returns_none_without_metadata_protocol() -> None:
     assert _content_metadata(_NoMetadataContent()) is None
 

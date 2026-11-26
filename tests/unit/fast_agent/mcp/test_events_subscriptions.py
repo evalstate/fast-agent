@@ -7,6 +7,7 @@ import pytest
 from mcp.shared.exceptions import MCPError
 from mcp_types import HEADER_MISMATCH
 
+from fast_agent.history.turns import is_mcp_events_prompt, typed_turn_starts
 from fast_agent.mcp.events_extension import (
     EVENTS_FORBIDDEN,
     EVENTS_NOT_FOUND,
@@ -18,9 +19,14 @@ from fast_agent.mcp.events_extension import (
 from fast_agent.mcp.events_subscriptions import (
     EventInboxItem,
     EventSubscriptionManager,
+    build_event_prompt_message,
     format_event_messages,
+    is_mcp_events_message,
+    mcp_events_heading,
     subscription_key,
 )
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.ptc.context_blocks import user_authored_text
 
 EVENT = "job.status_changed"
 ARGS = {"job_id": "job-1"}
@@ -354,10 +360,59 @@ def test_event_messages_mark_payloads_as_untrusted() -> None:
 
     assert text.startswith("MCP event notifications")
     assert "untrusted data" in text
-    assert '<mcp-event server="demo" name="job.status_changed" id="job-1:COMPLETED"' in text
+    assert (
+        '<mcp-event server="demo" name="job.status_changed" subscription="k" id="job-1:COMPLETED"'
+        in text
+    )
     assert '"stage": "COMPLETED"' in text
-    assert "<mcp-event-gap" in text
+    assert '<mcp-event-gap server="demo" name="job.status_changed" subscription="k">' in text
+    assert '<mcp-event-terminated server="demo" name="job.status_changed" subscription="k">' in text
     assert "Access revoked" in text
+
+
+def test_event_prompt_message_metadata_heading_and_turns() -> None:
+    from mcp_types import TextContent
+
+    single = build_event_prompt_message(
+        [EventInboxItem("event", "k1", "jobs", EVENT, occurrence=_occurrence("COMPLETED"))]
+    )
+    assert is_mcp_events_message(single)
+    assert is_mcp_events_prompt(single)
+    assert user_authored_text(single.content) == ""
+    assert mcp_events_heading(single) == f"events · jobs/{EVENT}"
+
+    repeated = build_event_prompt_message(
+        [
+            EventInboxItem("event", "k1", "jobs", EVENT, occurrence=_occurrence("RUNNING")),
+            EventInboxItem("event", "k1", "jobs", EVENT, occurrence=_occurrence("COMPLETED")),
+            EventInboxItem("gap", "k1", "jobs", EVENT),
+        ]
+    )
+    assert mcp_events_heading(repeated) == f"events · jobs/{EVENT} ×3"
+
+    two_distinct = build_event_prompt_message(
+        [
+            EventInboxItem("event", "k1", "jobs", EVENT, occurrence=_occurrence("COMPLETED")),
+            EventInboxItem("gap", "k2", "ci", "build.done"),
+        ]
+    )
+    assert mcp_events_heading(two_distinct) == f"events · jobs/{EVENT}, ci/build.done"
+
+    three_distinct = build_event_prompt_message(
+        [
+            EventInboxItem("event", "k1", "jobs", EVENT, occurrence=_occurrence("COMPLETED")),
+            EventInboxItem("gap", "k2", "ci", "build.done"),
+            EventInboxItem("terminated", "k3", "deploy", "release.ready"),
+        ]
+    )
+    assert mcp_events_heading(three_distinct) == "events · 3 events"
+
+    human = PromptMessageExtended(
+        role="user", content=[TextContent(type="text", text="watch jobs")]
+    )
+    reply = PromptMessageExtended(role="assistant", content=[TextContent(type="text", text="ok")])
+    assert typed_turn_starts([human, reply, single, reply]) == [0]
+    assert typed_turn_starts([single, reply, human, reply]) == [0, 2]
 
 
 def test_event_messages_keep_server_text_inside_the_wrapper() -> None:

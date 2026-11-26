@@ -80,12 +80,14 @@ from fast_agent.mcp.events_extension import (
 from fast_agent.mcp.events_subscriptions import (
     EventInboxItem,
     EventSubscriptionManager,
+    build_event_prompt_message,
     format_event_messages,
 )
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager, ServerConnection
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_metadata import with_prompt_metadata
 from fast_agent.mcp.skills_extension import (
     GetSkillResult,
@@ -143,10 +145,10 @@ _CONNECTION_ERROR_REPLAY_SAFE_METHODS = frozenset(
 )
 
 
-def _note_event_arrival(item: EventInboxItem) -> None:
+def _note_event_arrival(item: EventInboxItem, *, owner: str) -> None:
     from fast_agent.ui import notification_tracker
 
-    notification_tracker.add_mcp_event(item.server_name)
+    notification_tracker.add_mcp_event(item.server_name, owner=owner)
 
 
 def _display_tool_id(tool_id: str | None) -> str:
@@ -436,6 +438,7 @@ class ServerStatus(BaseModel):
     transport_channels: TransportSnapshot | None = None
     app_integration_config: AppServerConfig | None = None
     mcp_skills_enabled: bool | None = None
+    mcp_events_enabled: bool | None = None
     reconnect_count: int = 0
     ping_interval_seconds: int | None = None
     ping_max_missed: int | None = None
@@ -474,6 +477,7 @@ class MCPAttachResult:
     tools_total: int | None = None
     prompts_total: int | None = None
     skills_total: int | None = None
+    events_supported: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -745,6 +749,9 @@ class MCPAggregator(ContextDependent):
             self._closed = True
             if self._events is not None:
                 await self._events.aclose()
+                from fast_agent.ui import notification_tracker
+
+                notification_tracker.clear_mcp_events(owner=self._event_notification_owner())
             try:
                 if (
                     self.connection_persistence
@@ -1425,6 +1432,9 @@ class MCPAggregator(ContextDependent):
         tool_names = self._attached_tool_names(server_name)
         prompt_names = self._attached_prompt_names(server_name)
         skills_total = await self._mcp_skills_total(server_name)
+        events_supported = server_supports_mcp_events(
+            await self._capabilities_for_status(server_name)
+        )
         return MCPAttachResult(
             server_name=self.server_display_name(server_name),
             transport=resolved_config.transport,
@@ -1436,6 +1446,7 @@ class MCPAggregator(ContextDependent):
             tools_total=len(tool_names),
             prompts_total=len(prompt_names),
             skills_total=skills_total,
+            events_supported=events_supported,
         )
 
     async def _mcp_skills_total(self, server_name: str) -> int | None:
@@ -2253,6 +2264,7 @@ class MCPAggregator(ContextDependent):
             if status.server_capabilities is None:
                 status.server_capabilities = await self._capabilities_for_status(server_name)
             status.mcp_skills_enabled = server_supports_mcp_skills(status.server_capabilities)
+            status.mcp_events_enabled = server_supports_mcp_events(status.server_capabilities)
             status_map[server_name] = status
 
         return status_map
@@ -2327,6 +2339,7 @@ class MCPAggregator(ContextDependent):
 
         status.server_capabilities = server_conn.server_capabilities
         status.mcp_skills_enabled = server_supports_mcp_skills(server_conn.server_capabilities)
+        status.mcp_events_enabled = server_supports_mcp_events(server_conn.server_capabilities)
         client_info = server_conn._callback_runtime.client_info
         status.client_info_name = client_info.name
         status.client_info_version = client_info.version
@@ -4039,19 +4052,41 @@ class MCPAggregator(ContextDependent):
             method_args={"uri": uri},
         )
 
+    def _event_notification_owner(self) -> str:
+        return f"aggregator:{id(self)}"
+
     @property
     def events(self) -> EventSubscriptionManager:
         """Event subscriptions held for this aggregator's servers (SEP-3415)."""
         if self._events is None:
+            owner = self._event_notification_owner()
             self._events = EventSubscriptionManager(self)
-            self._events.add_listener(_note_event_arrival)
+            self._events.add_listener(lambda item: _note_event_arrival(item, owner=owner))
         return self._events
+
+    def _take_event_items(self) -> list[EventInboxItem]:
+        if self._events is None or self._events.pending_count == 0:
+            return []
+        items = self._events.take()
+        if items:
+            from fast_agent.ui import notification_tracker
+
+            notification_tracker.clear_mcp_events(owner=self._event_notification_owner())
+        return items
 
     def take_event_messages(self) -> list[str]:
         """Drain delivered events as text for the next model call."""
-        if self._events is None or self._events.pending_count == 0:
+        items = self._take_event_items()
+        if not items:
             return []
-        return [format_event_messages(self._events.take())]
+        return [format_event_messages(items)]
+
+    def take_event_prompt_messages(self) -> list[PromptMessageExtended]:
+        """Drain delivered events as structured user messages for the next model call."""
+        items = self._take_event_items()
+        if not items:
+            return []
+        return [build_event_prompt_message(items)]
 
     async def supports_events(self, server_name: str) -> bool:
         """Whether a server declared the SEP-3415 Events extension."""
