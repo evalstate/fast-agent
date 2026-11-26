@@ -509,9 +509,12 @@ class ConsoleDisplay:
             left += f"[{arrow_style}]{arrow}[/{arrow_style}]"
         if show_hook_indicator:
             left += f" [{block_color}]{HOOK_INDICATOR_GLYPH}[/{block_color}]"
-        if name:
+        from fast_agent.ui.progress_display import progress_display
+
+        display_name = None if progress_display.is_default_agent_name(name) else name
+        if display_name:
             name_color = block_color if not is_error else "red"
-            left += f" [{name_color}]{escape_markup(name)}[/{name_color}]"
+            left += f" [{name_color}]{escape_markup(display_name)}[/{name_color}]"
         return left
 
     def display_message(

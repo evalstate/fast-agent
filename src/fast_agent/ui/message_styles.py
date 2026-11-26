@@ -48,7 +48,7 @@ def build_code_rule(
     prefix: Text | None = None,
     suffix: Text | None = None,
 ) -> Text:
-    """Build a resize-safe short rule line with optional prefix, inverse pill, and suffix."""
+    """Build a resize-safe short rule line with optional prefix, inverse pill, and metadata."""
     target = SHORT_RULE_WIDTH if max_width is None else min(max_width, SHORT_RULE_WIDTH)
     clean_label = label.strip()
     line = Text()
@@ -65,18 +65,26 @@ def build_code_rule(
         line.append(pill, style=CODE_RULE_PILL_STYLE)
         used += cell_len(pill)
 
+    has_suffix = suffix is not None and bool(suffix.plain)
+    if has_suffix and suffix is not None:
+        if clean_label:
+            line.append(" ")
+            used += 1
+        line.append_text(suffix)
+        used += suffix.cell_len
+
     remaining = target - used
-    if remaining >= 2:
+    if has_suffix:
+        if remaining >= 3:
+            line.append(" ")
+            line.append("─" * (remaining - 1), style=CODE_RULE_EDGE_STYLE)
+    elif remaining >= 2:
         line.append("─" * remaining, style=CODE_RULE_EDGE_STYLE)
     elif clean_label and (max_width is None or used + 2 <= max_width):
         line.append("──", style=CODE_RULE_EDGE_STYLE)
     elif prefix is None and not clean_label and target > 0:
         line.append("─" * target, style=CODE_RULE_EDGE_STYLE)
 
-    if suffix is not None and suffix.plain:
-        if line.plain:
-            line.append(" ")
-        line.append_text(suffix)
     return line
 
 

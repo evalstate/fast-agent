@@ -292,8 +292,11 @@ class ToolDisplay:
         prefix.append(config["arrow"], style=config["arrow_style"])
         if show_hook_indicator:
             prefix.append(" ◆", style=color)
-        if name:
-            prefix.append(f" {name}", style=color)
+        from fast_agent.ui.progress_display import progress_display
+
+        display_name = None if progress_display.is_default_agent_name(name) else name
+        if display_name:
+            prefix.append(f" {display_name}", style=color)
         return prefix
 
     @classmethod
@@ -307,12 +310,9 @@ class ToolDisplay:
         is_error: bool = False,
         show_hook_indicator: bool = False,
     ) -> Text:
-        from fast_agent.ui.progress_display import progress_display
-
-        display_name = None if progress_display.is_default_agent_name(name) else name
         prefix = cls._compact_event_prefix(
             message_type=message_type,
-            name=display_name,
+            name=name,
             is_error=is_error,
             show_hook_indicator=show_hook_indicator,
         )
@@ -599,6 +599,11 @@ class ToolDisplay:
             check_markdown_markers=False,
             render_markdown=prepared.render_markdown,
         )
+        if metadata.get("variant") == "code":
+            console.console.print(
+                build_code_rule(max_width=console.console.size.width),
+                markup=self._markup,
+            )
 
     @staticmethod
     def _parallel_call_identity(request: ToolCallDisplayRequest) -> tuple[str | None, ...]:
@@ -972,12 +977,15 @@ class ToolDisplay:
         no_output: bool,
         tool_call_id: str | None,
         output_line_count: int | None,
+        timing_ms: float | None = None,
     ) -> str | None:
         detail_parts: list[str] = []
         if output_line_count is not None and output_line_count > 0:
             detail_parts.append(format_shell_output_line_count(output_line_count))
         if no_output:
             detail_parts.append("(no output)")
+        if timing_ms is not None:
+            detail_parts.append(self._display._format_elapsed(timing_ms / 1000.0))
 
         formatted_id = format_tool_call_id(tool_call_id)
         if formatted_id:
@@ -985,7 +993,7 @@ class ToolDisplay:
 
         if not detail_parts:
             return None
-        return f" {' '.join(detail_parts)}"
+        return f" {' · '.join(detail_parts)}"
 
     @staticmethod
     def _shell_output_line_count_from_content(content) -> int | None:
@@ -1007,6 +1015,7 @@ class ToolDisplay:
         tool_name: str | None,
         tool_call_id: str | None,
         output_line_count: int | None = None,
+        timing_ms: float | None = None,
     ):
         from mcp_types import TextContent
 
@@ -1039,6 +1048,7 @@ class ToolDisplay:
             no_output=no_output,
             tool_call_id=tool_call_id,
             output_line_count=line_count,
+            timing_ms=timing_ms,
         )
         additional_message = self._display.style.shell_exit_line(
             exit_code,
@@ -1843,6 +1853,7 @@ class ToolDisplay:
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
                     output_line_count=metadata.output_line_count,
+                    timing_ms=timing_ms,
                 )
             )
 

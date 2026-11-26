@@ -429,7 +429,7 @@ def test_compact_completed_process_collapses_to_exit_summary() -> None:
         )
 
     rendered = " ".join(capture.get().split())
-    assert "▎ exit code 0 2 lines id: call_…456789" in rendered
+    assert "▎ exit code 0 2 lines · id: call_…456789" in rendered
     assert "▎▶ dev process" not in rendered
     assert "background process started" not in rendered
     assert "output_activity" not in rendered
@@ -545,13 +545,15 @@ def test_compact_exec_sandbox_uses_python_sandbox_pill_and_short_rules() -> None
         )
 
     lines = capture.get().splitlines()
-    assert any("▎◀ dev" in line and " python (sandbox) " in line and "─" in line for line in lines)
+    assert any(
+        "▎◀ dev" in line and " python (sandbox) " in line and "id: call_…456789" in line
+        for line in lines
+    )
     assert any("print(42)" in line for line in lines)
-    rendered = " ".join(capture.get().split())
-    assert any("▎▶ dev " in line and "─" in line for line in lines)
-    assert "text (25 chars)" in rendered
-    assert "120ms" in rendered
-    assert "id: call_…456789" in rendered
+    assert any(line == "─" * 36 for line in lines)
+    assert any(
+        line.startswith("▎▶ dev text (25 chars) · 120ms · id: call_…456789") for line in lines
+    )
 
 
 def test_compact_exec_sandbox_omits_default_agent_name() -> None:
@@ -560,6 +562,11 @@ def test_compact_exec_sandbox_omits_default_agent_name() -> None:
         content=[TextContent(type="text", text="ok")],
         is_error=False,
     )
+    shell_result = CallToolResult(
+        content=[TextContent(type="text", text="ok\nprocess exit code was 0")],
+        is_error=False,
+    )
+    update_tool_result_display_metadata(shell_result, {"output_line_count": 3})
     previous = progress_display.default_agent_name
     progress_display.set_default_agent_name("agent")
     try:
@@ -571,16 +578,34 @@ def test_compact_exec_sandbox_omits_default_agent_name() -> None:
                 metadata={"variant": "code", "code_arg": "code", "language": "python"},
                 tool_call_id="call_abcdef0123456789",
             )
+            display.show_tool_call(
+                "Bash",
+                {"command": "ls"},
+                name="agent",
+                metadata={"variant": "shell", "command": "ls", "shell_name": "bash"},
+                tool_call_id="call_abcdef0123456789:ptc-1",
+            )
+            display.show_tool_result(
+                shell_result,
+                name="agent",
+                tool_name="Bash",
+                tool_call_id="call_abcdef0123456789:ptc-1",
+                timing_ms=3080.0,
+            )
             display.show_tool_result(
                 result,
                 name="agent",
                 tool_name="exec_sandbox",
                 tool_call_id="call_abcdef0123456789",
+                timing_ms=150.0,
             )
     finally:
         progress_display.set_default_agent_name(previous)
 
     lines = capture.get().splitlines()
-    assert any(line.startswith("▎◀  python (sandbox) ") for line in lines)
-    assert any(line.startswith("▎▶ ─") for line in lines)
+    assert any(line.startswith("▎◀  python (sandbox)  id: call_…456789") for line in lines)
+    assert any(line == "─" * 36 for line in lines)
+    assert any(line.startswith("▎◀ bash · id:") for line in lines)
+    assert any("▎ exit code 0  3 lines · 3.08s · id:" in line for line in lines)
+    assert any(line.startswith("▎▶ text (2 chars) · 150ms · id: call_…456789") for line in lines)
     assert not any("agent" in line for line in lines)
