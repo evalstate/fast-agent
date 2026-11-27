@@ -299,3 +299,130 @@ def test_python_syntax_blocks_mixes_bash_and_heredoc_inside_shell_command() -> N
     assert blocks[1].code == "set -u\nuv run python - <<'PY'"
     assert blocks[2].code == "print(42)"
     assert blocks[3].code == 'PY\necho "done"'
+
+
+def test_python_syntax_blocks_highlights_path_write_text_from_line_two() -> None:
+    code = (
+        "pathlib.Path(\"/tmp/probe_ep.py\").write_text('''import json, urllib.request\n"
+        "\n"
+        'base = "https://example.invalid"\n'
+        "print(base)\n"
+        "''')\n"
+        "r = await asyncio.gather(shell(command='python3 /tmp/probe_ep.py'))"
+    )
+
+    blocks = python_syntax_blocks(code)
+
+    assert blocks == [
+        SyntaxBlock(
+            code="pathlib.Path(\"/tmp/probe_ep.py\").write_text('''import json, urllib.request",
+            language="python",
+        ),
+        SyntaxBlock(code='\nbase = "https://example.invalid"\nprint(base)', language="python"),
+        SyntaxBlock(code="''')", language="text"),
+        SyntaxBlock(
+            code="r = await asyncio.gather(shell(command='python3 /tmp/probe_ep.py'))",
+            language="python",
+        ),
+    ]
+
+
+def test_python_syntax_blocks_highlights_edit_file_old_and_new_strings() -> None:
+    code = (
+        "await edit_file(\n"
+        '    path="src/app.ts",\n'
+        "    old_string='''\n"
+        "const count = 1;\n"
+        "console.log(count);\n"
+        "''',\n"
+        "    new_string='''\n"
+        "const count = 2;\n"
+        "console.log(count);\n"
+        "''',\n"
+        ")"
+    )
+
+    blocks = python_syntax_blocks(code)
+
+    assert [block.language for block in blocks] == [
+        "python",
+        "typescript",
+        "text",
+        "python",
+        "typescript",
+        "text",
+        "python",
+    ]
+    assert blocks[1].code == "const count = 1;\nconsole.log(count);"
+    assert blocks[4].code == "const count = 2;\nconsole.log(count);"
+
+
+def test_python_syntax_blocks_highlights_assigned_payloads_to_write_and_shell_sinks() -> None:
+    code = (
+        "script = r'''\n"
+        "export const answer = 42;\n"
+        "console.log(answer);\n"
+        "'''\n"
+        'open("example.mjs", "w").write(script)\n'
+        'dockerfile = """\n'
+        "FROM python:3.14-slim\n"
+        'RUN echo "ok"\n'
+        '"""\n'
+        'await write_text_file(path="/tmp/Dockerfile", content=dockerfile)\n'
+        'cmd = """\n'
+        "set -e\n"
+        "echo hi\n"
+        '"""\n'
+        "await shell(command=cmd)\n"
+    )
+
+    blocks = python_syntax_blocks(code)
+
+    assert [
+        (block.language, block.code) for block in blocks if block.language not in {"python", "text"}
+    ] == [
+        ("javascript", "export const answer = 42;\nconsole.log(answer);"),
+        ("dockerfile", 'FROM python:3.14-slim\nRUN echo "ok"'),
+        ("bash", "set -e\necho hi"),
+    ]
+
+
+def test_python_syntax_blocks_highlights_with_open_and_path_variable_writes() -> None:
+    code = (
+        'target = Path("/tmp") / "config.json"\n'
+        'payload = """\n'
+        '{"ok": true}\n'
+        '"""\n'
+        "target.write_text(data=payload)\n"
+        'with open("/tmp/query.sql", "w") as handle:\n'
+        '    handle.write("""\n'
+        "SELECT 1;\n"
+        '""")\n'
+    )
+
+    blocks = python_syntax_blocks(code)
+
+    assert [
+        (block.language, block.code) for block in blocks if block.language not in {"python", "text"}
+    ] == [
+        ("json", '{"ok": true}'),
+        ("sql", "SELECT 1;"),
+    ]
+
+
+def test_python_syntax_blocks_skips_plain_text_unconnected_or_two_line_writes() -> None:
+    plain = 'Path("/tmp/notes.txt").write_text("""\nhello\nworld\n""")'
+    two_line = 'Path("/tmp/a.py").write_text("""x = 1\ny = 2""")'
+    unassigned = 'report = """\nhello\nworld\n"""\nprint(report)'
+
+    for code in (plain, two_line, unassigned):
+        assert python_syntax_blocks(code) == [SyntaxBlock(code=code, language="python")]
+
+
+def test_python_syntax_blocks_handles_utf8_prefix_before_write_literal() -> None:
+    code = 'label = "—"; Path("/tmp/a.json").write_text("""\n{"ok": true}\n""")'
+
+    blocks = python_syntax_blocks(code)
+
+    assert [block.language for block in blocks] == ["python", "json", "text"]
+    assert blocks[1].code == '{"ok": true}'

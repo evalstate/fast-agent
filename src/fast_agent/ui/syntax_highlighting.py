@@ -1,6 +1,8 @@
+import ast
 import io
 import re
 import tokenize
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,7 +11,11 @@ from fast_agent.tools.shell_command import shell_heredoc_bodies, shell_inline_co
 _LANGUAGE_BY_EXTENSION: dict[str, str] = {
     ".py": "python",
     ".js": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
     ".ts": "typescript",
+    ".mts": "typescript",
+    ".cts": "typescript",
     ".tsx": "tsx",
     ".jsx": "jsx",
     ".json": "json",
@@ -24,6 +30,10 @@ _LANGUAGE_BY_EXTENSION: dict[str, str] = {
     ".html": "html",
     ".css": "css",
     ".sql": "sql",
+}
+
+_LANGUAGE_BY_NAME: dict[str, str] = {
+    "dockerfile": "dockerfile",
 }
 
 _INTERPRETER_LANGUAGE: dict[str, str] = {
@@ -52,7 +62,10 @@ class _LanguageSpan:
 
 
 def syntax_language_for_path(path: str) -> str | None:
-    return _LANGUAGE_BY_EXTENSION.get(Path(path).suffix.casefold())
+    path_obj = Path(path)
+    if language := _LANGUAGE_BY_EXTENSION.get(path_obj.suffix.casefold()):
+        return language
+    return _LANGUAGE_BY_NAME.get(path_obj.name.casefold())
 
 
 def _syntax_language_for_interpreter(interpreter: str | None) -> str | None:
@@ -216,6 +229,192 @@ def _fill_bash_gaps(
     return combined
 
 
+def _call_arg(call: ast.Call, pos: int | None, kw: str | None) -> ast.expr | None:
+    if kw is not None:
+        for keyword in call.keywords:
+            if keyword.arg == kw:
+                return keyword.value
+    if pos is not None and pos < len(call.args):
+        return call.args[pos]
+    return None
+
+
+def _is_path_constructor(func: ast.expr) -> bool:
+    return (isinstance(func, ast.Name) and func.id == "Path") or (
+        isinstance(func, ast.Attribute) and func.attr == "Path"
+    )
+
+
+def _extract_path_str(expr: ast.expr, path_vars: Mapping[str, str]) -> str | None:
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        return expr.value
+    if isinstance(expr, ast.Name):
+        return path_vars.get(expr.id)
+    if isinstance(expr, ast.Call) and _is_path_constructor(expr.func) and expr.args:
+        parts: list[str] = []
+        for arg in expr.args:
+            part = _extract_path_str(arg, path_vars)
+            if part is None:
+                return None
+            parts.append(part)
+        return str(Path(*parts))
+    if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.Div):
+        right = _extract_path_str(expr.right, path_vars)
+        if right is None:
+            return None
+        left = _extract_path_str(expr.left, path_vars)
+        return str(Path(left, right)) if left is not None else right
+    return None
+
+
+def _extract_open_path(expr: ast.expr, path_vars: Mapping[str, str]) -> str | None:
+    if not isinstance(expr, ast.Call):
+        return None
+    if isinstance(expr.func, ast.Name) and expr.func.id == "open":
+        file_arg = _call_arg(expr, 0, "file")
+        return _extract_path_str(file_arg, path_vars) if file_arg is not None else None
+    if isinstance(expr.func, ast.Attribute) and expr.func.attr == "open":
+        return _extract_path_str(expr.func.value, path_vars)
+    return None
+
+
+class _AstStringLanguageCollector(ast.NodeVisitor):
+    def __init__(self) -> None:
+        self.languages: dict[tuple[int, int], str] = {}
+        self._string_vars: dict[str, tuple[int, int]] = {}
+        self._path_vars: dict[str, str] = {}
+        self._file_vars: dict[str, str] = {}
+
+    def _clear_binding(self, name: str) -> None:
+        self._string_vars.pop(name, None)
+        self._path_vars.pop(name, None)
+        self._file_vars.pop(name, None)
+
+    def _bind_name(self, name: str, value: ast.expr) -> None:
+        self._clear_binding(name)
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            self._string_vars[name] = (value.lineno, value.col_offset)
+            self._path_vars[name] = value.value
+        elif (open_path := _extract_open_path(value, self._path_vars)) is not None:
+            self._file_vars[name] = open_path
+        elif (path := _extract_path_str(value, self._path_vars)) is not None:
+            self._path_vars[name] = path
+
+    def _record_expr(self, expr: ast.expr | None, language: str | None) -> None:
+        if expr is None or language is None:
+            return
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+            self.languages[(expr.lineno, expr.col_offset)] = language
+        elif isinstance(expr, ast.Name) and expr.id in self._string_vars:
+            self.languages[self._string_vars[expr.id]] = language
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self.visit(node.value)
+        if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            self._bind_name(node.targets[0].id, node.value)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None:
+            self.visit(node.value)
+            if isinstance(node.target, ast.Name):
+                self._bind_name(node.target.id, node.value)
+
+    def _visit_with(self, node: ast.With | ast.AsyncWith) -> None:
+        for item in node.items:
+            self.visit(item.context_expr)
+            if isinstance(item.optional_vars, ast.Name):
+                open_path = _extract_open_path(item.context_expr, self._path_vars)
+                if open_path is not None:
+                    self._clear_binding(item.optional_vars.id)
+                    self._file_vars[item.optional_vars.id] = open_path
+        for stmt in node.body:
+            self.visit(stmt)
+
+    def visit_With(self, node: ast.With) -> None:
+        self._visit_with(node)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
+        self._visit_with(node)
+
+    def visit_Call(self, node: ast.Call) -> None:
+        self.generic_visit(node)
+        func = node.func
+        if isinstance(func, ast.Name):
+            if func.id == "shell":
+                self._record_expr(_call_arg(node, 0, "command"), "bash")
+            elif func.id == "write_text_file":
+                path_arg = _call_arg(node, 0, "path")
+                path = (
+                    _extract_path_str(path_arg, self._path_vars) if path_arg is not None else None
+                )
+                if path is not None:
+                    self._record_expr(
+                        _call_arg(node, 1, "content"),
+                        syntax_language_for_path(path),
+                    )
+            elif func.id == "edit_file":
+                path_arg = _call_arg(node, 0, "path")
+                path = (
+                    _extract_path_str(path_arg, self._path_vars) if path_arg is not None else None
+                )
+                language = syntax_language_for_path(path) if path is not None else None
+                if language is not None:
+                    self._record_expr(_call_arg(node, None, "old_string"), language)
+                    self._record_expr(_call_arg(node, None, "new_string"), language)
+            return
+
+        if isinstance(func, ast.Attribute):
+            if func.attr == "write_text":
+                path = _extract_path_str(func.value, self._path_vars)
+                if path is not None:
+                    self._record_expr(
+                        _call_arg(node, 0, "data"),
+                        syntax_language_for_path(path),
+                    )
+            elif func.attr == "write":
+                path = _extract_open_path(func.value, self._path_vars)
+                if path is None and isinstance(func.value, ast.Name):
+                    path = self._file_vars.get(func.value.id)
+                if path is not None:
+                    self._record_expr(
+                        _call_arg(node, 0, None),
+                        syntax_language_for_path(path),
+                    )
+
+
+def _ast_string_languages(code: str) -> dict[tuple[int, int], str]:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return {}
+    collector = _AstStringLanguageCollector()
+    collector.visit(tree)
+    return collector.languages
+
+
+def _heredoc_spans_in_string(
+    code: str,
+    inner_text: str,
+    inner_start: int,
+) -> list[_LanguageSpan]:
+    heredoc_spans: list[_LanguageSpan] = []
+    for body in shell_heredoc_bodies(inner_text, include_incomplete=False):
+        language = _syntax_language_for_interpreter(body.stdin_interpreter) or (
+            syntax_language_for_path(body.target_path) if body.target_path else None
+        )
+        if language is None or not inner_text[body.start : body.end].strip():
+            continue
+        abs_start = inner_start + body.start
+        abs_end = inner_start + body.end
+        # Only split on whole-line boundaries so outer/inner blocks align cleanly.
+        if abs_start > 0 and code[abs_start - 1] != "\n":
+            continue
+        if abs_end < len(code) and code[abs_end - 1] != "\n":
+            continue
+        heredoc_spans.append(_LanguageSpan(abs_start, abs_end, language))
+    return heredoc_spans
+
+
 def _python_embedded_spans(code: str) -> list[_LanguageSpan]:
     lines = code.splitlines(keepends=True)
     if not lines:
@@ -231,6 +430,8 @@ def _python_embedded_spans(code: str) -> list[_LanguageSpan]:
     except (tokenize.TokenError, IndentationError):
         return []
 
+    ast_languages = _ast_string_languages(code)
+
     for tok_index, tok in enumerate(tokens):
         if tok.type != tokenize.STRING:
             continue
@@ -242,36 +443,34 @@ def _python_embedded_spans(code: str) -> list[_LanguageSpan]:
         inner_start = tok_start + inner_offset
         inner_text = tok.string[inner_offset:inner_end_offset]
 
-        heredoc_spans: list[_LanguageSpan] = []
-        for body in shell_heredoc_bodies(inner_text, include_incomplete=False):
-            language = _syntax_language_for_interpreter(body.stdin_interpreter) or (
-                syntax_language_for_path(body.target_path) if body.target_path else None
-            )
-            if language is None or not inner_text[body.start : body.end].strip():
-                continue
-            abs_start = inner_start + body.start
-            abs_end = inner_start + body.end
-            # Only split on whole-line boundaries so outer/inner blocks align cleanly.
-            if abs_start > 0 and code[abs_start - 1] != "\n":
-                continue
-            if abs_end < len(code) and code[abs_end - 1] != "\n":
-                continue
-            heredoc_spans.append(_LanguageSpan(abs_start, abs_end, language))
+        utf8_col = len(lines[tok.start[0] - 1][: tok.start[1]].encode("utf-8"))
+        detected_language = ast_languages.get((tok.start[0], utf8_col))
+        if detected_language is None and _is_shell_command_string(tokens, tok_index):
+            detected_language = "bash"
 
         end_line_index = tok.end[0] - 1
         closing_line_start = line_starts[end_line_index]
         closing_line_end = line_starts[end_line_index + 1]
+        interior_start = line_starts[tok.start[0]]
 
-        string_spans = heredoc_spans
-        if _is_shell_command_string(tokens, tok_index):
-            interior_start = line_starts[tok.start[0]]
-            if closing_line_start > interior_start:
+        if detected_language is not None and detected_language != "bash":
+            string_spans = (
+                [_LanguageSpan(interior_start, closing_line_start, detected_language)]
+                if closing_line_start > interior_start
+                and code[interior_start:closing_line_start].strip()
+                else []
+            )
+        else:
+            heredoc_spans = _heredoc_spans_in_string(code, inner_text, inner_start)
+            if detected_language == "bash" and closing_line_start > interior_start:
                 string_spans = _fill_bash_gaps(
                     code,
                     start=interior_start,
                     end=closing_line_start,
                     heredoc_spans=heredoc_spans,
                 )
+            else:
+                string_spans = heredoc_spans
 
         if not string_spans:
             continue
@@ -296,7 +495,7 @@ def python_syntax_blocks(
     *,
     language: str = "python",
 ) -> list[SyntaxBlock]:
-    """Split Python source when triple-quoted strings contain whole-line shell heredocs."""
+    """Split Python source when triple-quoted strings contain embedded code or heredocs."""
     embedded_spans = _python_embedded_spans(code)
     if not embedded_spans:
         return [SyntaxBlock(code.rstrip(), language)]
