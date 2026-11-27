@@ -279,7 +279,7 @@ async def test_events_subscribe_by_push() -> None:
     )
     assert "by push" in subscribed
     assert agent.aggregator.polls == []
-    assert "| push | no | user | - | active |" in _text(
+    assert "| push | yes | user | - | active |" in _text(
         await handle_events(context, agent_name="main")
     )
     await manager.aclose()
