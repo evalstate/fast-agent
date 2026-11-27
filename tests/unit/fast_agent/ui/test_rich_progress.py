@@ -2101,3 +2101,17 @@ def test_queued_input_line_is_shown_only_beside_visible_rows(monkeypatch) -> Non
     for task in display._progress.tasks:  # what pause() does before stopping
         task.visible = False
     assert "queued" not in rendered()
+
+
+def test_progress_rows_do_not_pad_trailing_spaces_to_console_width() -> None:
+    display = _make_display()
+    display.update(_make_event(details="waiting"))
+
+    wide_console = Console(file=io.StringIO(), width=140, force_terminal=False)
+    lines = wide_console.render_lines(display._progress.get_renderable(), pad=False)
+    rendered_lines = ["".join(seg.text for seg in line) for line in lines]
+
+    assert any("waiting" in line for line in rendered_lines)
+    for line in rendered_lines:
+        assert line == line.rstrip(" "), f"Expected no trailing right-edge padding: {line!r}"
+        assert len(line) < 100
