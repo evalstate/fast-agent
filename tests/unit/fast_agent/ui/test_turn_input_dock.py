@@ -792,3 +792,41 @@ def test_progress_display_paused_keep_dock_stops_live_without_turn_input(
         assert display._live_started() is True
     finally:
         display.stop()
+
+
+def test_dock_highlights_prompt_arrow_red_for_shell_draft() -> None:
+    snap = TurnInputSnapshot(
+        prompt_prefix="agent ❯",
+        draft_text="!git status",
+        cursor_position=11,
+        queued_messages=(),
+        multiline=False,
+    )
+    rendered = render_turn_input_dock(snap, width=80, terminal_height=24)
+    input_row = rendered.renderable.renderables[-1]
+    assert isinstance(input_row, Text)
+    spans = [(input_row.plain[s.start : s.end], s.style) for s in input_row.spans]
+    assert ("agent ", "bold cyan") in spans
+    assert ("❯ ", "bold red") in spans
+
+
+def test_turn_input_reader_ctrl_t_toggles_multiline_mid_turn(pipe: PipeInput) -> None:
+    toggled: list[bool] = []
+    reader = TurnInputReader(
+        input=pipe,
+        multiline=False,
+        on_toggle_multiline=toggled.append,
+        on_queued=lambda _n: None,
+        write=lambda _s: None,
+    )
+    # Toggle multiline on with Ctrl+T: Enter inserts newline, Ctrl+J submits
+    pipe.send_text("\x14line1\rline2\n")
+    assert reader.take_messages() == ["line1\nline2"]
+    assert toggled == [True]
+    assert reader.snapshot().multiline is True
+
+    # Toggle multiline back off with Ctrl+T: Enter submits again
+    pipe.send_text("\x14single\r")
+    assert reader.take_messages() == ["single"]
+    assert toggled == [True, False]
+    assert reader.snapshot().multiline is False

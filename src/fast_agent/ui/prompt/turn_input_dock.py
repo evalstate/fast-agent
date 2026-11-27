@@ -235,6 +235,26 @@ def _build_queued_rows(
     return rows
 
 
+def _append_prompt_prefix(
+    row: Text,
+    prefix: str,
+    *,
+    style: str,
+    highlight_shell_arrow: bool = False,
+) -> None:
+    if highlight_shell_arrow:
+        arrow_tail = f"{DEFAULT_PROMPT_PREFIX} "
+        if prefix.endswith(arrow_tail):
+            lead = prefix[: -len(arrow_tail)]
+            if lead:
+                row.append(lead, style=style)
+            row.append(arrow_tail, style="bold red")
+            return
+        row.append(prefix, style="bold red")
+        return
+    row.append(prefix, style=style)
+
+
 def _chop_line_with_cursor(
     sanitized: str,
     cursor_col: int | None,
@@ -243,6 +263,7 @@ def _chop_line_with_cursor(
     first_prefix_style: str,
     cont_prefix: str,
     content_width: int,
+    highlight_shell_arrow: bool = False,
 ) -> tuple[list[Text], int | None]:
     if cursor_col is None:
         chunks = chop_cells(sanitized, content_width) if sanitized else [""]
@@ -250,7 +271,12 @@ def _chop_line_with_cursor(
         for idx, chunk in enumerate(chunks):
             row = Text(no_wrap=True, overflow="crop")
             if idx == 0:
-                row.append(first_prefix, style=first_prefix_style)
+                _append_prompt_prefix(
+                    row,
+                    first_prefix,
+                    style=first_prefix_style,
+                    highlight_shell_arrow=highlight_shell_arrow,
+                )
             else:
                 row.append(cont_prefix, style="dim")
             if chunk:
@@ -272,7 +298,12 @@ def _chop_line_with_cursor(
     for idx, chunk in enumerate(chunks):
         row = Text(no_wrap=True, overflow="crop")
         if idx == 0:
-            row.append(first_prefix, style=first_prefix_style)
+            _append_prompt_prefix(
+                row,
+                first_prefix,
+                style=first_prefix_style,
+                highlight_shell_arrow=highlight_shell_arrow,
+            )
         else:
             row.append(cont_prefix, style="dim")
         chunk_end = offset + len(chunk)
@@ -324,6 +355,8 @@ def _build_draft_physical_rows(
     physical_rows: list[Text] = []
     cursor_physical_row = 0
 
+    is_shell_draft = snapshot.draft_text.lstrip().startswith("!")
+
     for row_index in range(slice_start, slice_end):
         raw_line = lines[row_index]
         is_first_logical = row_index == 0
@@ -339,6 +372,7 @@ def _build_draft_physical_rows(
             first_prefix_style=line_prefix_style,
             cont_prefix=cont_prefix,
             content_width=content_width,
+            highlight_shell_arrow=is_first_logical and is_shell_draft,
         )
         if cursor_in_line is not None:
             cursor_physical_row = len(physical_rows) + cursor_in_line
