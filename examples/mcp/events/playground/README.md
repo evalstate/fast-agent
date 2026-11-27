@@ -6,7 +6,7 @@ colorTo: indigo
 sdk: docker
 app_port: 7860
 pinned: false
-short_description: Interactive SEP-3415 MCP Events (poll) test server
+short_description: Interactive SEP-3415 MCP Events (poll and push) test server
 ---
 
 # MCP Events Playground (SEP-3415)
@@ -20,8 +20,8 @@ A standalone Streamable HTTP [MCP Events (SEP-3415)](https://github.com/modelcon
 
 | Event | Delivery | Arguments | Description |
 | --- | --- | --- | --- |
-| `job.status_changed` | `poll` | `{"job_id": "..."}` | Fires when a job moves between `queued`, `running`, `done`, `failed`. |
-| `system.heartbeat` | `poll` | `{}` | Server heartbeat with no required arguments. |
+| `job.status_changed` | `poll`, `push` | `{"job_id": "..."}` | Fires when a job moves between `queued`, `running`, `done`, `failed`. |
+| `system.heartbeat` | `poll`, `push` | `{}` | Server heartbeat with no required arguments. |
 | `webhook.only_alert` | `webhook` | `{}` | Non-pollable event for testing client UI handling. |
 
 ## Tools
