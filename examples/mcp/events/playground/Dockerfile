@@ -10,6 +10,7 @@ COPY --chown=user requirements.txt .
 RUN pip install --no-cache-dir --upgrade -r requirements.txt
 
 COPY --chown=user app.py .
+COPY --chown=user static ./static
 
 ENV HOST=0.0.0.0
 ENV PORT=7860
