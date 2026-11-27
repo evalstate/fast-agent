@@ -26,6 +26,7 @@ from fast_agent.mcp.events_extension import (
 from fast_agent.mcp.events_subscriptions import (
     EventSubscription,
     EventSubscriptionManager,
+    OpenEventStream,
     SubscriptionDelivery,
     SubscriptionOrigin,
 )
@@ -495,6 +496,16 @@ class _CommandEventsAggregator:
 
     def can_hold_event_stream(self, server_name: str) -> bool:
         return True
+
+    async def open_event_stream(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        cursor: str | None = None,
+    ) -> OpenEventStream:
+        raise NotImplementedError
 
     async def poll_events(
         self,

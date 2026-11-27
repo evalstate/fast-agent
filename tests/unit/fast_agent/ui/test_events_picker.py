@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from fast_agent.mcp.events_extension import EventDescriptor
@@ -221,7 +223,7 @@ async def test_events_picker_toggle_wake_takes_user_ownership_and_removes_ended(
     import asyncio
 
     from fast_agent.mcp.events_extension import ListEventsResult, PollEventsResult
-    from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
+    from fast_agent.mcp.events_subscriptions import EventSubscriptionManager, OpenEventStream
     from fast_agent.ui.events_picker import _EventsPicker
 
     class _Poller:
@@ -233,6 +235,16 @@ async def test_events_picker_toggle_wake_takes_user_ownership_and_removes_ended(
 
         def can_hold_event_stream(self, server_name: str) -> bool:
             return True
+
+        async def open_event_stream(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+            *,
+            cursor: str | None = None,
+        ) -> OpenEventStream:
+            raise NotImplementedError
 
         async def poll_events(
             self,

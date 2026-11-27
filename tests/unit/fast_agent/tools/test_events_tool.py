@@ -13,7 +13,7 @@ from fast_agent.mcp.events_extension import (
     ListEventsResult,
     PollEventsResult,
 )
-from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
+from fast_agent.mcp.events_subscriptions import EventSubscriptionManager, OpenEventStream
 from fast_agent.ptc.vocabulary import is_builtin_tool
 from fast_agent.tools.events_tool import (
     EVENTS_TOOL_NAME,
@@ -52,6 +52,16 @@ class _FakeEventsAggregator:
 
     def can_hold_event_stream(self, server_name: str) -> bool:
         return True
+
+    async def open_event_stream(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        cursor: str | None = None,
+    ) -> OpenEventStream:
+        raise NotImplementedError
 
     async def poll_events(
         self,
