@@ -178,8 +178,8 @@ def _prompt_prefixes(prompt_prefix: str) -> tuple[str, str]:
 
 def _placeholder_text(multiline: bool) -> str:
     if multiline:
-        return "Type to queue… (Esc interrupt, Alt+↵ submit, Ctrl+T multiline)"
-    return "Type to queue… (Esc interrupt, Alt+↵ newline, Ctrl+T multiline)"
+        return "Type to queue… (Esc interrupt, Alt+⏎ submit, Ctrl+T multiline)"
+    return "Type to queue… (Esc interrupt, Alt+⏎ newline, Ctrl+T multiline)"
 
 
 def _build_queued_rows(
