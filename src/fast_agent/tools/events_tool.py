@@ -138,10 +138,14 @@ def _serialize_descriptor(server: str, descriptor: EventDescriptor) -> dict[str,
     }
 
 
-def _serialize_subscription(subscription: EventSubscription) -> dict[str, Any]:
+def _serialize_subscription(
+    subscription: EventSubscription,
+    *,
+    server_display_name: str | None = None,
+) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "id": subscription.key,
-        "server": subscription.server_name,
+        "server": server_display_name or subscription.server_name,
         "name": subscription.name,
         "arguments": dict(subscription.arguments),
         "wake": subscription.wake,
@@ -224,13 +228,20 @@ async def _handle_list(
     items: list[dict[str, Any]] = []
     for server_name in target_servers:
         descriptors = await aggregator.events.list_descriptors(server_name, refresh=True)
-        items.extend(_serialize_descriptor(server_name, descriptor) for descriptor in descriptors)
+        display_name = aggregator.events.display_server_name(server_name)
+        items.extend(_serialize_descriptor(display_name, descriptor) for descriptor in descriptors)
     return _ok_result({"events": items})
 
 
 def _handle_status(aggregator: EventsAggregatorProtocol) -> CallToolResult:
     manager = aggregator.events
-    subscriptions = [_serialize_subscription(sub) for sub in manager.subscriptions()]
+    subscriptions = [
+        _serialize_subscription(
+            sub,
+            server_display_name=manager.display_server_name(sub.server_name),
+        )
+        for sub in manager.subscriptions()
+    ]
     return _ok_result(
         {
             "subscriptions": subscriptions,
@@ -275,7 +286,7 @@ async def _handle_subscribe(
     return _ok_result(
         {
             "id": subscription.key,
-            "server": subscription.server_name,
+            "server": aggregator.events.display_server_name(subscription.server_name),
             "name": subscription.name,
             "wake": subscription.wake,
             "once": subscription.once,

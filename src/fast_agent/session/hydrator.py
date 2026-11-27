@@ -132,6 +132,21 @@ class _EventSubscriptionRestoreCapable(Protocol):
 
 
 @runtime_checkable
+class _EventResetCapable(Protocol):
+    async def reset_events(self) -> None: ...
+
+
+@runtime_checkable
+class _DeclaredEventCheckCapable(Protocol):
+    def is_declared_event(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> bool: ...
+
+
+@runtime_checkable
 class _AgentToolAttachCapable(Protocol):
     def add_agent_tool(
         self,
@@ -225,6 +240,20 @@ class SessionHydrator:
             for name, agent in agents.items():
                 if name not in agent_snapshots and isinstance(agent, PtcSessionAgent):
                     await agent.clear_session_ptc(refresh_instruction=False)
+                if isinstance(agent, _EventResetCapable):
+                    try:
+                        await agent.reset_events()
+                    except Exception as exc:
+                        warnings.append(
+                            SessionHydrationWarning(
+                                code="event-subscription-reset-failed",
+                                message=(
+                                    f"Failed to reset previous event subscriptions for agent "
+                                    f"'{name}': {exc}"
+                                ),
+                                agent_name=name,
+                            )
+                        )
 
         for agent_name, agent_snapshot in agent_snapshots.items():
             await self._hydrate_agent(
@@ -808,15 +837,22 @@ class SessionHydrator:
                     )
                 )
                 continue
+            arguments = dict(entry.arguments)
+            origin = entry.origin
+            if isinstance(agent, _DeclaredEventCheckCapable):
+                if agent.is_declared_event(entry.server, entry.name, arguments):
+                    origin = "declared"
+                elif origin == "declared":
+                    origin = "user"
             try:
                 await agent.restore_event_subscription(
                     entry.server,
                     entry.name,
-                    dict(entry.arguments),
+                    arguments,
                     wake=entry.wake,
                     once=entry.once,
                     min_poll_ms=entry.min_poll_ms,
-                    origin=entry.origin,
+                    origin=origin,
                     cursor=entry.cursor,
                     max_age_ms=(
                         DEFAULT_RESTORE_EVENT_MAX_AGE_MS if entry.cursor is not None else None

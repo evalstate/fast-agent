@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html import escape as escape_html
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -36,7 +36,6 @@ from fast_agent.core.cache_warmer import format_status_summary as format_warm_su
 from fast_agent.core.cache_warmer import status_level as warm_status_level
 from fast_agent.history.turns import total_user_turns
 from fast_agent.integrations.hc_children import (
-    EventWaitSubscription,
     HcAttachments,
     active_event_waits,
     current_hc_attachments,
@@ -256,11 +255,15 @@ def render_input_toolbar(
         mode.style,
     )
     event_waits, event_wake_paused = active_event_waits(resolved_agent_state.state.agent)
+    if event_waits:
+        hc_attachments = replace(
+            hc_attachments,
+            event_waits=event_waits,
+            event_wake_paused=event_wake_paused,
+        )
     agent_identity_segment = _with_hc_waiting_badge(
         agent_identity_segment,
         hc_attachments,
-        event_waits=event_waits,
-        event_wake_paused=event_wake_paused,
         middle=middle,
         mode=mode,
         suffix_width=_toolbar_markup_width(f"{notification_segment}{copy_notice_segment.html}"),
@@ -825,11 +828,10 @@ def _hc_waiting_badge(
     attachments: HcAttachments,
     *,
     compact: bool,
-    event_waits: tuple[EventWaitSubscription, ...] = (),
-    event_wake_paused: bool = False,
 ) -> str:
     """Who will wake this idle session, and for how long it has waited."""
     resuming = attachments.resuming
+    event_waits = attachments.event_waits
     if not resuming and not event_waits:
         return ""
     parts: list[str] = []
@@ -841,7 +843,7 @@ def _hc_waiting_badge(
             more = f" +{len(resuming) - 2}" if len(resuming) > 2 else ""
             parts.append(f"{names}{more}")
     if event_waits:
-        paused = " ⏸" if event_wake_paused else ""
+        paused = " ⏸" if attachments.event_wake_paused else ""
         parts.append(f"{len(event_waits)} ev{paused}")
     label = f"⧗ {', '.join(parts)}"
     waiting_since = hc_waiting_since()
@@ -859,19 +861,12 @@ def _with_hc_waiting_badge(
     agent_identity_segment: str,
     attachments: HcAttachments,
     *,
-    event_waits: tuple[EventWaitSubscription, ...] = (),
-    event_wake_paused: bool = False,
     middle: str,
     mode: ToolbarMode,
     suffix_width: int,
 ) -> str:
     """Place the waiting badge on the left, where narrow panes do not clip it."""
-    badge = _hc_waiting_badge(
-        attachments,
-        compact=False,
-        event_waits=event_waits,
-        event_wake_paused=event_wake_paused,
-    )
+    badge = _hc_waiting_badge(attachments, compact=False)
     if not badge:
         return agent_identity_segment
     joined = f"{agent_identity_segment} {badge}" if agent_identity_segment else badge
@@ -882,12 +877,7 @@ def _with_hc_waiting_badge(
         mode_text=mode.text,
     )
     if _toolbar_markup_width(prefix) + suffix_width > _resolve_toolbar_width():
-        badge = _hc_waiting_badge(
-            attachments,
-            compact=True,
-            event_waits=event_waits,
-            event_wake_paused=event_wake_paused,
-        )
+        badge = _hc_waiting_badge(attachments, compact=True)
         joined = f"{agent_identity_segment} {badge}" if agent_identity_segment else badge
     return joined
 

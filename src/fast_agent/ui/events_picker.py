@@ -15,7 +15,7 @@ import textwrap
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.data_structures import Point
@@ -32,7 +32,7 @@ from fast_agent.ui.picker_theme import build_picker_style
 from fast_agent.ui.single_list_picker_layout import picker_terminal_size, truncate_picker_text
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
+    from collections.abc import Callable, Coroutine
 
     from prompt_toolkit.formatted_text import StyleAndTextTuples
     from prompt_toolkit.key_binding import KeyPressEvent
@@ -73,6 +73,15 @@ class EventsPickerManager(Protocol):
     async def unsubscribe(self, key: str) -> bool: ...
 
     def poll_now(self, key: str) -> bool: ...
+
+
+@runtime_checkable
+class _DisplayServerNameManager(Protocol):
+    def display_server_name(self, server_name: str) -> str: ...
+
+
+def _identity_server_name(server_name: str) -> str:
+    return server_name
 
 
 def _required_argument_names(descriptor: EventDescriptor | None) -> tuple[str, ...]:
@@ -148,7 +157,7 @@ class EventsPickerItem:
         if self.kind == "subscribed" and self.subscription is not None:
             sub = self.subscription
             args_text = _format_arguments_inline(sub.arguments)
-            head = f"● {sub.server_name} {sub.name}"
+            head = f"● {self.server_name} {self.name}"
             if args_text:
                 head = f"{head} {args_text}"
             mode = "wake" if sub.wake else "passive"
@@ -269,6 +278,9 @@ class EventsPickerState:
     group_index: int = 0
     cursor: int = 0
     status_message: str = ""
+    display_server_name: Callable[[str], str] = field(
+        default=_identity_server_name, repr=False, compare=False
+    )
 
     @classmethod
     def from_data(
@@ -276,10 +288,12 @@ class EventsPickerState:
         *,
         subscriptions: Sequence[EventSubscription],
         descriptors_by_server: Mapping[str, Sequence[EventDescriptor]],
+        display_server_name: Callable[[str], str] = _identity_server_name,
     ) -> EventsPickerState:
         descriptor_lookup: dict[tuple[str, str], EventDescriptor] = {}
         available_by_server: dict[str, tuple[EventsPickerItem, ...]] = {}
-        for server_name, descriptors in descriptors_by_server.items():
+        for raw_server_name, descriptors in descriptors_by_server.items():
+            server_name = display_server_name(raw_server_name)
             for descriptor in descriptors:
                 descriptor_lookup[(server_name, descriptor.name)] = descriptor
             available_by_server[server_name] = tuple(
@@ -295,9 +309,9 @@ class EventsPickerState:
         sub_items = tuple(
             EventsPickerItem(
                 kind="subscribed",
-                server_name=sub.server_name,
+                server_name=display_server_name(sub.server_name),
                 name=sub.name,
-                descriptor=descriptor_lookup.get((sub.server_name, sub.name)),
+                descriptor=descriptor_lookup.get((display_server_name(sub.server_name), sub.name)),
                 subscription=sub,
             )
             for sub in subscriptions
@@ -307,6 +321,7 @@ class EventsPickerState:
             subscriptions=sub_items,
             available_by_server=available_by_server,
             group_index=initial_group,
+            display_server_name=display_server_name,
         )
 
     def refresh_subscriptions(self, subscriptions: Sequence[EventSubscription]) -> None:
@@ -319,9 +334,11 @@ class EventsPickerState:
         self.subscriptions = tuple(
             EventsPickerItem(
                 kind="subscribed",
-                server_name=sub.server_name,
+                server_name=self.display_server_name(sub.server_name),
                 name=sub.name,
-                descriptor=descriptor_lookup.get((sub.server_name, sub.name)),
+                descriptor=descriptor_lookup.get(
+                    (self.display_server_name(sub.server_name), sub.name)
+                ),
                 subscription=sub,
             )
             for sub in subscriptions
@@ -433,9 +450,15 @@ class _EventsPicker:
         descriptors_by_server: Mapping[str, Sequence[EventDescriptor]],
     ) -> None:
         self.manager = manager
+        display_fn = (
+            manager.display_server_name
+            if isinstance(manager, _DisplayServerNameManager)
+            else _identity_server_name
+        )
         self.state = EventsPickerState.from_data(
             subscriptions=manager.subscriptions(),
             descriptors_by_server=descriptors_by_server,
+            display_server_name=display_fn,
         )
         self._background_tasks: set[asyncio.Task[None]] = set()
         self._mutation_in_flight = False
@@ -536,8 +559,9 @@ class _EventsPicker:
             self._invalidate_if_running()
             return
         self.state.refresh_subscriptions(self.manager.subscriptions())
-        message = f"Subscribed to `{sub.name}` on `{sub.server_name}` as `{sub.key}`."
-        self.state.status_message = f"Subscribed to {sub.server_name}/{sub.name}"
+        display_server = self.state.display_server_name(sub.server_name)
+        message = f"Subscribed to `{sub.name}` on `{display_server}` as `{sub.key}`."
+        self.state.status_message = f"Subscribed to {display_server}/{sub.name}"
         if exit_after:
             if self.app.is_running:
                 self.app.exit(result=EventsPickerResult(message=message))

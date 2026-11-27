@@ -17,7 +17,6 @@ from fast_agent.constants import (
     FAST_AGENT_COMPACTION_CHANNEL,
     FAST_AGENT_TOOL_LOOP_MESSAGE,
     FAST_AGENT_TOOL_MEDIA_MESSAGE,
-    MCP_EVENTS_BLOCK_META,
 )
 from fast_agent.integrations.hc_children import is_hc_message
 
@@ -62,9 +61,9 @@ def is_hc_prompt(message: PromptMessageExtended) -> bool:
 
 def is_mcp_events_prompt(message: PromptMessageExtended) -> bool:
     """True for a prompt that MCP events delivered rather than a person typing it."""
-    return is_user_prompt(message) and any(
-        MCP_EVENTS_BLOCK_META in (block.meta or {}) for block in message.content
-    )
+    from fast_agent.mcp.events_subscriptions import is_mcp_events_message
+
+    return is_user_prompt(message) and is_mcp_events_message(message)
 
 
 def typed_turn_starts(messages: list[PromptMessageExtended]) -> list[int]:

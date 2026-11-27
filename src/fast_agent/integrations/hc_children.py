@@ -88,10 +88,16 @@ class HcEnvironment:
 
 @dataclass(frozen=True, slots=True)
 class HcAttachments:
-    """Unfinished children of this terminal, by what they mean for the session."""
+    """Unfinished children and wake event subscriptions attached to this session."""
 
     resuming: tuple[HcChild, ...] = ()
     services: int = 0
+    event_waits: tuple[str, ...] = ()
+    event_wake_paused: bool = False
+
+    @property
+    def has_event_waits(self) -> bool:
+        return bool(self.event_waits)
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,17 +382,6 @@ class _EventWaitAgent(Protocol):
     def event_wait_state(self) -> tuple[Sequence[EventWaitSubscription], bool]: ...
 
 
-def active_event_waits(agent: object) -> tuple[tuple[EventWaitSubscription, ...], bool]:
-    """Return ``(active_wake_subscriptions, wake_paused)`` for an agent."""
-    if not isinstance(agent, _EventWaitAgent):
-        return (), False
-    waits_seq, wake_paused = agent.event_wait_state()
-    waits = tuple(waits_seq)
-    if not waits:
-        return (), False
-    return waits, bool(wake_paused)
-
-
 def _format_event_wait_label(subscription: EventWaitSubscription) -> str:
     label = f"{subscription.server_name}/{subscription.name}"
     if subscription.arguments:
@@ -395,16 +390,26 @@ def _format_event_wait_label(subscription: EventWaitSubscription) -> str:
     return label
 
 
+def active_event_waits(agent: object) -> tuple[tuple[str, ...], bool]:
+    """Return ``(event_wait_labels, wake_paused)`` for an agent."""
+    if not isinstance(agent, _EventWaitAgent):
+        return (), False
+    waits_seq, wake_paused = agent.event_wait_state()
+    waits = tuple(_format_event_wait_label(sub) for sub in waits_seq)
+    if not waits:
+        return (), False
+    return waits, bool(wake_paused)
+
+
 def format_turn_end_lines(
     attachments: HcAttachments,
     background_processes: int,
-    *,
-    event_waits: Sequence[EventWaitSubscription] = (),
-    event_wake_paused: bool = False,
 ) -> list[str]:
     """Scrollback lines saying what will, and will not, bring this session back."""
     lines: list[str] = []
     resuming = attachments.resuming
+    event_waits = attachments.event_waits
+    event_wake_paused = attachments.event_wake_paused
     services = (
         f" · {_count(attachments.services, 'service')} running" if attachments.services else ""
     )
@@ -421,11 +426,7 @@ def format_turn_end_lines(
         if services:
             lines.append(f"hc{services}")
         if event_waits:
-            target = (
-                _format_event_wait_label(event_waits[0])
-                if len(event_waits) == 1
-                else _count(len(event_waits), "event")
-            )
+            target = event_waits[0] if len(event_waits) == 1 else _count(len(event_waits), "event")
             tail = "wake paused" if event_wake_paused else "resumes when an event arrives"
             lines.append(f"⧗ events · waiting on {target} · {tail}")
     if background_processes > 0:
@@ -440,12 +441,11 @@ def format_turn_end_lines(
 def format_status_summary(
     attachments: HcAttachments,
     background_processes: int,
-    *,
-    event_waits: Sequence[EventWaitSubscription] = (),
-    event_wake_paused: bool = False,
 ) -> str | None:
     """One short phrase for the terminal status message and the toolbar."""
     parts: list[str] = []
+    event_waits = attachments.event_waits
+    event_wake_paused = attachments.event_wake_paused
     if attachments.resuming:
         names = ", ".join(child.name or child.address for child in attachments.resuming)
         parts.append(f"waiting on {len(attachments.resuming)}: {names}")
@@ -454,7 +454,7 @@ def format_status_summary(
         if attachments.resuming:
             parts.append(f"{_count(len(event_waits), 'event')}{paused}")
         elif len(event_waits) == 1:
-            parts.append(f"waiting on {_format_event_wait_label(event_waits[0])}{paused}")
+            parts.append(f"waiting on {event_waits[0]}{paused}")
         else:
             parts.append(f"waiting on {_count(len(event_waits), 'event')}{paused}")
     if attachments.services:

@@ -1005,3 +1005,165 @@ async def test_persistable_subscriptions_includes_completed_once_with_pending_in
     assert sub.consumed_cursor == "c1"
     assert manager.persistable_subscriptions() == []
     await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_subscribe_canonicalizes_display_and_internal_server_names() -> None:
+    from fast_agent.ui.events_picker import EventsPickerState
+
+    class _AliasedPoller(_Poller):
+        def resolve_server_key(self, server_name: str) -> str:
+            return "card-foo-jobs" if server_name in {"jobs", "card-foo-jobs"} else server_name
+
+        def server_display_name(self, server_name: str) -> str:
+            return "jobs" if server_name == "card-foo-jobs" else server_name
+
+    poller = _AliasedPoller(
+        [
+            PollEventsResult(events=[], cursor="c0", next_poll_ms=5_000),
+            PollEventsResult(events=[], cursor="c1", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    sub_by_display = await manager.subscribe("jobs", EVENT, ARGS, wake=False)
+    sub_by_key = await manager.subscribe("card-foo-jobs", EVENT, ARGS, wake=True)
+
+    assert len(manager.subscriptions()) == 1
+    assert sub_by_display is sub_by_key
+    assert sub_by_key.server_name == "card-foo-jobs"
+    assert sub_by_key.wake is True
+    assert manager.display_server_name(sub_by_key.server_name) == "jobs"
+    assert manager.cached_descriptors("jobs") is not None
+    assert manager.cached_descriptors("card-foo-jobs") is not None
+
+    descriptors = await manager.list_descriptors("jobs")
+    picker_state = EventsPickerState.from_data(
+        subscriptions=manager.subscriptions(),
+        descriptors_by_server={"jobs": descriptors},
+        display_server_name=manager.display_server_name,
+    )
+    assert picker_state.subscriptions[0].server_name == "jobs"
+    assert picker_state.is_item_subscribed(picker_state.available_by_server["jobs"][0]) is True
+
+    restored = await manager.subscribe("jobs", EVENT, ARGS, cursor="c0", wake=True)
+    assert len(manager.subscriptions()) == 1
+    assert restored.key == sub_by_key.key
+    assert restored.server_name == "card-foo-jobs"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_subscribe_with_cursor_keeps_existing_subscription_if_poll_fails() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[], cursor="c0", next_poll_ms=5_000),
+            RuntimeError("server unreachable"),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    original = await manager.subscribe("demo", EVENT, ARGS, wake=True)
+    with pytest.raises(RuntimeError, match="server unreachable"):
+        await manager.subscribe("demo", EVENT, ARGS, wake=True, cursor="c0")
+
+    active = manager.subscriptions()
+    assert len(active) == 1
+    assert active[0] is original
+    assert active[0].status == "active"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_reset_advances_consumed_cursor_on_kept_declared_subscriptions() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[], cursor="c0", next_poll_ms=5_000),
+            PollEventsResult(events=[_occurrence("ev-1")], cursor="c1", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    arrived = asyncio.Event()
+    manager.add_listener(lambda _item: arrived.set())
+    declared = await manager.subscribe("demo", EVENT, ARGS, origin="declared")
+    await asyncio.wait_for(arrived.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    assert declared.cursor == "c1"
+    assert declared.consumed_cursor == "c0"
+    assert manager.pending_count == 1
+
+    await manager.reset()
+
+    assert manager.pending_count == 0
+    assert declared.consumed_cursor == "c1"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_toggling_wake_refreshes_wake_latch_for_queued_events() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[], cursor="c0", next_poll_ms=5_000),
+            PollEventsResult(events=[_occurrence("ev-1")], cursor="c1", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    arrived = asyncio.Event()
+    manager.add_listener(lambda _item: arrived.set())
+    await manager.subscribe("demo", EVENT, ARGS, wake=False)
+    await asyncio.wait_for(arrived.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    assert manager.pending_count == 1
+    # Passive subscription with queued event should not wake.
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(manager.wait_for_wake(), timeout=0.05)
+
+    # Toggling passive -> wake sets the latch immediately.
+    await manager.subscribe("demo", EVENT, ARGS, wake=True)
+    await asyncio.wait_for(manager.wait_for_wake(), timeout=0.2)
+
+    # Toggling wake -> passive clears the latch while event remains queued.
+    await manager.subscribe("demo", EVENT, ARGS, wake=False)
+    with pytest.raises(asyncio.TimeoutError):
+        await asyncio.wait_for(manager.wait_for_wake(), timeout=0.05)
+
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_cursor_replacement_drops_superseded_pending_items_for_same_key() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[], cursor="c0", next_poll_ms=5_000),
+            PollEventsResult(events=[_occurrence("done")], cursor="c1", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    arrived = asyncio.Event()
+    manager.add_listener(lambda _item: arrived.set())
+    await manager.subscribe("demo", EVENT, ARGS, origin="declared")
+    await asyncio.wait_for(arrived.wait(), timeout=1)
+    await asyncio.sleep(0)
+    assert manager.pending_count == 1
+
+    # Queue the replacement poll response after the background poller has parked.
+    poller.script.append(
+        PollEventsResult(events=[_occurrence("done")], cursor="c1", next_poll_ms=5_000)
+    )
+    replaced = await manager.subscribe(
+        "demo", EVENT, ARGS, once=True, origin="declared", cursor="c0"
+    )
+    assert replaced.status == "completed"
+    items = manager.take()
+    assert [i.occurrence.event_id for i in items if i.occurrence is not None] == ["job-1:done"]
+    await manager.aclose()

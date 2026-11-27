@@ -197,9 +197,10 @@ async def handle_events(
                     f"Minimum poll interval: {format_poll_interval(options.min_poll_ms)}."
                 )
             extra_text = (" " + " ".join(extras)) if extras else ""
+            display_server = aggregator.events.display_server_name(subscription.server_name)
             _add_markdown(
                 outcome,
-                f"Subscribed to `{subscription.name}` on `{subscription.server_name}` "
+                f"Subscribed to `{subscription.name}` on `{display_server}` "
                 f"as `{subscription.key}`. {delivery}{extra_text}",
                 "events subscribe",
             )
@@ -268,7 +269,8 @@ async def _handle_select(
     descriptors_by_server: dict[str, list[EventDescriptor]] = {}
     for name in aggregator.server_names:
         if await aggregator.supports_events(name):
-            descriptors_by_server[name] = await aggregator.events.list_descriptors(
+            display_name = aggregator.events.display_server_name(name)
+            descriptors_by_server[display_name] = await aggregator.events.list_descriptors(
                 name, refresh=True
             )
 
@@ -321,9 +323,10 @@ def _render_status(aggregator: _EventsAggregator) -> str:
             poll_text = f"{format_poll_interval(subscription.min_poll_ms)} (min)"
         else:
             poll_text = "-"
+        display_server = manager.display_server_name(subscription.server_name)
         lines.append(
             f"| `{subscription.key}` "
-            f"| {escape_markdown_table_cell(subscription.server_name)} "
+            f"| {escape_markdown_table_cell(display_server)} "
             f"| {escape_markdown_table_cell(subscription.name)} "
             f"| {escape_markdown_table_cell(markdown_code_span(arguments))} "
             f"| {'yes' if subscription.wake else 'no'} "
@@ -358,7 +361,8 @@ async def _render_event_types(aggregator: _EventsAggregator, server_name: str | 
     sections: list[str] = []
     for name in server_names:
         descriptors = await aggregator.events.list_descriptors(name, refresh=True)
-        lines = [f"## {name}", ""]
+        display_name = aggregator.events.display_server_name(name)
+        lines = [f"## {display_name}", ""]
         if not descriptors:
             lines.append("No event types offered.")
         for descriptor in descriptors:

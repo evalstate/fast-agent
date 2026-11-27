@@ -366,6 +366,12 @@ async def test_interactive_prompt_does_not_reset_wake_budget_on_hc_messages(
             self.resets = 0
             self.records = 0
 
+        def take_event_prompt_messages(self) -> list[Any]:
+            return []
+
+        async def wait_for_event_wake(self) -> None:
+            return None
+
         def record_event_wake_turn(self) -> None:
             self.records += 1
 
@@ -460,3 +466,251 @@ async def test_clear_agent_histories_calls_reset_events() -> None:
     assert cleared == ["main"]
     assert agent.cleared is True
     assert agent.events_reset is True
+
+
+@pytest.mark.asyncio
+async def test_start_configured_events_survives_runtime_error_without_breaking_turns() -> None:
+    from fast_agent.config import MCPEventSubscriptionSettings, MCPServerSettings
+
+    class _FailingEventsAggregator(_BaseAggregator):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.list_calls = 0
+
+        async def list_events(
+            self, server_name: str, cursor: str | None = None
+        ) -> ListEventsResult:
+            del server_name, cursor
+            self.list_calls += 1
+            raise RuntimeError("transport disconnected")
+
+    aggregator = _FailingEventsAggregator(
+        server_names=["offline"],
+        connection_persistence=False,
+        context=Context(),
+    )
+    aggregator._attached_server_names = ["offline"]
+    aggregator._attachment_configs["offline"] = MCPServerSettings(
+        name="offline",
+        command="echo",
+        events=[MCPEventSubscriptionSettings(name="job.status_changed")],
+    )
+
+    await aggregator.start_configured_events()
+    assert aggregator._configured_events_started is True
+    assert aggregator.list_calls == 1
+
+    # Subsequent calls are no-ops and do not fail turns.
+    await aggregator.start_configured_events()
+    assert aggregator.list_calls == 1
+    await aggregator.events.aclose()
+
+
+@pytest.mark.asyncio
+async def test_start_configured_events_preserves_restored_overrides_and_completed_once() -> None:
+    from fast_agent.config import MCPEventSubscriptionSettings, MCPServerSettings
+    from fast_agent.mcp.events_extension import EventDescriptor, EventOccurrence
+
+    class _RestorableAggregator(_BaseAggregator):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self.poll_calls: list[tuple[str, str | None]] = []
+
+        async def list_events(
+            self, server_name: str, cursor: str | None = None
+        ) -> ListEventsResult:
+            del server_name, cursor
+            return ListEventsResult(
+                events=[
+                    EventDescriptor(name="job.progress", delivery=["poll"]),
+                    EventDescriptor(name="job.done", delivery=["poll"]),
+                ]
+            )
+
+        async def poll_events(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+            *,
+            cursor: str | None = None,
+            max_age_ms: int | None = None,
+            max_events: int | None = None,
+        ) -> PollEventsResult:
+            del server_name, arguments, max_age_ms, max_events
+            self.poll_calls.append((name, cursor))
+            if name == "job.done" and cursor == "c0":
+                return PollEventsResult(
+                    events=[
+                        EventOccurrence(
+                            event_id="done-1",
+                            name="job.done",
+                            timestamp="2026-11-27T10:00:00Z",
+                            data={"ok": True},
+                        )
+                    ],
+                    cursor="c1",
+                    next_poll_ms=60_000,
+                )
+            return PollEventsResult(events=[], cursor="c1", next_poll_ms=60_000)
+
+    aggregator = _RestorableAggregator(
+        server_names=["jobs"],
+        connection_persistence=False,
+        context=Context(),
+    )
+    aggregator._attached_server_names = ["jobs"]
+    aggregator._attachment_configs["jobs"] = MCPServerSettings(
+        name="jobs",
+        command="echo",
+        events=[
+            MCPEventSubscriptionSettings(name="job.progress", wake=False, every="5s"),
+            MCPEventSubscriptionSettings(name="job.done", once=True),
+        ],
+    )
+
+    try:
+        # Simulate cold --resume hydrating persisted subscriptions before start_configured_events().
+        restored_active = await aggregator.restore_event_subscription(
+            "jobs",
+            "job.progress",
+            {},
+            wake=True,
+            min_poll_ms=15_000,
+            origin="declared",
+            cursor="c0",
+        )
+        restored_once = await aggregator.restore_event_subscription(
+            "jobs",
+            "job.done",
+            {},
+            once=True,
+            origin="declared",
+            cursor="c0",
+        )
+        assert restored_once.status == "completed"
+        polls_after_restore = len(aggregator.poll_calls)
+
+        await aggregator.start_configured_events()
+
+        assert restored_active.wake is True
+        assert restored_active.min_poll_ms == 15_000
+        assert restored_once.status == "completed"
+        assert len(aggregator.poll_calls) == polls_after_restore
+    finally:
+        await aggregator.events.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rollback_server_attachment_clear_existing_unsubscribes_events() -> None:
+    from fast_agent.mcp.events_extension import EventDescriptor
+    from fast_agent.mcp_server_registry import ServerRegistry
+
+    class _SubscribedAggregator(_BaseAggregator):
+        async def list_events(
+            self, server_name: str, cursor: str | None = None
+        ) -> ListEventsResult:
+            del server_name, cursor
+            return ListEventsResult(
+                events=[EventDescriptor(name="job.status_changed", delivery=["poll"])]
+            )
+
+        async def poll_events(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+            *,
+            cursor: str | None = None,
+            max_age_ms: int | None = None,
+            max_events: int | None = None,
+        ) -> PollEventsResult:
+            del server_name, name, arguments, cursor, max_age_ms, max_events
+            return PollEventsResult(events=[], cursor="c1", next_poll_ms=60_000)
+
+    aggregator = _SubscribedAggregator(
+        server_names=["jobs"],
+        connection_persistence=False,
+        context=Context(server_registry=ServerRegistry()),
+    )
+    aggregator._attached_server_names = ["jobs"]
+
+    try:
+        await aggregator.events.subscribe("jobs", "job.status_changed")
+        assert len(aggregator.events.subscriptions()) == 1
+        assert aggregator.events.cached_descriptors("jobs") is not None
+
+        await aggregator._rollback_server_attachment(
+            "jobs",
+            clear_existing=True,
+        )
+
+        assert aggregator.events.subscriptions() == []
+        assert aggregator.events.cached_descriptors("jobs") is None
+    finally:
+        await aggregator.events.aclose()
+
+
+@pytest.mark.asyncio
+async def test_notification_tracker_count_stays_bounded_at_inbox_cap() -> None:
+    from fast_agent.mcp.events_extension import EventDescriptor, EventOccurrence
+    from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
+    from fast_agent.ui import notification_tracker
+
+    class _BurstAggregator(_BaseAggregator):
+        async def list_events(
+            self, server_name: str, cursor: str | None = None
+        ) -> ListEventsResult:
+            del server_name, cursor
+            return ListEventsResult(
+                events=[EventDescriptor(name="job.status_changed", delivery=["poll"])]
+            )
+
+        async def poll_events(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+            *,
+            cursor: str | None = None,
+            max_age_ms: int | None = None,
+            max_events: int | None = None,
+        ) -> PollEventsResult:
+            del server_name, name, arguments, cursor, max_age_ms, max_events
+            return PollEventsResult(
+                events=[
+                    EventOccurrence(
+                        event_id=f"ev-{idx}",
+                        name="job.status_changed",
+                        timestamp="2026-11-27T10:00:00Z",
+                        data={"index": idx},
+                    )
+                    for idx in range(10)
+                ],
+                cursor="c1",
+                next_poll_ms=60_000,
+            )
+
+    notification_tracker.clear()
+    aggregator = _BurstAggregator(
+        server_names=["jobs"],
+        connection_persistence=False,
+        context=Context(),
+    )
+    owner = aggregator._event_notification_owner()
+    bounded_manager = EventSubscriptionManager(aggregator, max_inbox=3)
+    bounded_manager.add_listener(
+        lambda _item: notification_tracker.set_mcp_event_count(
+            bounded_manager.pending_count, owner=owner
+        )
+    )
+    aggregator._events = bounded_manager
+
+    try:
+        await aggregator.events.subscribe("jobs", "job.status_changed")
+        assert aggregator.events.pending_count == 3
+        assert notification_tracker.get_counts_by_type() == {"mcp_event": 3}
+        assert notification_tracker.notifications == []
+    finally:
+        await aggregator.close()
+        notification_tracker.clear()

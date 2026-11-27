@@ -226,7 +226,7 @@ class ToolRunner:
         if self._iteration > 0:
             for text in take_queued_messages(self._agent):
                 self._append_input_message(text)
-        # MCP events are appended after the user's own message on the first step.
+        # MCP events are drained and appended on every step.
         if isinstance(self._agent, _EventMessageSource):
             await self._agent.start_configured_events()
             for event_message in self._agent.take_event_prompt_messages():

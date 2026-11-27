@@ -101,6 +101,7 @@ MAX_RECENT_EVENTS = 100
 @dataclass(frozen=True)
 class StoredEvent:
     event_id: str
+    stream_seq: int
     name: str
     filter_key: str
     timestamp: datetime
@@ -130,6 +131,7 @@ class PlaygroundState:
         default_factory=lambda: max(250, int(os.environ.get("POLL_INTERVAL_MS", "2000")))
     )
     streams: dict[tuple[str, str], list[StoredEvent]] = field(default_factory=dict)
+    stream_totals: dict[tuple[str, str], int] = field(default_factory=dict)
     pending_gaps: set[tuple[str, str]] = field(default_factory=set)
     forbidden_keys: set[tuple[str, str]] = field(default_factory=set)
     poll_log: list[dict[str, Any]] = field(default_factory=list)
@@ -137,15 +139,19 @@ class PlaygroundState:
     event_seq: int = 0
 
     def emit(self, event_name: str, filter_key: str, data: dict[str, Any]) -> StoredEvent:
+        key = (event_name, filter_key)
         self.event_seq += 1
+        stream_seq = self.stream_totals.get(key, 0) + 1
+        self.stream_totals[key] = stream_seq
         record = StoredEvent(
             event_id=f"ev-{self.event_seq}",
+            stream_seq=stream_seq,
             name=event_name,
             filter_key=filter_key,
             timestamp=datetime.now(UTC),
             data=data,
         )
-        bucket = self.streams.setdefault((event_name, filter_key), [])
+        bucket = self.streams.setdefault(key, [])
         bucket.append(record)
         if len(bucket) > MAX_STREAM_HISTORY:
             del bucket[:-MAX_STREAM_HISTORY]
@@ -156,12 +162,13 @@ class PlaygroundState:
         return record
 
     def reset(self) -> None:
+        # Keep stream_totals and event_seq monotonic so connected clients see
+        # truncated=True and fresh event IDs instead of silently skipping events.
         self.streams.clear()
         self.pending_gaps.clear()
         self.forbidden_keys.clear()
         self.poll_log.clear()
         self.recent_events.clear()
-        self.event_seq = 0
 
 
 state = PlaygroundState()
@@ -240,15 +247,26 @@ async def poll_events(ctx: Any, params: PollEventsRequestParams) -> PollEventsRe
         raise MCPError(EVENTS_FORBIDDEN, "Subscription revoked by server")
 
     history = state.streams.get(key, [])
+    total = state.stream_totals.get(key, 0)
+    # Sequence number of the last evicted event (0 when nothing has been trimmed).
+    evicted_through = total - len(history)
+    truncated = False
+
     if params.cursor is None:
         start = len(history)
     else:
         try:
-            start = max(0, min(int(params.cursor), len(history)))
+            cursor_seq = int(params.cursor)
         except ValueError as exc:
             raise MCPError(INVALID_PARAMS, f"Invalid cursor: {params.cursor!r}") from exc
+        if cursor_seq < 0:
+            raise MCPError(INVALID_PARAMS, f"Invalid cursor: {params.cursor!r}")
+        if cursor_seq < evicted_through or cursor_seq > total:
+            truncated = True
+            start = 0
+        else:
+            start = cursor_seq - evicted_through
 
-    truncated = False
     if key in state.pending_gaps and params.cursor is not None:
         state.pending_gaps.discard(key)
         truncated = True
@@ -262,16 +280,15 @@ async def poll_events(ctx: Any, params: PollEventsRequestParams) -> PollEventsRe
         sliced = filtered
 
     has_more = False
-    next_cursor_index = len(history)
+    next_cursor_seq = total
     if params.max_events is not None and params.max_events > 0 and len(sliced) > params.max_events:
         sliced = sliced[: params.max_events]
         has_more = True
-        last_ev = sliced[-1]
-        next_cursor_index = history.index(last_ev) + 1
+        next_cursor_seq = sliced[-1].stream_seq
 
     result = PollEventsResult(
         events=[ev.to_occurrence() for ev in sliced],
-        cursor=str(next_cursor_index),
+        cursor=str(next_cursor_seq),
         truncated=truncated,
         has_more=has_more,
         next_poll_ms=state.poll_interval_ms,

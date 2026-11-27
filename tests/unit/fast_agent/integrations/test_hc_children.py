@@ -238,47 +238,43 @@ def test_multi_notice_paste_unwraps_cleanly_and_counts_all_blocks() -> None:
 
 
 def test_turn_end_lines_and_status_summary_include_event_waits() -> None:
-    from fast_agent.mcp.events_subscriptions import EventSubscription
+    label1 = "jobs/job.status_changed (job_id=abc123)"
+    label2 = "ci/build.finished"
 
-    sub1 = EventSubscription(
-        server_name="jobs",
-        name="job.status_changed",
-        arguments={"job_id": "abc123"},
-        wake=True,
-    )
-    sub2 = EventSubscription(
-        server_name="ci",
-        name="build.finished",
-        arguments={},
-        wake=True,
-    )
-
-    assert format_turn_end_lines(HcAttachments(), 0, event_waits=(sub1,)) == [
+    assert format_turn_end_lines(HcAttachments(event_waits=(label1,)), 0) == [
         "⧗ events · waiting on jobs/job.status_changed (job_id=abc123) · resumes when an event arrives"
     ]
     assert format_turn_end_lines(
-        HcAttachments(), 0, event_waits=(sub1, sub2), event_wake_paused=True
+        HcAttachments(event_waits=(label1, label2), event_wake_paused=True),
+        0,
     ) == ["⧗ events · waiting on 2 events · wake paused"]
     assert format_turn_end_lines(
-        HcAttachments(resuming=(HcChild("t7", "review"),)),
+        HcAttachments(
+            resuming=(HcChild("t7", "review"),),
+            event_waits=(label1, label2),
+        ),
         0,
-        event_waits=(sub1, sub2),
     ) == ["⧗ hc · waiting on review (t7) · resumes when it reports or exits · 2 events"]
 
     assert (
-        format_status_summary(HcAttachments(), 0, event_waits=(sub1,))
+        format_status_summary(HcAttachments(event_waits=(label1,)), 0)
         == "waiting on jobs/job.status_changed (job_id=abc123)"
     )
     assert (
         format_status_summary(
-            HcAttachments(resuming=(HcChild("t7", "review"),)),
+            HcAttachments(
+                resuming=(HcChild("t7", "review"),),
+                event_waits=(label1, label2),
+            ),
             0,
-            event_waits=(sub1, sub2),
         )
         == "waiting on 1: review, 2 events"
     )
     assert (
-        format_status_summary(HcAttachments(), 0, event_waits=(sub1, sub2), event_wake_paused=True)
+        format_status_summary(
+            HcAttachments(event_waits=(label1, label2), event_wake_paused=True),
+            0,
+        )
         == "waiting on 2 events (wake paused)"
     )
 

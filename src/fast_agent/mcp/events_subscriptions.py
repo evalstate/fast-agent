@@ -15,7 +15,7 @@ from collections import OrderedDict
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from html import escape
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeAlias, runtime_checkable
 
 from mcp.shared.exceptions import MCPError
 from mcp_types import HEADER_MISMATCH, TextContent
@@ -129,6 +129,16 @@ class EventPoller(Protocol):
         max_age_ms: int | None = None,
         max_events: int | None = None,
     ) -> PollEventsResult: ...
+
+
+@runtime_checkable
+class _ServerKeyResolver(Protocol):
+    def resolve_server_key(self, server_name: str) -> str: ...
+
+
+@runtime_checkable
+class _ServerDisplayNameResolver(Protocol):
+    def server_display_name(self, server_name: str) -> str: ...
 
 
 def subscription_key(server_name: str, name: str, arguments: dict[str, Any]) -> str:
@@ -407,8 +417,35 @@ class EventSubscriptionManager:
             if not self.wake_paused:
                 return
 
+    def canonical_server_name(self, server_name: str) -> str:
+        """Resolve a server display name or alias to its canonical internal key."""
+        if isinstance(self._poller, _ServerKeyResolver):
+            return self._poller.resolve_server_key(server_name)
+        return server_name
+
+    def display_server_name(self, server_name: str) -> str:
+        """Return the user-facing display name for a canonical server key."""
+        if isinstance(self._poller, _ServerDisplayNameResolver):
+            return self._poller.server_display_name(server_name)
+        return server_name
+
+    def has_subscription(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> bool:
+        """Return True if this canonical subscription key is active or completed once."""
+        canonical = self.canonical_server_name(server_name)
+        key = subscription_key(canonical, name, dict(arguments or {}))
+        if key in self._running:
+            return True
+        terminated = self._terminated.get(key)
+        return terminated is not None and terminated.once and terminated.status == "completed"
+
     def cached_descriptors(self, server_name: str) -> list[EventDescriptor] | None:
         """Return cached ``events/list`` descriptors for ``server_name``, or None."""
+        server_name = self.canonical_server_name(server_name)
         cached = self._descriptor_cache.get(server_name)
         return list(cached) if cached is not None else None
 
@@ -417,12 +454,13 @@ class EventSubscriptionManager:
         if server_name is None:
             self._descriptor_cache.clear()
         else:
-            self._descriptor_cache.pop(server_name, None)
+            self._descriptor_cache.pop(self.canonical_server_name(server_name), None)
 
     async def list_descriptors(
         self, server_name: str, *, refresh: bool = False
     ) -> list[EventDescriptor]:
         """List event types for ``server_name``, caching results lazily per server."""
+        server_name = self.canonical_server_name(server_name)
         if not refresh and server_name in self._descriptor_cache:
             return list(self._descriptor_cache[server_name])
         descriptors: list[EventDescriptor] = []
@@ -473,6 +511,7 @@ class EventSubscriptionManager:
         if min_poll_ms is not None and min_poll_ms <= 0:
             raise ValueError("min_poll_ms must be greater than 0")
 
+        server_name = self.canonical_server_name(server_name)
         subscription = EventSubscription(
             server_name,
             name,
@@ -493,18 +532,16 @@ class EventSubscriptionManager:
                     raise ValueError(
                         f"Cannot modify {existing.subscription.origin}-owned subscription '{key}'"
                     )
-                if cursor is not None:
-                    self._running.pop(key, None)
-                    await self._cancel(existing)
-                else:
+                if cursor is None:
                     existing.subscription.wake = wake
                     existing.subscription.once = once
                     existing.subscription.min_poll_ms = min_poll_ms
                     if existing.subscription.origin == "model" and origin != "model":
                         existing.subscription.origin = origin
+                    self._refresh_wake_latch()
                     return existing.subscription
 
-            if origin == "model":
+            if origin == "model" and existing is None:
                 active_model = sum(
                     1 for state in self._running.values() if state.subscription.origin == "model"
                 )
@@ -533,6 +570,11 @@ class EventSubscriptionManager:
                 )
             else:
                 result = await self._poller.poll_events(server_name, name, subscription.arguments)
+            if existing is not None:
+                self._running.pop(key, None)
+                await self._cancel(existing)
+                self._inbox = [item for item in self._inbox if item.subscription_key != key]
+                self._overflow.pop(key, None)
             self._terminated.pop(key, None)
             state = _Running(subscription)
             self._running[key] = state
@@ -541,6 +583,7 @@ class EventSubscriptionManager:
                 self._complete_once(state)
             else:
                 self._start(state, self._next_delay_ms(subscription, result))
+            self._refresh_wake_latch()
             return subscription
 
     async def unsubscribe(
@@ -563,15 +606,18 @@ class EventSubscriptionManager:
                     f"Cannot unsubscribe {terminated_sub.origin}-owned subscription '{key}'"
                 )
         if self._terminated.pop(key, None) is not None:
+            self._refresh_wake_latch()
             return True
         state = self._running.pop(key, None)
         if state is None:
             return False
         await self._cancel(state)
+        self._refresh_wake_latch()
         return True
 
     async def unsubscribe_server(self, server_name: str) -> int:
         """Unsubscribe all subscriptions for ``server_name`` and clear its descriptor cache."""
+        server_name = self.canonical_server_name(server_name)
         self._descriptor_cache.pop(server_name, None)
         keys = [
             subscription.key
@@ -626,6 +672,12 @@ class EventSubscriptionManager:
                 await self._cancel(state)
         for key in [key for key, sub in self._terminated.items() if sub.origin != "declared"]:
             self._terminated.pop(key, None)
+        for state in self._running.values():
+            if state.subscription.cursor is not None:
+                state.subscription.consumed_cursor = state.subscription.cursor
+        for sub in self._terminated.values():
+            if sub.cursor is not None:
+                sub.consumed_cursor = sub.cursor
         self._inbox = []
         self._overflow = {}
         self._wake.clear()
@@ -785,6 +837,22 @@ class EventSubscriptionManager:
 
     def _has_pending_for(self, key: str) -> bool:
         return key in self._overflow or any(item.subscription_key == key for item in self._inbox)
+
+    def _is_wake_subscription(self, key: str) -> bool:
+        state = self._running.get(key)
+        if state is not None:
+            return state.subscription.wake
+        terminated = self._terminated.get(key)
+        return terminated.wake if terminated is not None else False
+
+    def _refresh_wake_latch(self) -> None:
+        if any(
+            self._is_wake_subscription(item.subscription_key)
+            for item in (*self._overflow.values(), *self._inbox)
+        ):
+            self._wake.set()
+        else:
+            self._wake.clear()
 
     def _deliver(
         self,

@@ -8,7 +8,7 @@ import os
 import threading
 import time
 from contextlib import nullcontext, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html import escape as escape_html
 from importlib.metadata import version
 from typing import TYPE_CHECKING, Any, TypeVar, cast
@@ -771,7 +771,7 @@ async def _show_input_startup(
 def _resolve_event_waits(
     agent_provider: "AgentApp | None",
     agent_name: str,
-) -> tuple[tuple[Any, ...], bool]:
+) -> tuple[tuple[str, ...], bool]:
     if agent_provider is None:
         return (), False
     try:
@@ -795,23 +795,17 @@ async def refresh_session_attachments(
     )
     background = active_process_count(agent_provider, agent_name) if in_hc else 0
     event_waits, event_wake_paused = _resolve_event_waits(agent_provider, agent_name)
-    if not in_hc and not event_waits:
-        report_session_attached(None)
-        return []
-    report_session_attached(
-        format_status_summary(
+    if event_waits:
+        attachments = replace(
             attachments,
-            background,
             event_waits=event_waits,
             event_wake_paused=event_wake_paused,
         )
-    )
-    return format_turn_end_lines(
-        attachments,
-        background,
-        event_waits=event_waits,
-        event_wake_paused=event_wake_paused,
-    )
+    if not in_hc and not attachments.has_event_waits:
+        report_session_attached(None)
+        return []
+    report_session_attached(format_status_summary(attachments, background))
+    return format_turn_end_lines(attachments, background)
 
 
 def _show_a2a_prompt_status(

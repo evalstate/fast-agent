@@ -48,6 +48,12 @@ class _WakeAgent:
     async def wait_for_event_wake(self) -> None:
         return None
 
+    def record_event_wake_turn(self) -> None:
+        return None
+
+    def reset_event_wake_budget(self) -> None:
+        return None
+
 
 class _WakeAgentApp:
     def __init__(self) -> None:

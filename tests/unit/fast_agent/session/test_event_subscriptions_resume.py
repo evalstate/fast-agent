@@ -662,3 +662,226 @@ def test_capture_persists_completed_once_subscription_with_pending_inbox(tmp_pat
             cursor="c1",
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_handle_resume_session_preserves_restored_subscriptions_and_replayed_events(
+    tmp_path: Path,
+) -> None:
+    from fast_agent.commands.handlers.sessions import handle_resume_session
+    from fast_agent.mcp.events_extension import EventOccurrence
+
+    class _ReplayEventsAggregator(_CommandEventsAggregator):
+        async def poll_events(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+            *,
+            cursor: str | None = None,
+            max_age_ms: int | None = None,
+            max_events: int | None = None,
+        ) -> PollEventsResult:
+            del server_name, arguments, max_age_ms, max_events
+            if cursor == "c0":
+                return PollEventsResult(
+                    events=[
+                        EventOccurrence(
+                            event_id="ev-missed",
+                            name=name,
+                            timestamp="2026-11-27T10:00:00Z",
+                            data={"stage": "COMPLETED"},
+                        )
+                    ],
+                    cursor="c1",
+                    next_poll_ms=30_000,
+                )
+            return PollEventsResult(events=[], cursor="c0", next_poll_ms=30_000)
+
+    class _RealResumeEventsAgent(_FakeEventsAgent):
+        def __init__(self) -> None:
+            super().__init__(attached_servers=["jobs"])
+            self.aggregator = _ReplayEventsAggregator()
+
+        def list_active_event_subscriptions(self) -> list[EventSubscription]:
+            return self.aggregator.events.persistable_subscriptions()
+
+        async def reset_events(self) -> None:
+            await self.aggregator.events.reset()
+
+        async def restore_event_subscription(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+            *,
+            wake: bool = False,
+            once: bool = False,
+            min_poll_ms: int | None = None,
+            origin: SubscriptionOrigin = "user",
+            cursor: str | None = None,
+            max_age_ms: int | None = None,
+        ) -> EventSubscription:
+            return await self.aggregator.events.subscribe(
+                server_name,
+                name,
+                arguments,
+                wake=wake,
+                once=once,
+                min_poll_ms=min_poll_ms,
+                origin=origin,
+                cursor=cursor,
+                max_age_ms=max_age_ms,
+            )
+
+    manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
+    saved_session = manager.create_session(name="2611270000-rsm1")
+    _write_snapshot(
+        saved_session.directory,
+        SessionSnapshot(
+            session_id=saved_session.info.name,
+            created_at=saved_session.info.created_at,
+            last_activity=saved_session.info.last_activity,
+            continuation=SessionContinuationSnapshot(
+                active_agent="worker",
+                agents={
+                    "worker": SessionAgentSnapshot(
+                        event_subscriptions=[
+                            SessionEventSubscriptionSnapshot(
+                                server="jobs",
+                                name="job.status_changed",
+                                arguments={"job_id": "42"},
+                                wake=True,
+                                origin="user",
+                                cursor="c0",
+                            )
+                        ]
+                    )
+                },
+            ),
+        ),
+    )
+
+    agent = _RealResumeEventsAgent()
+    ctx = CommandContext(
+        agent_provider=StaticAgentProvider({"worker": agent}),
+        current_agent_name="worker",
+        io=NonInteractiveCommandIOBase(),
+        session_manager=manager,
+    )
+
+    try:
+        # Start a different subscription in the current session.
+        previous = await agent.aggregator.events.subscribe(
+            "jobs",
+            "job.status_changed",
+            {"job_id": "old"},
+            origin="user",
+        )
+        assert len(agent.aggregator.events.subscriptions()) == 1
+
+        # Missing session leaves existing subscriptions untouched.
+        missing_outcome = await handle_resume_session(
+            ctx, agent_name="worker", session_id="2611270000-missing"
+        )
+        assert any(m.channel == "error" for m in missing_outcome.messages)
+        assert [s.key for s in agent.aggregator.events.subscriptions()] == [previous.key]
+
+        # Valid resume replaces old subscription with restored one and keeps replayed event.
+        outcome = await handle_resume_session(
+            ctx, agent_name="worker", session_id=saved_session.info.name
+        )
+        assert not any(m.channel == "error" for m in outcome.messages)
+        subs = agent.aggregator.events.subscriptions()
+        assert len(subs) == 1
+        assert subs[0].arguments == {"job_id": "42"}
+        assert subs[0].wake is True
+        items = agent.aggregator.events.take()
+        assert len(items) == 1
+        assert items[0].occurrence is not None
+        assert items[0].occurrence.event_id == "ev-missed"
+    finally:
+        await agent.aggregator.events.aclose()
+
+
+@pytest.mark.asyncio
+async def test_hydrator_downgrades_removed_declared_event_origin_to_user(
+    tmp_path: Path,
+) -> None:
+    class _ConfigCheckingAgent(_FakeEventsAgent):
+        def __init__(self, *, declared: set[tuple[str, str]]) -> None:
+            super().__init__(attached_servers=["jobs"])
+            self._declared = declared
+            self.reset_calls = 0
+
+        async def reset_events(self) -> None:
+            self.reset_calls += 1
+
+        def is_declared_event(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+        ) -> bool:
+            del arguments
+            return (server_name, name) in self._declared
+
+    manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
+    session = manager.create_session(name="2611270000-decl1")
+    snapshot = SessionSnapshot(
+        session_id=session.info.name,
+        created_at=session.info.created_at,
+        last_activity=session.info.last_activity,
+        continuation=SessionContinuationSnapshot(
+            active_agent="worker",
+            agents={
+                "worker": SessionAgentSnapshot(
+                    event_subscriptions=[
+                        SessionEventSubscriptionSnapshot(
+                            server="jobs",
+                            name="job.removed",
+                            arguments={},
+                            origin="declared",
+                            cursor="c1",
+                        ),
+                        SessionEventSubscriptionSnapshot(
+                            server="jobs",
+                            name="job.still_declared",
+                            arguments={},
+                            origin="declared",
+                            cursor="c2",
+                        ),
+                        SessionEventSubscriptionSnapshot(
+                            server="jobs",
+                            name="job.newly_declared",
+                            arguments={},
+                            origin="model",
+                            cursor="c3",
+                        ),
+                    ]
+                )
+            },
+        ),
+    )
+    _write_snapshot(session.directory, snapshot)
+
+    agent = _ConfigCheckingAgent(
+        declared={("jobs", "job.still_declared"), ("jobs", "job.newly_declared")}
+    )
+    omitted_agent = _ConfigCheckingAgent(declared=set())
+
+    hydrator = SessionHydrator()
+    await hydrator.hydrate_session(
+        session=session,
+        agents={
+            "worker": cast("AgentProtocol", agent),
+            "other": cast("AgentProtocol", omitted_agent),
+        },
+        fallback_agent_name="worker",
+    )
+
+    by_name = {call["name"]: call for call in agent.restore_calls}
+    assert by_name["job.removed"]["origin"] == "user"
+    assert by_name["job.still_declared"]["origin"] == "declared"
+    assert by_name["job.newly_declared"]["origin"] == "declared"
+    assert omitted_agent.reset_calls == 1

@@ -638,10 +638,6 @@ class McpAgent(ABC, ToolAgent):
         await self._aggregator.start_configured_events()
         await self._aggregator.events.wait_for_wake()
 
-    def active_wake_subscriptions(self) -> list[EventSubscription]:
-        """Return currently active MCP event subscriptions with ``wake=True``."""
-        return self._aggregator.active_wake_subscriptions()
-
     def event_wait_state(self) -> tuple[list[EventSubscription], bool]:
         """Return ``(active_wake_subscriptions, wake_paused)`` for this agent."""
         return (
@@ -745,6 +741,14 @@ class McpAgent(ABC, ToolAgent):
 
     def list_active_event_subscriptions(self) -> list[EventSubscription]:
         return self._aggregator.list_active_event_subscriptions()
+
+    def is_declared_event(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> bool:
+        return self._aggregator.is_declared_event(server_name, name, arguments)
 
     async def restore_event_subscription(
         self,

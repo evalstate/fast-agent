@@ -148,9 +148,6 @@ class _EventWakeAgent(Protocol):
 
     async def wait_for_event_wake(self) -> None: ...
 
-
-@runtime_checkable
-class _EventWakeBudgetAgent(Protocol):
     def record_event_wake_turn(self) -> None: ...
 
     def reset_event_wake_budget(self) -> None: ...
@@ -1384,16 +1381,6 @@ class InteractivePrompt:
             return None
         return agent if isinstance(agent, _EventWakeAgent) else None
 
-    @staticmethod
-    def _event_wake_budget_agent(
-        prompt_provider: "AgentApp", agent_name: str
-    ) -> _EventWakeBudgetAgent | None:
-        try:
-            agent = prompt_provider._agent(agent_name)
-        except Exception:
-            return None
-        return agent if isinstance(agent, _EventWakeBudgetAgent) else None
-
     async def _send_event_wake_turn(
         self,
         *,
@@ -1404,12 +1391,12 @@ class InteractivePrompt:
     ) -> PromptLoopResult | None:
         """Start a turn whose input is the MCP events that ended the prompt."""
         wake_agent = self._event_wake_agent(prompt_provider, agent_name)
-        messages = wake_agent.take_event_prompt_messages() if wake_agent else []
+        if wake_agent is None:
+            return None
+        messages = wake_agent.take_event_prompt_messages()
         if not messages:
             return None
-        budget_agent = self._event_wake_budget_agent(prompt_provider, agent_name)
-        if budget_agent is not None:
-            budget_agent.record_event_wake_turn()
+        wake_agent.record_event_wake_turn()
         prompt_payload = (
             messages[0]
             if len(messages) == 1
@@ -1579,9 +1566,9 @@ class InteractivePrompt:
             if prompt_payload is None:
                 buffer_prefill = user_input
                 continue
-            budget_agent = self._event_wake_budget_agent(prompt_provider, agent_state.current_agent)
-            if budget_agent is not None and not is_hc_message(user_input):
-                budget_agent.reset_event_wake_budget()
+            wake_agent = self._event_wake_agent(prompt_provider, agent_state.current_agent)
+            if wake_agent is not None and not is_hc_message(user_input):
+                wake_agent.reset_event_wake_budget()
             send_result = await self._send_regular_message(
                 send_func=send_func,
                 prompt_payload=prompt_payload,

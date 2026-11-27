@@ -37,6 +37,9 @@ active_events: dict[ActiveEventKey, dict[str, str]] = {}
 # Completed notifications history
 notifications: list[dict[str, str]] = []
 
+# Bounded pending MCP event counts keyed by (owner, server_name)
+_mcp_event_counts: dict[tuple[str | None, str | None], int] = {}
+
 # Startup warnings are tracked separately so they can be emitted once
 # without polluting toolbar warning counters.
 startup_warnings: list[str] = []
@@ -56,28 +59,42 @@ def add_tool_update(server_name: str) -> None:
     notifications.append(_notification("tool_update", server=server_name))
 
 
+def set_mcp_event_count(
+    count: int,
+    *,
+    owner: str | None = None,
+    server_name: str | None = None,
+) -> None:
+    """Set the bounded pending MCP event count for an owner (and optional server)."""
+    key = (owner, server_name)
+    previous = _mcp_event_counts.get(key, 0)
+    normalized = max(0, count)
+    if normalized == previous:
+        return
+    if normalized > 0:
+        _mcp_event_counts[key] = normalized
+    else:
+        _mcp_event_counts.pop(key, None)
+    _invalidate_prompt()
+
+
 def add_mcp_event(server_name: str, *, owner: str | None = None) -> None:
-    """Add a notification for an MCP event waiting for the next model call."""
-    payload = {"server": server_name}
-    if owner is not None:
-        payload["owner"] = owner
-    notifications.append(_notification("mcp_event", **payload))
+    """Increment the pending MCP event count for a server waiting for the next model call."""
+    key = (owner, server_name)
+    _mcp_event_counts[key] = _mcp_event_counts.get(key, 0) + 1
     _invalidate_prompt()
 
 
 def clear_mcp_events(*, server_name: str | None = None, owner: str | None = None) -> int:
     """Clear pending MCP event notifications, optionally scoped by server and/or owner."""
-    before = len(notifications)
-    notifications[:] = [
-        n
-        for n in notifications
-        if not (
-            n["type"] == "mcp_event"
-            and (server_name is None or n.get("server") == server_name)
-            and (owner is None or n.get("owner") == owner)
-        )
+    matching = [
+        key
+        for key in _mcp_event_counts
+        if (owner is None or key[0] == owner) and (server_name is None or key[1] == server_name)
     ]
-    removed = before - len(notifications)
+    removed = 0
+    for key in matching:
+        removed += _mcp_event_counts.pop(key, 0)
     if removed:
         _invalidate_prompt()
     return removed
@@ -213,6 +230,7 @@ def get_active_status() -> dict[str, str] | None:
 def clear() -> None:
     """Clear all notifications and active events."""
     notifications.clear()
+    _mcp_event_counts.clear()
     active_events.clear()
     startup_warnings.clear()
     _startup_warning_seen.clear()
@@ -220,12 +238,15 @@ def clear() -> None:
 
 def get_count() -> int:
     """Get the current completed notification count."""
-    return len(notifications)
+    return len(notifications) + sum(_mcp_event_counts.values())
 
 
 def get_counts_by_type() -> dict[str, int]:
     """Aggregate completed notifications by event type."""
     counts = Counter(notification["type"] for notification in notifications)
+    mcp_event_total = sum(_mcp_event_counts.values())
+    if mcp_event_total > 0:
+        counts["mcp_event"] += mcp_event_total
     return _ordered_event_counts(counts)
 
 

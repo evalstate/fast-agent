@@ -132,6 +132,13 @@ def test_build_notification_segment_clears_mcp_events_when_consumed() -> None:
         assert _build_notification_segment() == " | ◀ 2 events"
         assert notification_tracker.clear_mcp_events(server_name="jobs") == 2
         assert _build_notification_segment() == ""
+
+        notification_tracker.set_mcp_event_count(5, owner="agg-1")
+        notification_tracker.set_mcp_event_count(3, owner="agg-1")
+        assert notification_tracker.get_counts_by_type() == {"mcp_event": 3}
+        assert notification_tracker.notifications == []
+        assert notification_tracker.clear_mcp_events(owner="agg-1") == 3
+        assert _build_notification_segment() == ""
     finally:
         notification_tracker.clear()
 
@@ -734,12 +741,7 @@ def test_toolbar_services_alone_are_quiet_text_not_a_badge(
 def test_toolbar_badge_shows_active_event_waits_and_combines_with_hc(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from fast_agent.mcp.events_subscriptions import EventSubscription
-
-    subs = (
-        EventSubscription(server_name="jobs", name="job.status_changed", wake=True),
-        EventSubscription(server_name="ci", name="build.finished", wake=True),
-    )
+    subs = ("jobs/job.status_changed", "ci/build.finished")
 
     monkeypatch.setattr(renderer, "active_event_waits", lambda _agent: (subs, False))
     markup, text = _render_toolbar_text(monkeypatch, width=200)

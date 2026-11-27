@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 from rich.text import Text
 
 from fast_agent.commands.handlers._text_formatting import indexed_row, resolve_terminal_width
-from fast_agent.commands.handlers.shared import clear_agent_histories, reset_agent_events
+from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.session import (
@@ -588,8 +588,6 @@ async def handle_resume_session(
         else:
             outcome.add_message("No sessions found.", channel="warning")
         return outcome
-
-    await reset_agent_events(agents_map)
 
     active_agent_name = result.active_agent or agent_name
     from fast_agent.session import resume_durable_processes
