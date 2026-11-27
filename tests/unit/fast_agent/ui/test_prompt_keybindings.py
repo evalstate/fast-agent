@@ -90,8 +90,8 @@ def test_completion_helpers_return_false_without_active_menu() -> None:
     assert _accept_completion(buffer) is False
 
 
-def _binding_for(kb: Any, key: Keys) -> Any:
-    return next(binding for binding in kb.bindings if binding.keys == (key,))
+def _binding_for(kb: Any, *keys: Keys | str) -> Any:
+    return next(binding for binding in kb.bindings if binding.keys == keys)
 
 
 def test_shift_tab_cycles_service_tier_when_completion_menu_closed() -> None:
@@ -411,3 +411,151 @@ async def test_clear_terminal_screen_resets_scroll_region_and_drains_cpr() -> No
     assert cleared == 1
     assert dummy_app.renderer._min_available_height == 0
     assert dummy_invalidated == 1
+
+
+@pytest.mark.asyncio
+async def test_alt_r_clears_screen_and_reviews_latest_history_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    import io
+    from collections import deque
+
+    from mcp.types import TextContent
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.keys import Keys
+    from prompt_toolkit.output.vt100 import Vt100_Output
+
+    from fast_agent.types import PromptMessageExtended
+    from fast_agent.ui.prompt import keybindings as keybindings_module
+    from fast_agent.ui.prompt.keybindings import create_keybindings
+
+    turn_1_user = PromptMessageExtended(
+        role="user", content=[TextContent(type="text", text="first question")]
+    )
+    turn_1_assistant = PromptMessageExtended(
+        role="assistant", content=[TextContent(type="text", text="first answer")]
+    )
+    turn_2_user = PromptMessageExtended(
+        role="user", content=[TextContent(type="text", text="second question")]
+    )
+    turn_2_assistant = PromptMessageExtended(
+        role="assistant", content=[TextContent(type="text", text="second answer")]
+    )
+
+    class _Provider:
+        def _agent(self, _name: str) -> Any:
+            return SimpleNamespace(
+                name="test-agent",
+                context=None,
+                message_history=[turn_1_user, turn_1_assistant, turn_2_user, turn_2_assistant],
+            )
+
+    calls: list[dict[str, object]] = []
+
+    async def _fake_display_history_turn(
+        agent_name: str,
+        turn: list[PromptMessageExtended],
+        *,
+        config: object,
+        turn_index: int | None = None,
+        total_turns: int | None = None,
+    ) -> None:
+        calls.append(
+            {
+                "agent_name": agent_name,
+                "turn": turn,
+                "config": config,
+                "turn_index": turn_index,
+                "total_turns": total_turns,
+            }
+        )
+
+    monkeypatch.setattr(keybindings_module, "display_history_turn", _fake_display_history_turn)
+
+    pending = asyncio.get_running_loop().create_future()
+    buf = io.StringIO()
+    vt_output = Vt100_Output(buf, lambda: Size(rows=24, columns=80))
+    invalidated = 0
+
+    class _VtRenderer:
+        def __init__(self) -> None:
+            self._waiting_for_cpr_futures = deque([pending])
+            self._min_available_height = 20
+            self.output = vt_output
+
+    class _VtApp:
+        renderer = _VtRenderer()
+
+        def invalidate(self) -> None:
+            nonlocal invalidated
+            invalidated += 1
+
+    kb = create_keybindings(agent_provider=cast("AgentApp", _Provider()), agent_name="test-agent")
+    binding = _binding_for(kb, Keys.Escape, "r")
+
+    vt_app = _VtApp()
+    await binding.handler(SimpleNamespace(current_buffer=Buffer(), app=vt_app))
+
+    raw = buf.getvalue()
+    assert "[r[0m" in raw
+    assert "[2J" in raw
+    assert len(calls) == 1
+    assert calls[0]["agent_name"] == "test-agent"
+    assert calls[0]["turn"] == [turn_2_user, turn_2_assistant]
+    assert calls[0]["turn_index"] == 2
+    assert calls[0]["total_turns"] == 2
+    assert pending.done()
+    assert vt_app.renderer._min_available_height == 0
+    assert invalidated == 1
+
+
+@pytest.mark.asyncio
+async def test_alt_r_with_empty_history_shows_notice_without_clearing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import io
+
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.keys import Keys
+    from prompt_toolkit.output.vt100 import Vt100_Output
+
+    from fast_agent.ui.prompt import input as prompt_input
+    from fast_agent.ui.prompt import keybindings as keybindings_module
+    from fast_agent.ui.prompt.keybindings import create_keybindings
+
+    class _Provider:
+        def _agent(self, _name: str) -> Any:
+            return SimpleNamespace(name="test-agent", context=None, message_history=[])
+
+    called = False
+
+    async def _fake_display_history_turn(*_args: object, **_kwargs: object) -> None:
+        nonlocal called
+        called = True
+
+    monkeypatch.setattr(keybindings_module, "display_history_turn", _fake_display_history_turn)
+
+    buf = io.StringIO()
+    vt_output = Vt100_Output(buf, lambda: Size(rows=24, columns=80))
+    invalidated = 0
+
+    class _VtRenderer:
+        output = vt_output
+
+    class _VtApp:
+        renderer = _VtRenderer()
+
+        def invalidate(self) -> None:
+            nonlocal invalidated
+            invalidated += 1
+
+    kb = create_keybindings(agent_provider=cast("AgentApp", _Provider()), agent_name="test-agent")
+    binding = _binding_for(kb, Keys.Escape, "r")
+
+    await binding.handler(SimpleNamespace(current_buffer=Buffer(), app=_VtApp()))
+
+    assert called is False
+    assert buf.getvalue() == ""
+    assert prompt_input._copy_notice == "NO HISTORY"
+    assert invalidated == 1

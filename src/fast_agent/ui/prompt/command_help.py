@@ -125,6 +125,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  Ctrl+E         - Edit in external editor",
             "  Ctrl+Y         - Copy last assistant response to clipboard",
             "  Ctrl+L         - Redraw the screen",
+            "  Alt+R          - Reflow / review the latest turn in full",
             "  Ctrl+U         - Clear input",
             "  Ctrl+C         - Cancel current operation (press twice quickly to exit)",
             "  Ctrl+D         - End prompt session (same as STOP)",

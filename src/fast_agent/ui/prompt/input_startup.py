@@ -326,7 +326,7 @@ def show_input_help_banner(
         else "[dim]Use [/dim]/attach[dim], '[/dim]^file:[dim]', or '[/dim]^url:[dim]' for attachments.[/dim]"
     )
     rich_print(
-        """CTRL+T [dim]multiline, [/dim]CTRL+Y[dim] copy last message, [/dim]CTRL+E[dim] external editor.[/dim]\n"""
+        """CTRL+T [dim]multiline, [/dim]CTRL+Y[dim] copy last message, [/dim]CTRL+E[dim] external editor, [/dim]ALT+R[dim] reprint last turn.[/dim]\n"""
         """CTRL+C[dim] to interrupt generation or background waiting, [/dim]CTRL+D[dim] to exit.[/dim]\n"""
         """CTRL+Space[dim] or [/dim]Tab[dim] for path completion.[/dim]\n"""
         """F5[dim] to cycle subagents and harness tools.[/dim]\n"""
