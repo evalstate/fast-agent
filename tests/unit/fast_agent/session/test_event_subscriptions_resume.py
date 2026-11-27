@@ -741,6 +741,7 @@ async def test_handle_resume_session_preserves_restored_subscriptions_and_replay
             origin: SubscriptionOrigin = "user",
             cursor: str | None = None,
             max_age_ms: int | None = None,
+            delivery: SubscriptionDelivery | None = None,
         ) -> EventSubscription:
             return await self.aggregator.events.subscribe(
                 server_name,
@@ -752,6 +753,7 @@ async def test_handle_resume_session_preserves_restored_subscriptions_and_replay
                 origin=origin,
                 cursor=cursor,
                 max_age_ms=max_age_ms,
+                delivery=delivery,
             )
 
     manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")
