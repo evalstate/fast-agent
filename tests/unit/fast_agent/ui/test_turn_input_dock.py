@@ -855,5 +855,5 @@ def test_dock_placeholder_hints_switch_for_multiline() -> None:
     )
     normal_lines, _ = _render_dock(normal, width=140)
     multiline_lines, _ = _render_dock(multiline, width=140)
-    assert "Esc to interrupt, Alt+Enter new line, Ctrl+T toggle multiline" in normal_lines[1]
-    assert "Esc to interrupt, Alt+Enter submit, Ctrl+T toggle multiline" in multiline_lines[1]
+    assert "Esc interrupt, Alt+↵ newline, Ctrl+T multiline" in normal_lines[1]
+    assert "Esc interrupt, Alt+↵ submit, Ctrl+T multiline" in multiline_lines[1]
