@@ -674,3 +674,121 @@ def test_turn_input_reader_on_submit_intercepts_concurrent_commands() -> None:
             reader._on_key(k)
         assert intercepted == ["/usage"]
         assert reader.queued_messages == ("hello",)
+
+
+def test_progress_display_paused_keep_dock_hides_tasks_and_keeps_dock_live(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.event_progress import ProgressAction, ProgressEvent
+    from fast_agent.ui.progress import display as progress_module
+    from fast_agent.ui.progress.display import RichProgressDisplay
+
+    snap = TurnInputSnapshot(
+        prompt_prefix="❯",
+        draft_text="draft during shell",
+        cursor_position=18,
+        queued_messages=(),
+        multiline=False,
+    )
+    monkeypatch.setattr(progress_module, "active_turn_input_snapshot", lambda: snap)
+
+    buf = StringIO()
+    test_console = Console(file=buf, width=80, height=24, force_terminal=False, color_system=None)
+    display = RichProgressDisplay(console=test_console)
+    display.start()
+    try:
+        display.update(
+            ProgressEvent(
+                action=ProgressAction.CALLING_TOOL,
+                target="agent",
+                details="shell",
+                agent_name="agent",
+            )
+        )
+        assert any(task.visible for task in display._progress.tasks)
+
+        with display.paused(keep_dock=True):
+            assert display._paused is True
+            assert display._progress.dock_active is True
+            assert display._live_started() is True
+            assert all(not task.visible for task in display._progress.tasks)
+
+            # A nested full pause() must stop Live and hide the dock, then
+            # restore dock-only mode when it exits.
+            with display.paused():
+                assert display._progress.dock_active is False
+                assert display._live_started() is False
+
+            assert display._paused is True
+            assert display._progress.dock_active is True
+            assert display._live_started() is True
+            assert all(not task.visible for task in display._progress.tasks)
+
+        assert display._paused is False
+        assert display._progress.dock_active is True
+        assert display._live_started() is True
+        assert any(task.visible for task in display._progress.tasks)
+    finally:
+        display.stop()
+
+
+def test_progress_display_paused_keep_dock_promotes_deferred_resume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.ui.progress import display as progress_module
+    from fast_agent.ui.progress.display import RichProgressDisplay
+
+    snap = TurnInputSnapshot(
+        prompt_prefix="❯",
+        draft_text="",
+        cursor_position=0,
+        queued_messages=(),
+        multiline=False,
+    )
+    monkeypatch.setattr(progress_module, "active_turn_input_snapshot", lambda: snap)
+
+    buf = StringIO()
+    test_console = Console(file=buf, width=80, height=24, force_terminal=False, color_system=None)
+    display = RichProgressDisplay(console=test_console)
+    display.start()
+    try:
+        # Simulate streaming ending with a debounced progress resume before shell starts
+        display.pause()
+        display.resume(debounce_seconds=10.0)
+        assert display._paused is True
+        assert display._live_started() is False
+
+        with display.paused(keep_dock=True):
+            assert display._paused is True
+            assert display._progress.dock_active is True
+            assert display._live_started() is True
+
+        assert display._paused is False
+        assert display._progress.dock_active is True
+        assert display._live_started() is True
+    finally:
+        display.stop()
+
+
+def test_progress_display_paused_keep_dock_stops_live_without_turn_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fast_agent.ui.progress import display as progress_module
+    from fast_agent.ui.progress.display import RichProgressDisplay
+
+    monkeypatch.setattr(progress_module, "active_turn_input_snapshot", lambda: None)
+
+    buf = StringIO()
+    test_console = Console(file=buf, width=80, height=24, force_terminal=False, color_system=None)
+    display = RichProgressDisplay(console=test_console)
+    display.start()
+    try:
+        with display.paused(keep_dock=True):
+            assert display._paused is True
+            assert display._progress.dock_active is False
+            assert display._live_started() is False
+
+        assert display._paused is False
+        assert display._live_started() is True
+    finally:
+        display.stop()
