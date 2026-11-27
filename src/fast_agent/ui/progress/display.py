@@ -567,7 +567,11 @@ class RichProgressDisplay:
                 and active_turn_input_snapshot() is not None
             ):
                 self._flush_deferred_resume_locked(force=False)
-            if self._stopped or self._paused or not self._live_started():
+            if (
+                self._stopped
+                or (self._paused and not self._progress.dock_active)
+                or not self._live_started()
+            ):
                 return
             if getattr(self._progress.live, "_nested", False):
                 return
@@ -604,10 +608,68 @@ class RichProgressDisplay:
                 self._progress.stop()
             self._trace("stop")
 
-    def pause(self, *, cancel_deferred_on_noop: bool = False) -> None:
-        """Pause the progress display."""
+    def _has_other_live_locked(self) -> bool:
+        try:
+            live_stack = getattr(self.console, "_live_stack", [])
+        except Exception:
+            live_stack = []
+        return bool(live_stack and any(live is not self._progress.live for live in live_stack))
+
+    def _enter_dock_only_pause_locked(self) -> None:
+        self._deferred_resume_at = None
+        ensure_blocking_console()
+        self._paused = True
+        for task in self._progress.tasks:
+            task.visible = False
+        self._ensure_turn_input_listener_locked()
+        self._progress.dock_active = True
+        if self._live_started():
+            self._progress.refresh()
+        else:
+            if getattr(self._progress.live, "_nested", False):
+                self._progress.live._nested = False
+            self._progress.start()
+        self._trace("pause.dock_only")
+
+    def pause(
+        self,
+        *,
+        cancel_deferred_on_noop: bool = False,
+        keep_dock: bool = False,
+    ) -> None:
+        """Pause the progress display.
+
+        When ``keep_dock`` is True and mid-turn input is active, hide progress
+        rows while keeping the live inline turn-input dock visible so console
+        output (such as live shell output) prints above the dock.
+        """
         with self._lock:
-            if self._stopped or self._paused:
+            if self._stopped:
+                if cancel_deferred_on_noop:
+                    self._deferred_resume_at = None
+                self._trace(
+                    "pause.noop",
+                    stopped=self._stopped,
+                    paused=self._paused,
+                    cancel_deferred_on_noop=cancel_deferred_on_noop,
+                )
+                return
+
+            dock_only = (
+                keep_dock
+                and active_turn_input_snapshot() is not None
+                and (
+                    not self._paused
+                    or self._deferred_resume_at is not None
+                    or self._progress.dock_active
+                )
+                and not self._has_other_live_locked()
+            )
+            if dock_only:
+                self._enter_dock_only_pause_locked()
+                return
+
+            if self._paused and not self._progress.dock_active:
                 if cancel_deferred_on_noop:
                     self._deferred_resume_at = None
                 self._trace(
@@ -634,19 +696,14 @@ class RichProgressDisplay:
         if self._stopped or not self._paused:
             self._trace("resume_locked.noop", stopped=self._stopped, paused=self._paused)
             return
-        try:
-            live_stack = getattr(self.console, "_live_stack", [])
-        except Exception:
-            live_stack = []
-
-        if live_stack and any(live is not self._progress.live for live in live_stack):
+        if self._has_other_live_locked():
             # A concurrent Rich Live (for example, a streaming renderer that is
             # still unwinding after cancellation) temporarily blocks the shared
             # progress display from resuming. Keep an immediate deferred retry
             # armed so the next update() can re-attempt resume once the other
             # Live is gone instead of silently remaining paused for the turn.
             self._deferred_resume_at = time.monotonic()
-            self._trace("resume_locked.blocked_nested_live", live_stack=len(live_stack))
+            self._trace("resume_locked.blocked_nested_live")
             return
         ensure_blocking_console()
         if getattr(self._progress.live, "_nested", False):
@@ -657,7 +714,10 @@ class RichProgressDisplay:
         # update() never runs against an un-started Progress.
         self._ensure_turn_input_listener_locked()
         self._progress.dock_active = True
-        self._progress.start()
+        if self._live_started():
+            self._progress.refresh()
+        else:
+            self._progress.start()
         self._paused = False
         self._trace("resume_locked.applied")
 
@@ -762,16 +822,26 @@ class RichProgressDisplay:
             self.clear_agent_tasks(normalized_agent)
 
     @contextmanager
-    def paused(self):
+    def paused(self, *, keep_dock: bool = False):
         """Context manager for temporarily pausing the display."""
         with self._lock:
             was_paused = self._paused
-        self.pause()
+            was_dock_active = self._progress.dock_active
+            had_pending_resume = self._deferred_resume_at is not None
+        self.pause(keep_dock=keep_dock)
         try:
             yield
         finally:
-            if not was_paused:
+            if not was_paused or had_pending_resume:
                 self.resume()
+            elif was_dock_active and not keep_dock:
+                with self._lock:
+                    if (
+                        not self._stopped
+                        and active_turn_input_snapshot() is not None
+                        and not self._has_other_live_locked()
+                    ):
+                        self._enter_dock_only_pause_locked()
 
     def _get_action_style(self, action: ProgressAction) -> str:
         """Map actions to appropriate styles."""

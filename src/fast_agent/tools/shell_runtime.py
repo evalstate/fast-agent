@@ -3310,7 +3310,9 @@ class ShellRuntime:
             )
             return result
 
-        progress_context = progress_display.paused() if display_tools_enabled() else nullcontext()
+        progress_context = (
+            progress_display.paused(keep_dock=True) if display_tools_enabled() else nullcontext()
+        )
         process: ManagedShellProcess | None = None
         with progress_context:
             try:
