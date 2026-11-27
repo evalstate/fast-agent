@@ -144,6 +144,8 @@ class EventSubscription:
     arguments: dict[str, Any] = field(default_factory=dict)
     cursor: str | None = None
     """The cursor the next poll resumes from."""
+    consumed_cursor: str | None = None
+    """The last safe-to-persist cursor with no undelivered inbox items ahead of it."""
     status: Literal["active", "completed", "terminated"] = "active"
     last_error: str | None = None
     delivered: int = 0
@@ -344,6 +346,22 @@ class EventSubscriptionManager:
         """Return currently active subscriptions with ``wake=True``."""
         return [state.subscription for state in self._running.values() if state.subscription.wake]
 
+    def persistable_subscriptions(self) -> list[EventSubscription]:
+        """Return subscriptions that should be persisted in a session snapshot.
+
+        Includes all active subscriptions plus any ``once`` subscription that
+        completed after enqueueing an event not yet drained by ``take()``.
+        """
+        active = [state.subscription for state in self._running.values()]
+        pending_once = [
+            subscription
+            for subscription in self._terminated.values()
+            if subscription.once
+            and subscription.status == "completed"
+            and self._has_pending_for(subscription.key)
+        ]
+        return [*active, *pending_once]
+
     @property
     def pending_count(self) -> int:
         return len(self._inbox)
@@ -433,12 +451,17 @@ class EventSubscriptionManager:
         once: bool = False,
         min_poll_ms: int | None = None,
         origin: SubscriptionOrigin = "user",
+        cursor: str | None = None,
+        max_age_ms: int | None = None,
     ) -> EventSubscription:
-        """Start a poll subscription from now.
+        """Start a poll subscription from now, or resume from ``cursor``.
 
         ``wake`` marks its arrivals for ``wait_for_wake``. ``once`` ends the
         subscription cleanly after its first non-duplicate event arrives.
         ``min_poll_ms`` sets a client-side floor on the interval between polls.
+        When ``cursor`` is provided, the initial poll resumes from that cursor
+        (with optional ``max_age_ms``) and immediately queues any missed events
+        or truncation gap notices.
         Subscribing again with the same arguments updates the flags unless a
         ``model`` call targets a user/declared subscription.
 
@@ -454,6 +477,8 @@ class EventSubscriptionManager:
             server_name,
             name,
             dict(arguments or {}),
+            cursor=cursor,
+            consumed_cursor=cursor,
             wake=wake,
             once=once,
             min_poll_ms=min_poll_ms,
@@ -468,12 +493,16 @@ class EventSubscriptionManager:
                     raise ValueError(
                         f"Cannot modify {existing.subscription.origin}-owned subscription '{key}'"
                     )
-                existing.subscription.wake = wake
-                existing.subscription.once = once
-                existing.subscription.min_poll_ms = min_poll_ms
-                if existing.subscription.origin == "model" and origin != "model":
-                    existing.subscription.origin = origin
-                return existing.subscription
+                if cursor is not None:
+                    self._running.pop(key, None)
+                    await self._cancel(existing)
+                else:
+                    existing.subscription.wake = wake
+                    existing.subscription.once = once
+                    existing.subscription.min_poll_ms = min_poll_ms
+                    if existing.subscription.origin == "model" and origin != "model":
+                        existing.subscription.origin = origin
+                    return existing.subscription
 
             if origin == "model":
                 active_model = sum(
@@ -494,7 +523,16 @@ class EventSubscriptionManager:
                     f"(offers {offered})"
                 )
 
-            result = await self._poller.poll_events(server_name, name, subscription.arguments)
+            if cursor is not None:
+                result = await self._poller.poll_events(
+                    server_name,
+                    name,
+                    subscription.arguments,
+                    cursor=cursor,
+                    max_age_ms=max_age_ms,
+                )
+            else:
+                result = await self._poller.poll_events(server_name, name, subscription.arguments)
             self._terminated.pop(key, None)
             state = _Running(subscription)
             self._running[key] = state
@@ -566,6 +604,15 @@ class EventSubscriptionManager:
         self._inbox = []
         self._overflow = {}
         self._wake.clear()
+        drained_keys = {item.subscription_key for item in items}
+        for key in drained_keys:
+            state = self._running.get(key)
+            if state is not None and state.subscription.cursor is not None:
+                state.subscription.consumed_cursor = state.subscription.cursor
+            elif (
+                terminated := self._terminated.get(key)
+            ) is not None and terminated.cursor is not None:
+                terminated.consumed_cursor = terminated.cursor
         return items
 
     async def reset(self) -> None:
@@ -691,6 +738,7 @@ class EventSubscriptionManager:
         if not restart:
             return True
         subscription.cursor = None
+        subscription.consumed_cursor = None
         self._deliver(
             state,
             "gap",
@@ -731,7 +779,12 @@ class EventSubscriptionManager:
                 if state.subscription.once:
                     break
         state.subscription.cursor = result.cursor
+        if delivered_now == 0 and not self._has_pending_for(state.subscription.key):
+            state.subscription.consumed_cursor = result.cursor
         return delivered_now
+
+    def _has_pending_for(self, key: str) -> bool:
+        return key in self._overflow or any(item.subscription_key == key for item in self._inbox)
 
     def _deliver(
         self,

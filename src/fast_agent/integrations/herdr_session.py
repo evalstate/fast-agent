@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from fast_agent.integrations.herdr_lifecycle import (
     report_session_metadata,
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.session import Session, SessionManager
+    from fast_agent.session import Session, SessionManager, SessionSnapshot
 
 _PROMPT_LIMIT = 200
 # herdr-core wraps messages typed by another terminal: <hc from="t7">...</hc>.
@@ -98,8 +98,28 @@ def _usage_metadata(
     return context_usage, " · ".join(token_parts) or None
 
 
+@runtime_checkable
+class _SnapshotReadableSession(Protocol):
+    def load_snapshot_unlocked(self) -> "SessionSnapshot": ...
+
+
+def _has_persisted_event_subscriptions(session: "Session") -> bool:
+    if not isinstance(session, _SnapshotReadableSession):
+        return False
+    try:
+        snapshot = session.load_snapshot_unlocked()
+    except Exception:
+        return False
+    return any(
+        bool(agent_snapshot.event_subscriptions)
+        for agent_snapshot in snapshot.continuation.agents.values()
+    )
+
+
 def _resumable_session_id(session: "Session | None") -> str | None:
-    if session is None or not session.info.history_files:
+    if session is None:
+        return None
+    if not session.info.history_files and not _has_persisted_event_subscriptions(session):
         return None
     return session.info.name or None
 

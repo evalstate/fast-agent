@@ -3,7 +3,7 @@ from asyncio import Lock
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import (
@@ -81,6 +81,7 @@ from fast_agent.mcp.events_subscriptions import (
     EventInboxItem,
     EventSubscription,
     EventSubscriptionManager,
+    SubscriptionOrigin,
     build_event_prompt_message,
     format_event_messages,
 )
@@ -4106,6 +4107,46 @@ class MCPAggregator(ContextDependent):
         if self._events is None:
             return []
         return self._events.active_wake_subscriptions()
+
+    def list_active_event_subscriptions(self) -> list[EventSubscription]:
+        """Return persistable event subscriptions normalized to server display names."""
+        if self._events is None:
+            return []
+        normalized: list[EventSubscription] = []
+        for subscription in self._events.persistable_subscriptions():
+            display_name = self.server_display_name(subscription.server_name)
+            if display_name != subscription.server_name:
+                normalized.append(replace(subscription, server_name=display_name))
+            else:
+                normalized.append(subscription)
+        return normalized
+
+    async def restore_event_subscription(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        wake: bool = False,
+        once: bool = False,
+        min_poll_ms: int | None = None,
+        origin: SubscriptionOrigin = "user",
+        cursor: str | None = None,
+        max_age_ms: int | None = None,
+    ) -> EventSubscription:
+        """Restore a persisted event subscription via the subscription manager."""
+        resolved_server = self._resolve_server_key(server_name)
+        return await self.events.subscribe(
+            resolved_server,
+            name,
+            arguments,
+            wake=wake,
+            once=once,
+            min_poll_ms=min_poll_ms,
+            origin=origin,
+            cursor=cursor,
+            max_age_ms=max_age_ms,
+        )
 
     def record_event_wake_turn(self) -> None:
         """Record one consecutive wake turn on the event subscription manager."""

@@ -55,6 +55,7 @@ class _Poller:
         self.script = list(script)
         self.delivery = ["poll"] if delivery is None else delivery
         self.cursors: list[str | None] = []
+        self.max_ages: list[int | None] = []
         self.list_calls = 0
         self.offered = True
         self.exhausted = asyncio.Event()
@@ -75,11 +76,12 @@ class _Poller:
         max_age_ms: int | None = None,
         max_events: int | None = None,
     ) -> PollEventsResult:
-        del server_name, name, arguments, max_age_ms, max_events
+        del server_name, name, arguments, max_events
         if not self.script:
             self.exhausted.set()
             await asyncio.Event().wait()
         self.cursors.append(cursor)
+        self.max_ages.append(max_age_ms)
         step = self.script.pop(0)
         if isinstance(step, Exception):
             raise step
@@ -811,4 +813,195 @@ async def test_reset_cancels_non_declared_subscriptions_clears_inbox_and_wake_bu
     assert manager.pending_count == 0
     assert manager.wake_paused is False
     assert manager.consecutive_wakes == 0
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_consumed_cursor_advances_on_quiet_polls_and_take_not_past_inbox() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[], cursor="c0", next_poll_ms=5_000),
+            PollEventsResult(events=[], cursor="c1", next_poll_ms=5_000),
+            PollEventsResult(events=[_occurrence("A")], cursor="c2", next_poll_ms=5_000),
+            PollEventsResult(events=[], cursor="c3", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    sub = await manager.subscribe("demo", EVENT, ARGS)
+    assert sub.cursor == "c0"
+    assert sub.consumed_cursor == "c0"
+
+    await asyncio.wait_for(poller.exhausted.wait(), timeout=1)
+
+    # Even though poll c3 was quiet, item A from c2 is still in the inbox, so
+    # consumed_cursor must stay at c1 (before A).
+    assert sub.cursor == "c3"
+    assert sub.consumed_cursor == "c1"
+    assert manager.pending_count == 1
+
+    items = manager.take()
+    assert len(items) == 1
+    assert sub.consumed_cursor == "c3"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_subscribe_with_cursor_replays_missed_events_and_wakes() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[_occurrence("missed")], cursor="c2", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    sub = await manager.subscribe(
+        "demo",
+        EVENT,
+        ARGS,
+        wake=True,
+        cursor="c1",
+        max_age_ms=86_400_000,
+    )
+
+    assert poller.cursors == ["c1"]
+    assert poller.max_ages == [86_400_000]
+    assert sub.status == "active"
+    assert sub.cursor == "c2"
+    assert sub.consumed_cursor == "c1"
+    await asyncio.wait_for(manager.wait_for_wake(), timeout=1)
+
+    items = manager.take()
+    assert [item.kind for item in items] == ["event"]
+    assert items[0].occurrence is not None
+    assert items[0].occurrence.event_id == "job-1:missed"
+    assert sub.consumed_cursor == "c2"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_subscribe_with_cursor_handles_truncated_gap() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[], cursor="c5", truncated=True, next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    sub = await manager.subscribe("demo", EVENT, ARGS, cursor="c1", max_age_ms=60_000)
+
+    assert sub.cursor == "c5"
+    assert sub.consumed_cursor == "c1"
+    items = manager.take()
+    assert [item.kind for item in items] == ["gap"]
+    assert sub.consumed_cursor == "c5"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_subscribe_with_cursor_once_completes_on_catchup() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[_occurrence("done")], cursor="c2", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    sub = await manager.subscribe(
+        "demo",
+        EVENT,
+        ARGS,
+        once=True,
+        cursor="c1",
+        max_age_ms=60_000,
+    )
+
+    assert sub.status == "completed"
+    assert sleeps.delays == []
+    assert poller.cursors == ["c1"]
+    items = manager.take()
+    assert len(items) == 1
+    assert items[0].kind == "event"
+    assert sub.consumed_cursor == "c2"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_subscribe_with_cursor_reconciles_existing_declared_subscription() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[], cursor="c_now", next_poll_ms=30_000),
+            PollEventsResult(
+                events=[_occurrence("during-downtime")], cursor="c_caught_up", next_poll_ms=30_000
+            ),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    # Declared subscription starts from "now" before hydrator restore runs.
+    declared = await manager.subscribe("demo", EVENT, ARGS, origin="declared")
+    assert declared.cursor == "c_now"
+    assert poller.cursors == [None]
+
+    # Model calls still cannot replace a declared subscription even when supplying a cursor.
+    with pytest.raises(ValueError, match="Cannot modify declared-owned subscription"):
+        await manager.subscribe("demo", EVENT, ARGS, origin="model", cursor="c_saved")
+
+    # Restoring with the saved cursor replaces the live poller and replays downtime events.
+    restored = await manager.subscribe(
+        "demo",
+        EVENT,
+        ARGS,
+        wake=True,
+        origin="declared",
+        cursor="c_saved",
+        max_age_ms=60_000,
+    )
+
+    assert len(manager.subscriptions()) == 1
+    assert restored.key == declared.key
+    assert restored.cursor == "c_caught_up"
+    assert restored.consumed_cursor == "c_saved"
+    assert poller.cursors == [None, "c_saved"]
+    assert poller.max_ages == [None, 60_000]
+
+    items = manager.take()
+    assert len(items) == 1
+    assert items[0].occurrence is not None
+    assert items[0].occurrence.event_id == "job-1:during-downtime"
+    assert restored.consumed_cursor == "c_caught_up"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_persistable_subscriptions_includes_completed_once_with_pending_inbox() -> None:
+    poller = _Poller(
+        [
+            PollEventsResult(events=[], cursor="c0", next_poll_ms=5_000),
+            PollEventsResult(events=[_occurrence("done")], cursor="c1", next_poll_ms=5_000),
+        ]
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    arrived = asyncio.Event()
+    manager.add_listener(lambda _item: arrived.set())
+    sub = await manager.subscribe("demo", EVENT, ARGS, once=True)
+    await asyncio.wait_for(arrived.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    assert sub.status == "completed"
+    assert sub.consumed_cursor == "c0"
+    assert manager.pending_count == 1
+    assert manager.persistable_subscriptions() == [sub]
+
+    items = manager.take()
+    assert len(items) == 1
+    assert sub.consumed_cursor == "c1"
+    assert manager.persistable_subscriptions() == []
     await manager.aclose()

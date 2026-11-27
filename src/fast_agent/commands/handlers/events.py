@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from mcp.shared.exceptions import MCPError
 
 from fast_agent.commands.results import CommandOutcome
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.events_subscriptions import format_poll_interval, parse_poll_interval_ms
 from fast_agent.utils.commandline import split_commandline
 from fast_agent.utils.markdown import escape_markdown_table_cell, markdown_code_span
@@ -18,8 +19,11 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from fast_agent.commands.context import CommandContext
+    from fast_agent.interfaces import AgentProtocol
     from fast_agent.mcp.events_extension import EventDescriptor
     from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
+
+logger = get_logger(__name__)
 
 EVENTS_USAGE = (
     "Usage: /events [select|list [server]|subscribe <server> <event> [key=value ...] "
@@ -160,7 +164,12 @@ async def handle_events(
         if action == "status" and not rest:
             _add_markdown(outcome, _render_status(aggregator), "events")
         elif action == "select" and not rest:
-            await _handle_select(ctx, outcome, aggregator)
+            if await _handle_select(ctx, outcome, aggregator):
+                await _persist_session_events(
+                    ctx,
+                    cast("AgentProtocol", agent),
+                    create_if_missing=bool(aggregator.events.persistable_subscriptions()),
+                )
         elif action == "list" and len(rest) <= 1:
             text = await _render_event_types(aggregator, rest[0] if rest else None)
             _add_markdown(outcome, text, "events list")
@@ -174,6 +183,7 @@ async def handle_events(
                 once=options.once,
                 min_poll_ms=options.min_poll_ms,
             )
+            await _persist_session_events(ctx, cast("AgentProtocol", agent), create_if_missing=True)
             delivery = (
                 "Events start a turn when the prompt is idle."
                 if options.wake
@@ -198,7 +208,9 @@ async def handle_events(
                 raise ValueError(f"No active subscription with id '{rest[0]}'")
             _add_markdown(outcome, f"Polling `{rest[0]}` now.", "events poll")
         elif action == "unsubscribe" and len(rest) == 1:
-            _add_markdown(outcome, await _unsubscribe(aggregator, rest[0]), "events unsubscribe")
+            message = await _unsubscribe(aggregator, rest[0])
+            await _persist_session_events(ctx, cast("AgentProtocol", agent))
+            _add_markdown(outcome, message, "events unsubscribe")
         else:
             outcome.add_message(EVENTS_USAGE, channel="error", right_info="events")
     except (ValueError, MCPError) as exc:
@@ -210,15 +222,48 @@ def _add_markdown(outcome: CommandOutcome, text: str, right_info: str) -> None:
     outcome.add_message(text, right_info=right_info, render_markdown=True)
 
 
+def _active_subscriptions_signature(
+    manager: EventSubscriptionManager,
+) -> tuple[tuple[str, bool, bool, int | None, str], ...]:
+    return tuple(
+        (sub.key, sub.wake, sub.once, sub.min_poll_ms, sub.origin)
+        for sub in manager.subscriptions()
+        if sub.status == "active"
+    )
+
+
+async def _persist_session_events(
+    ctx: CommandContext,
+    agent: AgentProtocol,
+    *,
+    create_if_missing: bool = False,
+) -> None:
+    if not ctx.sessions_enabled:
+        return
+    try:
+        manager = ctx.resolve_session_manager()
+        session = manager.current_session
+        if session is None:
+            if not create_if_missing:
+                return
+            session = manager.create_session()
+        await session.save_history(agent, checkpoint=True)
+        from fast_agent.integrations.herdr_session import report_current_session
+
+        report_current_session(manager, agent=agent)
+    except Exception:
+        logger.warning("Failed to persist session event subscriptions", exc_info=True)
+
+
 async def _handle_select(
     ctx: CommandContext,
     outcome: CommandOutcome,
     aggregator: _EventsAggregator,
-) -> None:
+) -> bool:
     if not isinstance(ctx.io, EventsPickerIO):
         status = _render_status(aggregator)
         _add_markdown(outcome, f"{status}\n\n{EVENTS_USAGE}", "events select")
-        return
+        return False
 
     descriptors_by_server: dict[str, list[EventDescriptor]] = {}
     for name in aggregator.server_names:
@@ -233,18 +278,21 @@ async def _handle_select(
             "No attached server supports the MCP events extension.",
             "events select",
         )
-        return
+        return False
 
+    before = _active_subscriptions_signature(aggregator.events)
     result = await ctx.io.pick_events(
         manager=aggregator.events,
         descriptors_by_server=descriptors_by_server,
     )
+    mutated = _active_subscriptions_signature(aggregator.events) != before
     if result is None:
-        return
+        return mutated
     if result.buffer_prefill:
         outcome.buffer_prefill = result.buffer_prefill
     if result.message:
         _add_markdown(outcome, result.message, "events select")
+    return mutated
 
 
 def _render_status(aggregator: _EventsAggregator) -> str:
