@@ -1,0 +1,5 @@
+mcp==2.3.0
+mcp-types==2.3.0
+pydantic>=2.10,<3
+starlette>=0.46,<2
+uvicorn[standard]>=0.34
