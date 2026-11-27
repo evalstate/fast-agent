@@ -741,11 +741,13 @@ class SessionHydrator:
             return None
 
         from fast_agent.config import MCPServerSettings
+        from fast_agent.mcp.hf_auth import add_hf_auth_header
 
         return MCPServerSettings(
             name=entry.name,
             transport=entry.transport,
             url=url,
+            headers=add_hf_auth_header(url, None),
             protocol_mode=entry.protocol_mode,
         )
 

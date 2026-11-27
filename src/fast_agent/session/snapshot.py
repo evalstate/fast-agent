@@ -1291,6 +1291,15 @@ def is_credential_free_http_mcp_url(url: str) -> bool:
     return True
 
 
+def _has_non_ambient_headers(url: str, headers: Mapping[str, str] | None) -> bool:
+    if not headers:
+        return False
+    from fast_agent.mcp.hf_auth import add_hf_auth_header
+
+    ambient = add_hf_auth_header(url, None)
+    return ambient is None or dict(headers) != ambient
+
+
 def _capture_http_mcp_servers(agent: "AgentProtocol") -> list[SessionHttpMcpServerSnapshot]:
     if not isinstance(agent, _AttachedMcpServerConfigProvider):
         return []
@@ -1301,9 +1310,11 @@ def _capture_http_mcp_servers(agent: "AgentProtocol") -> list[SessionHttpMcpServ
             continue
         if config.transport not in ("http", "sse"):
             continue
-        if config.headers or config.access_token:
+        if config.access_token:
             continue
         if not config.url or not is_credential_free_http_mcp_url(config.url):
+            continue
+        if _has_non_ambient_headers(config.url, config.headers):
             continue
         snapshots.append(
             SessionHttpMcpServerSnapshot(

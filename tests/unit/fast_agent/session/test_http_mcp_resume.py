@@ -410,3 +410,72 @@ def test_load_older_session_snapshot_without_http_mcp_servers_is_backwards_compa
     assert loaded.continuation.agents["worker"].attachment_refs == [
         SessionAttachmentRef(ref="mcp_server:filesystem")
     ]
+
+
+@pytest.mark.asyncio
+async def test_ambient_hf_space_auth_header_is_persisted_without_secrets_and_reapplied_on_resume(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HF_TOKEN", "hf_test_ambient_token")
+    space_url = "https://evalstate-mcp-events.hf.space/mcp"
+
+    manager = SessionManager(
+        cwd=tmp_path,
+        home_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    source_agent = _FakeMcpAgent(
+        attached_servers=["hf-ambient", "hf-explicit"],
+        server_configs={
+            "hf-ambient": MCPServerSettings(
+                name="hf-ambient",
+                transport="http",
+                url=space_url,
+                headers={"X-HF-Authorization": "Bearer hf_test_ambient_token"},
+            ),
+            "hf-explicit": MCPServerSettings(
+                name="hf-explicit",
+                transport="http",
+                url=space_url,
+                headers={"Authorization": "Bearer explicit-secret"},
+            ),
+        },
+    )
+
+    snapshot = capture_session_snapshot(
+        session=session,
+        active_agent=cast("AgentProtocol", source_agent),
+        agent_registry={"worker": cast("AgentProtocol", source_agent)},
+        identity=SessionSaveIdentity(
+            manager=manager,
+            session=session,
+            created=False,
+            acp_session_id=None,
+            session_cwd=tmp_path,
+            session_store_scope="workspace",
+            session_store_cwd=tmp_path,
+        ),
+    )
+    persisted = snapshot.continuation.agents["worker"].http_mcp_servers
+    assert [entry.name for entry in persisted] == ["hf-ambient"]
+    assert persisted[0].url == space_url
+    assert "hf_test_ambient_token" not in snapshot.model_dump_json()
+
+    _write_snapshot(session.directory, snapshot)
+    runtime_agent = _FakeMcpAgent(registered_servers={})
+    result = await SessionHydrator().hydrate_session(
+        session=session,
+        agents={"worker": cast("AgentProtocol", runtime_agent)},
+        fallback_agent_name="worker",
+    )
+
+    assert runtime_agent.list_attached_mcp_servers() == ["hf-ambient"]
+    _, restored_cfg = runtime_agent.attach_calls[0]
+    assert restored_cfg is not None
+    assert restored_cfg.url == space_url
+    assert restored_cfg.headers == {"X-HF-Authorization": "Bearer hf_test_ambient_token"}
+    assert [w.ref for w in result.warnings if w.code == "attachment-restore-failed"] == [
+        "hf-explicit"
+    ]
