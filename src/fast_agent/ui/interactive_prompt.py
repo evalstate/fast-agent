@@ -1276,20 +1276,90 @@ class InteractivePrompt:
         prompt_provider: "AgentApp",
         agent_name: str,
         runtime_state: PromptLoopRuntimeState,
+        available_agents: list[str] | None = None,
+        session_manager: "SessionManager | None" = None,
     ) -> PromptLoopResult | None:
         emit_prompt_mark("C")
         write_interactive_trace("prompt.send.start", agent=agent_name)
         self._clear_progress_for_agent(agent_name)
         progress_display.resume()
         exit_code = 1
+        concurrent_tasks: set[asyncio.Task[None]] = set()
         try:
-            with hold_turn_input() as input_reader:
+            from fast_agent.ui.prompt.input import (
+                agent_histories,
+                build_lazy_agent_completer,
+                resolve_shell_working_dir,
+            )
+            from fast_agent.ui.prompt.input_runtime import format_prompt_prefix
+            from fast_agent.ui.prompt.turn_input_commands import (
+                execute_concurrent_command,
+                parse_concurrent_command,
+            )
+
+            turn_agents = list(available_agents) if available_agents is not None else [agent_name]
+            prompt_prefix = format_prompt_prefix(
+                agent_name, default_agent_name=progress_display.default_agent_name
+            )
+            dock_completer = build_lazy_agent_completer(
+                agents=turn_agents,
+                agent_types=self.agent_types,
+                is_human_input=False,
+                current_agent=agent_name,
+                agent_provider=prompt_provider,
+                no_home_mode=bool(getattr(prompt_provider, "noenv_mode", False)),
+                session_manager=session_manager,
+            )
+
+            def on_turn_submit(text: str) -> bool:
+                parsed = parse_concurrent_command(text)
+                if parsed is None:
+                    return False
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return False
+                agent_histories[agent_name].append_string(text)
+                shell_cwd = resolve_shell_working_dir(
+                    agent_name=agent_name,
+                    agent_provider=prompt_provider,
+                )
+
+                async def _run_command() -> None:
+                    try:
+                        await execute_concurrent_command(
+                            parsed,
+                            raw_text=text,
+                            prompt_prefix=prompt_prefix,
+                            interactive_prompt=self,
+                            prompt_provider=prompt_provider,
+                            agent_name=agent_name,
+                            available_agents=turn_agents,
+                            session_manager=session_manager,
+                            shell_working_dir=shell_cwd,
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        from rich.markup import escape as escape_markup
+
+                        rich_print(f"[red]Command error: {escape_markup(str(exc))}[/red]")
+
+                task = loop.create_task(_run_command())
+                concurrent_tasks.add(task)
+                task.add_done_callback(concurrent_tasks.discard)
+                return True
+
+            with hold_turn_input(
+                prompt_prefix=prompt_prefix,
+                completer=dock_completer,
+                on_submit=on_turn_submit,
+            ) as input_reader:
                 # Keep terminal parsing here; the runtime only sees submitted text.
                 # Scope to the addressed instance, not any delegated tool agents.
                 def take_messages() -> list[str]:
                     if input_reader is None:
                         return []
-                    from fast_agent.ui.prompt.input import agent_histories
 
                     messages = input_reader.take_messages()
                     for message in messages:
@@ -1330,6 +1400,12 @@ class InteractivePrompt:
             self._handle_inflight_cancel(runtime_state=runtime_state)
             return None
         finally:
+            if concurrent_tasks:
+                for task in list(concurrent_tasks):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*list(concurrent_tasks), return_exceptions=True)
+                concurrent_tasks.clear()
             write_interactive_trace("prompt.send.finally_pause", agent=agent_name)
             progress_display.pause(cancel_deferred_on_noop=True)
             emit_prompt_mark(f"D;{exit_code}")
@@ -1575,6 +1651,8 @@ class InteractivePrompt:
                 prompt_provider=prompt_provider,
                 agent_name=agent_state.current_agent,
                 runtime_state=runtime_state,
+                available_agents=agent_state.available_agents,
+                session_manager=session_manager,
             )
             if send_result is not None:
                 result = send_result

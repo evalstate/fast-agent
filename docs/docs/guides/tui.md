@@ -385,10 +385,13 @@ draft stays in the input line. hc messages are never held back as commands.
 multiline mode enabled, its message remains a draft. Multiline message content
 still works in normal mode through paste or Ctrl+J newlines followed by Enter.
 
-While input is held, only the count (`⧗ 1 queued`) appears in the live streaming
-header or progress display and the OSC 7501 status message. Submitted input
-remaining at turn completion keeps the status working through the prompt handoff;
-an unfinished draft does not. Consumed messages appear before the next model response.
+While a turn is running, an inline input dock stays visible at the bottom of the
+live streaming or progress display showing your active draft and queued message
+previews (while the OSC 7501 status message continues reporting the queued count).
+Standard editing keys work inside the dock, and pressing ++up++ on an empty draft
+pulls the last queued message back into the editor. Submitted input remaining at
+turn completion keeps the status working through the prompt handoff; an unfinished
+draft does not. Consumed messages appear before the next model response.
 
 Press ++escape++ (or Ctrl+C) to cancel the current turn; `hc interrupt` sends
 Escape. Messages already queued are still sent after the cancellation. Forms such as
