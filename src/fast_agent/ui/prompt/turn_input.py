@@ -694,12 +694,39 @@ class TurnInputReader:
                 self._draft_image_pastes = list(candidate.image_pastes)
                 return
 
+    def _submit_draft(self) -> None:
+        if self._completions:
+            changed = self._accept_selected_completion()
+            if changed:
+                return
+        self._clear_completions()
+        text = self._buffer.text
+        active_image_pastes = tuple(p for p in self._draft_image_pastes if p in text)
+        handled_concurrently = False
+        if self._on_submit is not None and text.strip() and not active_image_pastes:
+            from fast_agent.integrations.hc_children import is_hc_message
+
+            if not is_hc_message(text):
+                handled_concurrently = bool(self._on_submit(text))
+        if not handled_concurrently:
+            self._submissions.append(_Submission(text=text, image_pastes=active_image_pastes))
+            if text.strip():
+                self._queued += 1
+                self._on_queued(self._queued)
+        self._buffer.reset()
+        self._draft_image_pastes = []
+        self._restore_draft()
+
     def _handle_alt_chord(self, key_press: KeyPress) -> None:
         from prompt_toolkit.keys import Keys
 
         key = key_press.key
         if key in (Keys.ControlM, Keys.ControlJ):
-            self._buffer.insert_text("\n")
+            if self._multiline:
+                self._submit_draft()
+            else:
+                self._clear_completions()
+                self._buffer.insert_text("\n")
         elif key == Keys.ControlH:
             self._delete_word_before_cursor()
         elif key == Keys.Left or key_press.data == "b":
@@ -741,27 +768,7 @@ class TurnInputReader:
             if self._completions:
                 self._selected_completion = (self._selected_completion - 1) % len(self._completions)
         elif key == self._submit_key:
-            if self._completions:
-                changed = self._accept_selected_completion()
-                if changed:
-                    return
-            self._clear_completions()
-            text = self._buffer.text
-            active_image_pastes = tuple(p for p in self._draft_image_pastes if p in text)
-            handled_concurrently = False
-            if self._on_submit is not None and text.strip() and not active_image_pastes:
-                from fast_agent.integrations.hc_children import is_hc_message
-
-                if not is_hc_message(text):
-                    handled_concurrently = bool(self._on_submit(text))
-            if not handled_concurrently:
-                self._submissions.append(_Submission(text=text, image_pastes=active_image_pastes))
-                if text.strip():
-                    self._queued += 1
-                    self._on_queued(self._queued)
-            self._buffer.reset()
-            self._draft_image_pastes = []
-            self._restore_draft()
+            self._submit_draft()
         elif key in (Keys.ControlM, Keys.ControlJ):
             self._clear_completions()
             self._buffer.insert_text("\n")
