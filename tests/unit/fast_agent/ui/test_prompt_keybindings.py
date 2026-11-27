@@ -509,6 +509,36 @@ async def test_alt_r_clears_screen_and_reviews_latest_history_turn(
     assert vt_app.renderer._min_available_height == 0
     assert invalidated == 1
 
+    # Non-VT100 outputs (e.g. Windows10_Output / Win32Output) still clear the viewport.
+    fallback_ops: list[str] = []
+
+    class _FallbackOutput:
+        def erase_screen(self) -> None:
+            fallback_ops.append("erase_screen")
+
+        def cursor_goto(self, row: int = 0, column: int = 0) -> None:
+            fallback_ops.append(f"cursor_goto:{row},{column}")
+
+        def flush(self) -> None:
+            fallback_ops.append("flush")
+
+    class _FallbackRenderer:
+        def __init__(self) -> None:
+            self._waiting_for_cpr_futures: deque[asyncio.Future[None]] = deque()
+            self._min_available_height = 10
+            self.output = _FallbackOutput()
+
+    class _FallbackApp:
+        renderer = _FallbackRenderer()
+
+        def invalidate(self) -> None:
+            pass
+
+    fallback_app = _FallbackApp()
+    await binding.handler(SimpleNamespace(current_buffer=Buffer(), app=fallback_app))
+    assert fallback_ops == ["erase_screen", "cursor_goto:0,0", "flush"]
+    assert fallback_app.renderer._min_available_height == 0
+
 
 @pytest.mark.asyncio
 async def test_alt_r_with_empty_history_shows_notice_without_clearing(

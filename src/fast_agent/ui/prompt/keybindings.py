@@ -385,8 +385,14 @@ async def _review_latest_history_turn(
     app_ref = _event_or_fallback_app(event, fallback_app)
 
     async with in_terminal(render_cli_done=False):
-        if app_ref and isinstance(app_ref.renderer.output, Vt100_Output):
-            _scroll_and_clear_vt100_output(app_ref.renderer.output)
+        if app_ref:
+            output = app_ref.renderer.output
+            if isinstance(output, Vt100_Output):
+                _scroll_and_clear_vt100_output(output)
+            else:
+                output.erase_screen()
+                output.cursor_goto(0, 0)
+                output.flush()
         await display_history_turn(
             agent.name,
             list(latest_turn.messages),
