@@ -1,32 +1,37 @@
-"""Shell output and file-reading helpers for the code tool.
+"""Sandbox prelude helpers and shell/file output guidance for the code tool.
 
-Sandbox code receives bounded stdout and stderr captured since the previous read; the model sees what
-the code prints, and models tend to print whole results. The guidance says what to print instead;
-``show`` and ``slice_file`` are plain Python defined in each sandbox session (not host functions),
-so they cost no tool calls.
+Each :class:`SandboxHelper` bundles a sync Python helper injected into Monty before model code
+runs: its reserved global ``names``, its Monty type-checker ``stubs``, and its ``prelude`` source.
+Because they are plain Python in the sandbox session (not host functions), they cost no tool calls.
 """
 
+from dataclasses import dataclass
 from typing import Literal
 
 PtcOutputGuidance = Literal["off", "print", "helpers"]
 """``print`` explains what to print, with ``show(r)`` as a shortcut; ``helpers`` leads with
 ``show(r)``; ``off`` adds neither the guidance nor ``show``."""
 
-OUTPUT_HELPER_NAMES = frozenset({"show"})
-FILE_HELPER_NAMES = frozenset({"slice_file"})
 
-OUTPUT_STUBS = """\
-def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str: ...
-"""
+@dataclass(frozen=True, slots=True)
+class SandboxHelper:
+    """A sync Python helper bundle injected into the Monty prelude."""
 
-FILE_STUBS = """\
+    names: frozenset[str]
+    stubs: str
+    prelude: str
+
+
+# Keep plain Python: Monty does not support decorators, classes, generators, open(..., errors=...),
+# or Path.read_text(errors=...). Fall back to binary decode on ValueError (Monty raises
+# UnicodeDecodeError, a ValueError).
+SLICE_FILE_HELPER = SandboxHelper(
+    names=frozenset({"slice_file"}),
+    stubs="""\
 import pathlib
 def slice_file(path: str | pathlib.Path, start: int = 1, end: int | None = None) -> str: ...
-"""
-
-# Keep plain Python: Monty does not support open(..., errors=...) or Path.read_text(errors=...),
-# so fall back to binary decode on ValueError (Monty raises UnicodeDecodeError, a ValueError).
-FILE_PRELUDE = """\
+""",
+    prelude="""\
 def slice_file(path: str | pathlib.Path, start: int = 1, end: int | None = None) -> str:
     path_str = str(path)
     try:
@@ -47,10 +52,20 @@ def slice_file(path: str | pathlib.Path, start: int = 1, end: int | None = None)
     header = "=== " + path_str + ":" + str(lo) + "-" + str(hi) + " (of " + str(total) + ") ==="
     body = [str(i).rjust(width) + ": " + lines[i - 1] for i in range(lo, hi + 1)]
     return "\\n".join([header] + body)
-"""
+""",
+)
 
-# Keep these plain functions: Monty does not support decorators, classes or generators.
-OUTPUT_PRELUDE = """\
+SLICE_FILE_NOTE = (
+    " Use `print(slice_file(path, start=1, end=None))` (pre-defined, no `await`) to inspect "
+    "1-based inclusive numbered line ranges with a header instead of writing your own reader."
+)
+
+SHOW_HELPER = SandboxHelper(
+    names=frozenset({"show"}),
+    stubs="""\
+def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str: ...
+""",
+    prelude="""\
 import re
 from typing import Any
 
@@ -98,7 +113,8 @@ def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str:
     stdout = r.get("stdout") or ""
     result.extend(["--- stdout", _grep(stdout, pattern) if pattern is not None else _view(stdout, n)])
     return "\\n".join(result)
-"""
+""",
+)
 
 _RESULT_SHAPE = (
     "returns a dict of stdout, stderr, exit_code, status ('completed', 'failed', 'running', "
