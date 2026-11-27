@@ -24,13 +24,16 @@ from .snapshot import (
     PtcStoreProvider,
     SessionAgentSnapshot,
     SessionAttachmentRef,
+    SessionHttpMcpServerSnapshot,
     SessionRequestSettingsSnapshot,
     SessionSnapshot,
+    is_credential_free_http_mcp_url,
     load_session_snapshot,
     snapshot_from_session_info,
 )
 
 if TYPE_CHECKING:
+    from fast_agent.config import MCPServerSettings
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.session.git_metadata import GitMetadata
     from fast_agent.session.snapshot import SessionGitSnapshot
@@ -127,6 +130,24 @@ class _AgentToolProvider(Protocol):
 class _NamedAgent(Protocol):
     @property
     def name(self) -> str: ...
+
+
+@runtime_checkable
+class _ServerRegistryMap(Protocol):
+    @property
+    def registry(self) -> Mapping[str, object]: ...
+
+
+@runtime_checkable
+class _ServerRegistryContext(Protocol):
+    @property
+    def server_registry(self) -> _ServerRegistryMap | None: ...
+
+
+@runtime_checkable
+class _ContextProvider(Protocol):
+    @property
+    def context(self) -> _ServerRegistryContext | None: ...
 
 
 def _git_state_changes(persisted: "SessionGitSnapshot", captured: "GitMetadata") -> list[str]:
@@ -647,12 +668,36 @@ class SessionHydrator:
         if not server_names or not isinstance(agent, _McpAttachCapable):
             return
 
+        persisted_http_servers = {entry.name: entry for entry in agent_snapshot.http_mcp_servers}
         attached = set(agent.list_attached_mcp_servers())
         for server_name in server_names:
             if server_name in attached:
                 continue
+            fallback_config = self._validated_persisted_http_server_config(
+                persisted_http_servers.get(server_name)
+            )
             try:
-                await agent.attach_mcp_server(server_name=server_name)
+                registered = self._is_registered_mcp_server(agent, server_name)
+                if registered is False and fallback_config is not None:
+                    await agent.attach_mcp_server(
+                        server_name=server_name,
+                        server_config=fallback_config,
+                    )
+                else:
+                    try:
+                        await agent.attach_mcp_server(server_name=server_name)
+                    except ValueError as exc:
+                        if (
+                            registered is None
+                            and fallback_config is not None
+                            and "not found in registry" in str(exc)
+                        ):
+                            await agent.attach_mcp_server(
+                                server_name=server_name,
+                                server_config=fallback_config,
+                            )
+                        else:
+                            raise
             except Exception as exc:
                 warnings.append(
                     SessionHydrationWarning(
@@ -667,6 +712,44 @@ class SessionHydrator:
                 )
             else:
                 attached.add(server_name)
+
+    def _is_registered_mcp_server(
+        self,
+        agent: AgentProtocol,
+        server_name: str,
+    ) -> bool | None:
+        if not isinstance(agent, _ContextProvider):
+            return None
+        context = agent.context
+        if not isinstance(context, _ServerRegistryContext):
+            return None
+        registry = context.server_registry
+        if not isinstance(registry, _ServerRegistryMap):
+            return None
+        return server_name in registry.registry
+
+    def _validated_persisted_http_server_config(
+        self,
+        entry: SessionHttpMcpServerSnapshot | None,
+    ) -> MCPServerSettings | None:
+        if entry is None:
+            return None
+        if entry.transport not in ("http", "sse"):
+            return None
+        url = entry.url.strip()
+        if not is_credential_free_http_mcp_url(url):
+            return None
+
+        from fast_agent.config import MCPServerSettings
+        from fast_agent.mcp.hf_auth import add_hf_auth_header
+
+        return MCPServerSettings(
+            name=entry.name,
+            transport=entry.transport,
+            url=url,
+            headers=add_hf_auth_header(url, None),
+            protocol_mode=entry.protocol_mode,
+        )
 
     def _restore_agent_tool_attachments(
         self,

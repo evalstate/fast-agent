@@ -2092,9 +2092,9 @@ class ProgrammaticToolCallingSettings(BaseModel):
     output_guidance: Literal["auto", "off", "print", "helpers"] = "auto"
     """How the code tool tells the model to read bounded shell captures, which the model
     sees only when printed or returned. `print` says to print the exit code and only the
-    part needed, with `show`/`tail`/`head`/`grep` sandbox helpers as shortcuts; `helpers` leads
-    with printing `show(r)`; `off` adds neither the guidance nor the helpers. `auto` uses the
-    model's default, which is helpers unless the model sets another."""
+    part needed, with the `show` sandbox helper as a shortcut; `helpers` leads with printing
+    `show(r)`; `off` adds neither the guidance nor `show`. `auto` uses the model's default,
+    which is helpers unless the model sets another."""
 
     max_duration_seconds: float = Field(default=30.0, gt=0)
     """Sandbox compute time limit per execution (time awaiting tools is not counted)."""
@@ -2182,7 +2182,7 @@ class LoggerSettings(BaseModel):
     """Streaming renderer for assistant responses"""
     theme_file: str | None = None
     """Optional Rich theme file for console styles. Relative paths resolve from fast-agent.yaml."""
-    code_theme: str = "native"
+    code_theme: str = "ansi_light"
     """Pygments / Rich syntax theme for fenced code blocks and markdown code rendering."""
     render_fences_with_syntax: bool = True
     """Render assistant markdown code fences with Rich Syntax instead of markdown fence blocks"""

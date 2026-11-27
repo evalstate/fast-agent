@@ -19,7 +19,6 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.prompt_cache import copilot_gemini_observed_cache_ttl
 from fast_agent.llm.provider.copilot import broker
 from fast_agent.llm.provider.copilot.models import CopilotModelSpec, get_copilot_model
-from fast_agent.llm.provider.copilot.openai_client import create_openai_client
 from fast_agent.llm.provider.copilot.policy import apply_policy, reject_files, reject_overrides
 from fast_agent.llm.provider.openai.llm_openai import EmptyStreamError, OpenAILLM
 from fast_agent.llm.provider.request_images import ChatRequestImageFitter, ImageBudget
@@ -391,6 +390,8 @@ class CopilotChatCompletionsLLM(OpenAILLM):
             raise
 
     def _openai_client(self) -> AsyncOpenAI:
+        from fast_agent.llm.provider.copilot.openai_client import create_openai_client
+
         return create_openai_client(self._copilot_endpoint.get())
 
     async def _normalize_chat_completion_files(

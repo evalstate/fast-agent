@@ -190,19 +190,27 @@ async def test_inline_toolbar_renders_compactly_and_clears_below() -> None:
 
 
 @pytest.mark.asyncio
-async def test_resilient_resize_handler_debounces_bursts() -> None:
+async def test_resilient_resize_handler_debounces_bursts_without_blank_erase() -> None:
     import asyncio
+    from collections import deque
     from types import SimpleNamespace
+
+    from prompt_toolkit.data_structures import Size
 
     erases = 0
     redraws = 0
+    current_size = Size(rows=40, columns=100)
 
-    from collections import deque
+    class _Output:
+        def get_size(self) -> Size:
+            return current_size
 
     class _Renderer:
         def __init__(self) -> None:
             self._waiting_for_cpr_futures: deque[asyncio.Future[None]] = deque()
             self._min_available_height = 20
+            self._last_size: Size | None = Size(rows=40, columns=140)
+            self.output = _Output()
 
         def erase(self, *, leave_alternate_screen: bool = True) -> None:
             nonlocal erases
@@ -217,6 +225,7 @@ async def test_resilient_resize_handler_debounces_bursts() -> None:
         def _on_resize(self) -> None:
             nonlocal redraws
             redraws += 1
+            self.renderer._last_size = self.renderer.output.get_size()
 
     session = SimpleNamespace(app=_App())
     input_runtime._install_resilient_resize_handler(
@@ -227,9 +236,79 @@ async def test_resilient_resize_handler_debounces_bursts() -> None:
     session.app._on_resize()
     session.app._on_resize()
     session.app._on_resize()
-    assert erases == 1
+    # Must not erase upfront during the debounce window (avoids blank-out flicker).
+    assert erases == 0
     assert redraws == 0
 
     await asyncio.sleep(0.05)
     assert redraws == 1
     assert session.app.renderer._min_available_height == 0
+
+    # A redundant resize notification at the already-rendered size (e.g.
+    # prompt_toolkit's _poll_output_size timer) must be a no-op.
+    session.app._on_resize()
+    await asyncio.sleep(0.05)
+    assert redraws == 1
+
+
+@pytest.mark.asyncio
+async def test_resize_redraw_is_atomic_synchronized_output_frame() -> None:
+    import asyncio
+    import contextvars
+    import io
+
+    from prompt_toolkit.application.current import set_app
+    from prompt_toolkit.data_structures import Size
+    from prompt_toolkit.history import InMemoryHistory
+    from prompt_toolkit.output.vt100 import Vt100_Output
+
+    flushes: list[str] = []
+
+    class _RecordingBuffer(io.StringIO):
+        def flush(self) -> None:
+            chunk = self.getvalue()
+            if chunk:
+                flushes.append(chunk)
+                self.seek(0)
+                self.truncate(0)
+
+    size = [Size(rows=40, columns=120)]
+    buf = _RecordingBuffer()
+    out = Vt100_Output(buf, get_size=lambda: size[0])
+    session = input_runtime.create_prompt_session(
+        history=InMemoryHistory(),
+        completer=None,
+        lexer=None,
+        multiline_filter=False,
+        toolbar=lambda: " NORMAL | model ",
+        style=input_runtime.build_prompt_style(),
+    )
+    session.app.renderer.output = out
+    session.app._is_running = True
+    session.message = "❯ "
+
+    with set_app(session.app):
+        session.app.context = contextvars.copy_context()
+        session.app.renderer.render(session.app, session.app.layout)
+        flushes.clear()
+
+        size[0] = Size(rows=32, columns=90)
+        session.app._on_resize()
+        # No premature erase flush before debounce settles.
+        assert flushes == []
+
+        await asyncio.sleep(0.08)
+        assert len(flushes) == 1
+        frame = flushes[0]
+        assert frame.startswith("\x1b[?2026h")
+        assert frame.endswith("\x1b[?2026l")
+        assert frame.count("\x1b[?2026h") == 1
+        assert frame.count("\x1b[?2026l") == 1
+        assert "\x1b[J" in frame
+        assert "NORMAL | model" in frame
+
+        # Duplicate poll at same size emits nothing.
+        flushes.clear()
+        session.app._on_resize()
+        await asyncio.sleep(0.08)
+        assert flushes == []

@@ -315,7 +315,7 @@ def test_tool_result_prefers_structured_content_over_many_text_blocks() -> None:
     assert '"id": "a"' in rendered
     assert '"id": "b"' in rendered
     assert "TextContent(" not in rendered
-    assert "text only" in rendered
+    assert "text (" in rendered
     assert "TextContent mismatch" not in rendered
 
 

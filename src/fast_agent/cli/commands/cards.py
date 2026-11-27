@@ -6,7 +6,6 @@ from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at run
 from typing import Annotated
 
 import typer
-from rich.markdown import Markdown
 
 from fast_agent.cards import manager as card_manager
 from fast_agent.cards import service as card_service
@@ -187,8 +186,10 @@ def _print_publish_result(result: card_manager.CardPackPublishResult) -> None:
 
 
 def _print_card_pack_readme(pack_name: str, readme: str) -> None:
+    from fast_agent.ui.markdown import build_rich_markdown
+
     print_section_header(console, f"{pack_name} README", color="cyan")
-    console.print(Markdown(readme))
+    console.print(build_rich_markdown(readme, code_theme="ansi_light"))
 
 
 @app.callback(invoke_without_command=True)

@@ -174,8 +174,7 @@ def test_mixed_process_and_other_tool_use_keeps_generic_additional_message() -> 
 
     assert not tool_use_requests_process_lifecycle(message)
     additional = build_tool_use_additional_message(message)
-    assert additional is not None
-    assert additional.plain == "The assistant requested tool calls"
+    assert additional is None
 
 
 def test_build_tool_use_additional_message_pluralizes_file_reads() -> None:

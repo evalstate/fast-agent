@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
-from urllib.parse import parse_qsl, urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +17,7 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.ptc.catalog import PtcBindings  # noqa: TC001 - Pydantic validates the snapshot field
 
 if TYPE_CHECKING:
+    from fast_agent.config import MCPServerSettings
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
     from fast_agent.llm.request_params import RequestParams
     from fast_agent.ptc.store import SandboxStore
@@ -150,6 +151,17 @@ class SessionModelOverlayRef(BaseModel):
     ref: str
 
 
+class SessionHttpMcpServerSnapshot(BaseModel):
+    """Credential-free connection metadata for a persisted HTTP/SSE MCP server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    url: str
+    transport: Literal["http", "sse"] = "http"
+    protocol_mode: Literal["auto", "legacy", "modern"] = "auto"
+
+
 class SessionAgentSnapshot(BaseModel):
     """Persisted continuation state for a single agent."""
 
@@ -170,6 +182,7 @@ class SessionAgentSnapshot(BaseModel):
     request_settings: SessionRequestSettingsSnapshot | None = None
     card_provenance: list[SessionCardProvenanceRef] = Field(default_factory=list)
     attachment_refs: list[SessionAttachmentRef] = Field(default_factory=list)
+    http_mcp_servers: list[SessionHttpMcpServerSnapshot] = Field(default_factory=list)
     model_overlay_refs: list[SessionModelOverlayRef] = Field(default_factory=list)
 
 
@@ -332,6 +345,11 @@ class PtcStoreProvider(Protocol):
 @runtime_checkable
 class _AttachedMcpServerProvider(Protocol):
     def list_attached_mcp_servers(self) -> list[str]: ...
+
+
+@runtime_checkable
+class _AttachedMcpServerConfigProvider(Protocol):
+    def list_attached_mcp_server_configs(self) -> Mapping[str, "MCPServerSettings"]: ...
 
 
 @runtime_checkable
@@ -1094,6 +1112,7 @@ def _capture_agent_snapshot(
         ),
         card_provenance=_capture_card_provenance(agent),
         attachment_refs=_capture_attachment_refs(agent),
+        http_mcp_servers=_capture_http_mcp_servers(agent),
         model_overlay_refs=_capture_model_overlay_refs(agent),
     )
 
@@ -1252,6 +1271,60 @@ def _capture_attachment_refs(agent: "AgentProtocol") -> list[SessionAttachmentRe
             )
         )
     return refs
+
+
+def is_credential_free_http_mcp_url(url: str) -> bool:
+    """Return True when *url* is a valid http(s) URL without embedded userinfo."""
+    stripped = url.strip()
+    if not stripped:
+        return False
+    try:
+        parsed = urlsplit(stripped)
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in {"http", "https"}:
+        return False
+    if not parsed.netloc or not parsed.hostname:
+        return False
+    if parsed.username is not None or parsed.password is not None or "@" in parsed.netloc:
+        return False
+    return True
+
+
+def _has_non_ambient_headers(url: str, headers: Mapping[str, str] | None) -> bool:
+    if not headers:
+        return False
+    from fast_agent.mcp.hf_auth import add_hf_auth_header
+
+    ambient = add_hf_auth_header(url, None)
+    return ambient is None or dict(headers) != ambient
+
+
+def _capture_http_mcp_servers(agent: "AgentProtocol") -> list[SessionHttpMcpServerSnapshot]:
+    if not isinstance(agent, _AttachedMcpServerConfigProvider):
+        return []
+
+    snapshots: list[SessionHttpMcpServerSnapshot] = []
+    for server_name, config in sorted(agent.list_attached_mcp_server_configs().items()):
+        if config.management != "client":
+            continue
+        if config.transport not in ("http", "sse"):
+            continue
+        if config.access_token:
+            continue
+        if not config.url or not is_credential_free_http_mcp_url(config.url):
+            continue
+        if _has_non_ambient_headers(config.url, config.headers):
+            continue
+        snapshots.append(
+            SessionHttpMcpServerSnapshot(
+                name=server_name,
+                url=config.url.strip(),
+                transport=config.transport,
+                protocol_mode=config.protocol_mode,
+            )
+        )
+    return snapshots
 
 
 def _capture_model_overlay_refs(agent: "AgentProtocol") -> list[SessionModelOverlayRef]:

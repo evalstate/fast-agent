@@ -1452,6 +1452,19 @@ class MCPAggregator(ContextDependent):
             ]
         )
 
+    def attached_server_configs(self) -> dict[str, MCPServerSettings]:
+        registry = self.context.server_registry if self.context else None
+        configs: dict[str, MCPServerSettings] = {}
+        for name in self._attached_server_names:
+            config = self._attachment_configs.get(name)
+            if config is None and registry is not None:
+                config = registry.registry.get(name)
+            if config is None:
+                continue
+            display_name = config.name or name
+            configs[display_name] = config
+        return configs
+
     def server_display_name(self, server_name: str) -> str:
         registry = self.context.server_registry if self.context else None
         config = registry.get_server_config(server_name) if registry is not None else None

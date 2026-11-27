@@ -10,9 +10,10 @@ from pathlib import Path
 from threading import RLock, Timer
 from typing import Any
 
-from rich.console import Console, RenderableType
+from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
 from rich.markup import escape as escape_markup
 from rich.progress import Progress, ProgressColumn, Task, TaskID, TextColumn
+from rich.segment import Segment
 from rich.spinner import SPINNERS, Spinner
 from rich.table import Column
 from rich.text import Text
@@ -99,6 +100,43 @@ _DETAIL_SEPARATOR_WIDTH = 3
 _DETAILS_MIN_WIDTH = 0
 
 
+def _strip_trailing_spaces(line: list[Segment]) -> list[Segment]:
+    """Strip trailing unstyled/non-background spaces so rows do not wrap on resize."""
+    end = len(line)
+    while end > 0:
+        seg = line[end - 1]
+        if seg.control is not None:
+            break
+        style = seg.style
+        if style is not None and (style.bgcolor is not None or style.reverse):
+            break
+        trimmed = seg.text.rstrip(" ")
+        if trimmed == seg.text:
+            break
+        if trimmed:
+            return [*line[: end - 1], Segment(trimmed, style)]
+        end -= 1
+    return line[:end]
+
+
+class _TrimRightPadding:
+    """Wrap a Rich renderable and strip trailing right-edge spaces from each line."""
+
+    def __init__(self, renderable: RenderableType) -> None:
+        self._renderable = renderable
+
+    def __rich_console__(
+        self,
+        console: Console,
+        options: ConsoleOptions,
+    ) -> RenderResult:
+        lines = console.render_lines(self._renderable, options, pad=False)
+        new_line = Segment.line()
+        for line in lines:
+            yield from _strip_trailing_spaces(line)
+            yield new_line
+
+
 class _MonitoringProgress(Progress):
     """Render subagents as a compact table while retaining normal progress rows."""
 
@@ -123,22 +161,26 @@ class _MonitoringProgress(Progress):
         ]
         if subagents:
             spinner_frame = self._subagent_spinner.render(self.get_time())
-            yield render_subagent_table(
-                subagents,
-                tasks,
-                console_width=self.console.width,
-                spinner_frame=(
-                    spinner_frame if isinstance(spinner_frame, Text) else Text(str(spinner_frame))
-                ),
+            yield _TrimRightPadding(
+                render_subagent_table(
+                    subagents,
+                    tasks,
+                    console_width=self.console.width,
+                    spinner_frame=(
+                        spinner_frame
+                        if isinstance(spinner_frame, Text)
+                        else Text(str(spinner_frame))
+                    ),
+                )
             )
         if generic:
             for _, tasks in groupby(
                 generic,
                 key=lambda task: bool(task.fields.get("is_process_poll")),
             ):
-                yield self.make_tasks_table(tasks)
+                yield _TrimRightPadding(self.make_tasks_table(tasks))
         elif not subagents:
-            yield self.make_tasks_table(())
+            yield _TrimRightPadding(self.make_tasks_table(()))
         # Only beside visible rows: pausing hides every task first, so the
         # final (stopped) frame never leaves this line in scrollback.
         if (subagents or generic) and (queued := queued_input_count()):

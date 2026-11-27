@@ -207,13 +207,10 @@ def build_tool_use_additional_message(
         return None
     if tool_use_requests_process_lifecycle(message):
         return None
+    del file_read
     if shell_access:
-        message_text = "The assistant requested shell access"
-    elif file_read:
-        return None
-    else:
-        message_text = "The assistant requested tool calls"
-    return Text(message_text, style="dim green italic")
+        return Text("The assistant requested shell access", style="dim green italic")
+    return None
 
 
 def _safety_details_category(message: "PromptMessageExtended") -> str | None:

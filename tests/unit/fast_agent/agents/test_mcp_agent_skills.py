@@ -43,6 +43,24 @@ def create_skill(
 
 
 @pytest.mark.asyncio
+async def test_initial_skills_and_shell_switch_create_one_runtime(tmp_path: Path) -> None:
+    from fast_agent.tools.shell_runtime import ShellRuntime
+
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha")
+    manifests = SkillRegistry.load_directory(skills_root)
+    context = Context().model_copy(update={"shell_runtime": True})
+    config = AgentConfig(name="test", instruction="Instruction", skill_manifests=manifests)
+
+    with patch("fast_agent.tools.shell_runtime.ShellRuntime", wraps=ShellRuntime) as factory:
+        agent = McpAgent(config=config, context=context)
+        assert agent.shell_access_modes == ("skills", "switch")
+        agent.set_skill_manifests(manifests)
+        factory.assert_called_once()
+    await agent.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_mcp_agent_exposes_skill_tools(tmp_path: Path) -> None:
     skills_root = tmp_path / "skills"
     create_skill(skills_root, "alpha", body="Alpha body")

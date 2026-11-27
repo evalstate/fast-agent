@@ -75,7 +75,7 @@ def test_compact_mcp_call_shows_arguments_and_hides_successful_result() -> None:
     rendered = " ".join(capture.get().split())
     assert "▎◀ agent tool (MCP) huggingface hf_fs · id: call_…456789" in rendered
     assert (
-        "▎▶ agent tool (MCP) huggingface hf_fs · text only 17 chars · 12.0s · id: call_…456789"
+        "▎▶ agent tool (MCP) huggingface hf_fs · text (17 chars) · 12.0s · id: call_…456789"
     ) in rendered
     assert "datasets/example" in rendered
     assert "large result body" not in rendered
@@ -429,7 +429,7 @@ def test_compact_completed_process_collapses_to_exit_summary() -> None:
         )
 
     rendered = " ".join(capture.get().split())
-    assert "▎ exit code 0 2 lines id: call_…456789" in rendered
+    assert "▎· exit code 0 · 2 lines · id: call_…456789" in rendered
     assert "▎▶ dev process" not in rendered
     assert "background process started" not in rendered
     assert "output_activity" not in rendered
@@ -519,3 +519,140 @@ async def test_history_review_forces_full_tool_bodies() -> None:
     assert "■ structured content" in rendered
     assert rendered.count("structured-history-record") == 1
     assert structured_tail in rendered
+
+
+def test_compact_exec_sandbox_uses_python_sandbox_pill_and_short_rules() -> None:
+    display = _display()
+    result = CallToolResult(
+        content=[TextContent(type="text", text="Script completed in 0.12s")],
+        is_error=False,
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            "exec_sandbox",
+            {"code": "print(42)"},
+            name="dev",
+            metadata={"variant": "code", "code_arg": "code", "language": "python"},
+            tool_call_id="call_abcdef0123456789",
+        )
+        display.show_tool_result(
+            result,
+            name="dev",
+            tool_name="exec_sandbox",
+            tool_call_id="call_abcdef0123456789",
+            timing_ms=120.0,
+        )
+
+    lines = capture.get().splitlines()
+    assert any(
+        "▎◀ dev" in line and " python (sandbox) " in line and "id: call_…456789" in line
+        for line in lines
+    )
+    assert any("print(42)" in line for line in lines)
+    assert any(line == "─" * 36 for line in lines)
+    assert any(
+        line.startswith(
+            "▎▶ dev  python (sandbox) result  text (25 chars) · 120ms · id: call_…456789"
+        )
+        for line in lines
+    )
+
+
+def test_compact_exec_sandbox_omits_default_agent_name() -> None:
+    display = _display()
+    result = CallToolResult(
+        content=[TextContent(type="text", text="ok")],
+        is_error=False,
+    )
+    shell_result = CallToolResult(
+        content=[TextContent(type="text", text="ok\nprocess exit code was 0")],
+        is_error=False,
+    )
+    update_tool_result_display_metadata(shell_result, {"output_line_count": 3})
+    previous = progress_display.default_agent_name
+    progress_display.set_default_agent_name("agent")
+    try:
+        with console.console.capture() as capture:
+            display.show_tool_call(
+                "exec_sandbox",
+                {"code": "print(1)"},
+                name="agent",
+                metadata={"variant": "code", "code_arg": "code", "language": "python"},
+                tool_call_id="call_abcdef0123456789",
+            )
+            display.show_tool_call(
+                "Bash",
+                {"command": "ls"},
+                name="agent",
+                metadata={"variant": "shell", "command": "ls", "shell_name": "bash"},
+                tool_call_id="call_abcdef0123456789:ptc-1",
+            )
+            display.show_tool_result(
+                shell_result,
+                name="agent",
+                tool_name="Bash",
+                tool_call_id="call_abcdef0123456789:ptc-1",
+                timing_ms=3080.0,
+            )
+            display.show_tool_result(
+                result,
+                name="agent",
+                tool_name="exec_sandbox",
+                tool_call_id="call_abcdef0123456789",
+                timing_ms=150.0,
+            )
+    finally:
+        progress_display.set_default_agent_name(previous)
+
+    lines = capture.get().splitlines()
+    assert any(line.startswith("▎◀  python (sandbox)  id: call_…456789") for line in lines)
+    assert any(line == "─" * 36 for line in lines)
+    assert any(line.startswith("▎◀ bash · id:") for line in lines)
+    assert any("▎· exit code 0 · 3 lines · 3.08s · id:" in line for line in lines)
+    assert any(
+        line.startswith("▎▶  python (sandbox) result  text (2 chars) · 150ms · id: call_…456789")
+        for line in lines
+    )
+    assert not any("agent" in line for line in lines)
+
+
+def test_compact_write_text_file_frames_header_closer_group_python_and_result() -> None:
+    display = _display()
+    py_with_heredoc = 'async def run():\n    await shell(command="""echo one\necho two""")\n'
+    result = CallToolResult(
+        content=[TextContent(type="text", text="wrote file")],
+        is_error=False,
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            "write_text_file",
+            {"path": "scripts/deploy.py", "content": py_with_heredoc},
+            name="dev",
+            tool_call_id="call_abcdef0123456789",
+        )
+        display.show_tool_result(
+            result,
+            name="dev",
+            tool_name="write_text_file",
+            tool_call_id="call_abcdef0123456789",
+        )
+
+    lines = capture.get().splitlines()
+    assert any("▎◀ dev" in line and " python (write_text_file) " in line for line in lines)
+    assert any("path: scripts/deploy.py" in line for line in lines)
+    assert any("echo one" in line for line in lines)
+    assert any(line == "─" * 36 for line in lines)
+    assert any("▎▶ dev file write" in line for line in lines)
+
+
+def test_edit_file_preview_header_uses_bold_white_style() -> None:
+    from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
+
+    styled = style_apply_patch_preview_text(
+        "edit_file preview: src/app.py (+1 -1)\n@@ -1 +1 @@\n-old\n+new",
+        default_style="dim",
+    )
+    first_line_spans = [span for span in styled.spans if span.start == 0]
+    assert any(span.style == "bold white" for span in first_line_spans)

@@ -35,6 +35,30 @@ if TYPE_CHECKING:
 
 
 _ERASE_PREVIOUS_LINE_SEQ = "\x1b[1A\x1b[2K\r"
+_ACTIVE_SYNC_OUTPUTS: set[int] = set()
+
+
+@contextlib.contextmanager
+def _synchronized_vt100_output(output: Any):
+    """Batch VT100 writes into a single DEC synchronized-output frame (mode 2026)."""
+    if not isinstance(output, Vt100_Output):
+        yield
+        return
+    output_id = id(output)
+    if output_id in _ACTIVE_SYNC_OUTPUTS:
+        yield
+        return
+    _ACTIVE_SYNC_OUTPUTS.add(output_id)
+    original_flush = output.flush
+    output.write_raw("\x1b[?2026h")
+    output.flush = lambda: None
+    try:
+        yield
+    finally:
+        output.flush = original_flush
+        _ACTIVE_SYNC_OUTPUTS.discard(output_id)
+        output.write_raw("\x1b[?2026l")
+        original_flush()
 
 
 def _format_prompt_prefix(agent_name: str, *, default_agent_name: str | None = None) -> str:
@@ -95,20 +119,9 @@ def _configure_inline_toolbar(session: PromptSession[str]) -> None:
 
     def _inline_render(app: Any, layout: Any, is_done: bool = False) -> None:
         renderer._min_available_height = 0
-        output = renderer.output
-        if isinstance(output, Vt100_Output):
-            # Wrap in DEC synchronized output (mode 2026) and flush once so
-            # erase_down + 2-line redraw renders atomically without flicker.
-            original_flush = output.flush
-            output.write_raw("\x1b[?2026h")
-            output.flush = lambda: None
-            try:
-                original_render(app, layout, is_done=is_done)
-            finally:
-                output.flush = original_flush
-                output.write_raw("\x1b[?2026l")
-                original_flush()
-        else:
+        # Wrap in DEC synchronized output (mode 2026) and flush once so
+        # erase_down + inline redraw renders atomically without flicker.
+        with _synchronized_vt100_output(renderer.output):
             original_render(app, layout, is_done=is_done)
 
     renderer.render = _inline_render
@@ -155,7 +168,7 @@ def _configure_inline_toolbar(session: PromptSession[str]) -> None:
 def _install_resilient_resize_handler(
     session: PromptSession[str],
     *,
-    debounce_seconds: float = 0.08,
+    debounce_seconds: float = 0.05,
 ) -> None:
     app = session.app
     original_on_resize = app._on_resize
@@ -169,24 +182,33 @@ def _install_resilient_resize_handler(
         renderer = app.renderer
         reset_renderer_cpr_state(renderer)
         renderer._min_available_height = 0
-        original_on_resize()
+        # Keep erase() + redraw() inside one DEC Mode 2026 frame so the terminal
+        # never paints a blank frame between erasing and redrawing the toolbar.
+        with _synchronized_vt100_output(renderer.output):
+            original_on_resize()
 
     def _resilient_on_resize() -> None:
         nonlocal pending_handle
         renderer = app.renderer
+        # Ignore redundant notifications (e.g. prompt_toolkit's 0.5s
+        # _poll_output_size timer firing after SIGWINCH already redrew).
+        if (
+            pending_handle is None
+            and renderer._last_size is not None
+            and renderer.output.get_size() == renderer._last_size
+        ):
+            return
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             reset_renderer_cpr_state(renderer)
             renderer._min_available_height = 0
-            original_on_resize()
+            with _synchronized_vt100_output(renderer.output):
+                original_on_resize()
             return
 
-        if pending_handle is None:
-            reset_renderer_cpr_state(renderer)
-            renderer._min_available_height = 0
-            renderer.erase(leave_alternate_screen=False)
-        else:
+        if pending_handle is not None:
             pending_handle.cancel()
 
         pending_handle = loop.call_later(debounce_seconds, _finish_resize)

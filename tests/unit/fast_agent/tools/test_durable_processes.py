@@ -341,8 +341,36 @@ def test_invalid_utf8_record_is_skipped_as_malformed(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 @pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
+def test_active_discovery_skips_completed_details(tmp_path: Path, monkeypatch) -> None:
+    store = DurableProcessStore(tmp_path / "durable")
+    active = store.create(command="sleep 30", shell=_SHELL, cwd=tmp_path)
+    completed = store.create(command="exit 0", shell=_SHELL, cwd=tmp_path)
+    status_path = store.directory(completed.spec.process_id) / "status.json"
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    status.update(state="exited", exit_code=0)
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+    original_get = store.get
+
+    def read_active_only(process_id: str) -> DurableProcessSnapshot:
+        assert process_id != completed.spec.process_id
+        return original_get(process_id)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store, "get", read_active_only)
+        assert store.discover(active_only=True) == [active]
+
+    assert {item.spec.process_id for item in store.discover()} == {
+        active.spec.process_id,
+        completed.spec.process_id,
+    }
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("active_only", [False, True])
+@pytest.mark.skipif(os.name != "posix", reason="durable local processes require POSIX")
 def test_discovery_persists_unavailable_when_supervisor_and_child_disappeared(
     tmp_path: Path,
+    active_only: bool,
 ) -> None:
     root = tmp_path / "durable"
     store = DurableProcessStore(root)
@@ -358,11 +386,14 @@ def test_discovery_persists_unavailable_when_supervisor_and_child_disappeared(
     )
     status_path.write_text(json.dumps(status), encoding="utf-8")
 
-    discovered = store.discover()
+    discovered = store.discover(active_only=active_only)
     persisted = json.loads(status_path.read_text(encoding="utf-8"))
 
-    assert len(discovered) == 1
-    assert discovered[0].status.state == "unavailable"
+    if active_only:
+        assert discovered == []
+    else:
+        assert len(discovered) == 1
+        assert discovered[0].status.state == "unavailable"
     assert persisted["state"] == "unavailable"
     assert (root / created.spec.process_id).exists()
 

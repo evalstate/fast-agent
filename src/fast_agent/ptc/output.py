@@ -1,41 +1,76 @@
-"""Shell output guidance for the code tool, and the sandbox helpers it describes.
+"""Sandbox prelude helpers and shell/file output guidance for the code tool.
 
-Sandbox code receives bounded stdout and stderr captured since the previous read; the model sees what
-the code prints, and models tend to print whole results. The guidance says what to print instead;
-``tail``, ``head``, ``grep`` and ``show`` are plain Python defined in each sandbox session (not
-host functions), so they cost no tool calls.
+Each :class:`SandboxHelper` bundles a sync Python helper injected into Monty before model code
+runs: its reserved global ``names``, its Monty type-checker ``stubs``, and its ``prelude`` source.
+Because they are plain Python in the sandbox session (not host functions), they cost no tool calls.
 """
 
+from dataclasses import dataclass
 from typing import Literal
 
 PtcOutputGuidance = Literal["off", "print", "helpers"]
-"""``print`` explains what to print, with the helpers as shortcuts; ``helpers`` leads with
-``show(r)``; ``off`` adds neither the guidance nor the helpers."""
+"""``print`` explains what to print, with ``show(r)`` as a shortcut; ``helpers`` leads with
+``show(r)``; ``off`` adds neither the guidance nor ``show``."""
 
-OUTPUT_HELPER_NAMES = frozenset({"tail", "head", "grep", "show"})
 
-OUTPUT_STUBS = """\
-def tail(text: str, n: int = 40) -> str: ...
-def head(text: str, n: int = 40) -> str: ...
-def grep(text: str, pattern: str, context: int = 0, limit: int = 50) -> str: ...
+@dataclass(frozen=True, slots=True)
+class SandboxHelper:
+    """A sync Python helper bundle injected into the Monty prelude."""
+
+    names: frozenset[str]
+    stubs: str
+    prelude: str
+
+
+# Keep plain Python: Monty does not support decorators, classes, generators, open(..., errors=...),
+# or Path.read_text(errors=...). Fall back to binary decode on ValueError (Monty raises
+# UnicodeDecodeError, a ValueError).
+SLICE_FILE_HELPER = SandboxHelper(
+    names=frozenset({"slice_file"}),
+    stubs="""\
+import pathlib
+def slice_file(path: str | pathlib.Path, start: int = 1, end: int | None = None) -> str: ...
+""",
+    prelude="""\
+def slice_file(path: str | pathlib.Path, start: int = 1, end: int | None = None) -> str:
+    path_str = str(path)
+    try:
+        with open(path_str) as f:
+            text = f.read()
+    except ValueError:
+        with open(path_str, "rb") as f:
+            text = f.read().decode("utf-8", "replace")
+    lines = text.splitlines()
+    total = len(lines)
+    if total == 0:
+        return "=== " + path_str + " (empty) ==="
+    lo = max(1, start)
+    hi = total if end is None else min(total, end)
+    if lo > total or hi < lo:
+        return "=== " + path_str + ":" + str(lo) + "-" + str(hi) + " (of " + str(total) + " lines) ==="
+    width = max(4, len(str(hi)))
+    header = "=== " + path_str + ":" + str(lo) + "-" + str(hi) + " (of " + str(total) + ") ==="
+    body = [str(i).rjust(width) + ": " + lines[i - 1] for i in range(lo, hi + 1)]
+    return "\\n".join([header] + body)
+""",
+)
+
+SLICE_FILE_NOTE = (
+    " Use `print(slice_file(path, start=1, end=None))` (pre-defined, no `await`) to inspect "
+    "1-based inclusive numbered line ranges with a header instead of writing your own reader."
+)
+
+SHOW_HELPER = SandboxHelper(
+    names=frozenset({"show"}),
+    stubs="""\
 def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str: ...
-"""
-
-# Keep these plain functions: Monty does not support decorators, classes or generators.
-OUTPUT_PRELUDE = """\
+""",
+    prelude="""\
 import re
 from typing import Any
 
 
-def tail(text: str, n: int = 40) -> str:
-    return "\\n".join(text.splitlines()[-n:]) if n > 0 else ""
-
-
-def head(text: str, n: int = 40) -> str:
-    return "\\n".join(text.splitlines()[:n]) if n > 0 else ""
-
-
-def grep(text: str, pattern: str, context: int = 0, limit: int = 50) -> str:
+def _grep(text: str, pattern: str, context: int = 0, limit: int = 50) -> str:
     lines = text.splitlines()
     matches = [i for i, line in enumerate(lines) if re.search(pattern, line, re.IGNORECASE)]
     selected = set()
@@ -58,7 +93,7 @@ def _view(text: str, n: int) -> str:
     omitted = len(lines) - k - n
     marker = (
         "[... " + str(omitted) + " of " + str(len(lines)) + " lines omitted; "
-        + "print the stream or use head()/grep() to see them ...]"
+        + "print the stream or use show(r, pattern=...) to see them ...]"
     )
     return "\\n".join(lines[:k] + [marker] + lines[len(lines) - n:])
 
@@ -74,11 +109,12 @@ def show(r: dict[str, Any], n: int = 40, pattern: str | None = None) -> str:
     result = [" ".join(fields)]
     stderr = r.get("stderr") or ""
     if stderr:
-        result.extend(["--- stderr", grep(stderr, pattern) if pattern is not None else _view(stderr, n)])
+        result.extend(["--- stderr", _grep(stderr, pattern) if pattern is not None else _view(stderr, n)])
     stdout = r.get("stdout") or ""
-    result.extend(["--- stdout", grep(stdout, pattern) if pattern is not None else _view(stdout, n)])
+    result.extend(["--- stdout", _grep(stdout, pattern) if pattern is not None else _view(stdout, n)])
     return "\\n".join(result)
-"""
+""",
+)
 
 _RESULT_SHAPE = (
     "returns a dict of stdout, stderr, exit_code, status ('completed', 'failed', 'running', "
@@ -89,19 +125,17 @@ _PRINT_NOTE = (
     "- Shell: `r = {call}` " + _RESULT_SHAPE + ". Print only what you need, not `r` (a dict "
     "prints as one escaped line): `r['exit_code']`, the end of build and test logs "
     "(`r['stdout'][-3000:]`), or lines you pick out. `show(r)` prints exit_code, status and both "
-    "streams (long ones as their first 10 and last 40 lines); `tail(text, n)`, `head(text, n)` "
-    "and `grep(text, pattern, context=0, limit=50)` work on any text. You see at most about "
-    "{limit} of printed output; a longer print loses its middle.{running}{stored}{retained}\n"
+    "streams (long ones as their first 10 and last 40 lines), or `show(r, pattern='error|fail')` "
+    "for numbered matches. You see at most about {limit} of printed output; a longer print loses "
+    "its middle.{running}{stored}{retained}\n"
 )
 _PRINT_RUNNING = " If `status` is 'running', wait with `{wait}`, then print the end of its output."
 _HELPERS_NOTE = (
     "- Shell: `r = {call}` " + _RESULT_SHAPE + ". Print `show(r)`, not `r` (a dict prints as "
     "one escaped line): it gives exit_code and status, then stderr and stdout, each in full up "
     "to 80 lines, otherwise the first 10 and last 40 lines around an omitted-lines marker; "
-    "`show(r, pattern='error|fail')` gives numbered matching lines instead. `tail(text, n)`, "
-    "`head(text, n)` and `grep(text, pattern, context=0, limit=50)` work on any text. You see "
-    "at most about {limit} of printed output; a longer print loses its middle."
-    "{running}{stored}{retained}\n"
+    "`show(r, pattern='error|fail')` gives numbered matching lines instead. You see at most about "
+    "{limit} of printed output; a longer print loses its middle.{running}{stored}{retained}\n"
 )
 _HELPERS_RUNNING = " If `status` is 'running', `print(show({wait}))` waits for it."
 _STORE_NOTE = ' To use `r` in a later run, `await store("r", r)`.'

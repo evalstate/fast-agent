@@ -20,7 +20,7 @@
 | `logger.show_tools` | `LOGGER__SHOW_TOOLS` | `bool` | `True` | Show MCP server tool calls on the console. |
 | `logger.truncate_tools` | `LOGGER__TRUNCATE_TOOLS` | `bool` | `True` | Truncate long tool call display. |
 | `logger.theme_file` | `LOGGER__THEME_FILE` | `str \| None` | `None` | Optional Rich theme file for console styles. |
-| `logger.code_theme` | `LOGGER__CODE_THEME` | `str` | `native` | Pygments/Rich syntax theme for Markdown code rendering. |
+| `logger.code_theme` | `LOGGER__CODE_THEME` | `str` | `ansi_light` | Pygments/Rich syntax theme for Markdown code rendering. |
 | `logger.render_fences_with_syntax` | `LOGGER__RENDER_FENCES_WITH_SYNTAX` | `bool` | `True` | Render Markdown code fences with Rich Syntax. |
 | `logger.code_word_wrap` | `LOGGER__CODE_WORD_WRAP` | `bool` | `True` | Wrap Syntax-rendered code blocks instead of cropping. |
 | `logger.apply_patch_preview_max_lines` | `LOGGER__APPLY_PATCH_PREVIEW_MAX_LINES` | `int \| None` | `120` | Maximum lines to show in apply_patch and compact write_text_file previews. |

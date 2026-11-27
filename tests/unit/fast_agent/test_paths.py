@@ -84,6 +84,30 @@ def test_resolve_settings_start_path_keeps_explicit_config_parent_with_home_over
         config_module._settings = None
 
 
+@pytest.mark.parametrize("target_name", ["fast-agent-root", ".fast-agent"])
+def test_resolve_settings_start_path_keeps_workspace_for_symlinked_default_home(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    target_name: str,
+) -> None:
+    cache_home = tmp_path / "cache" / target_name
+    cache_home.mkdir(parents=True)
+    (cache_home / "fast-agent.yaml").write_text("default_model: haiku\n", encoding="utf-8")
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / ".fast-agent").symlink_to(cache_home, target_is_directory=True)
+    monkeypatch.chdir(workspace)
+    monkeypatch.delenv("FAST_AGENT_HOME", raising=False)
+    config_module._settings = None
+
+    try:
+        settings = config_module.get_settings()
+        assert resolve_settings_start_path(settings) == workspace.resolve()
+    finally:
+        config_module._settings = None
+
+
 def test_resolve_home_dir_uses_fast_agent_home(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

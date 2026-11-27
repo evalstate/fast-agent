@@ -22,6 +22,7 @@ from fast_agent.utils.tool_names import is_shell_execution_tool_name
 DEFAULT_PATCH_PREVIEW_MAX_LINES = 120
 _PREVIEW_STRIPPED_PREFIX_STYLES = (
     ("apply_patch preview:", "bold white"),
+    ("edit_file preview:", "bold white"),
     ("*** ", "cyan"),
     ("@@", "yellow"),
     ("+", "green"),

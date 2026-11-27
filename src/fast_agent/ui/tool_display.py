@@ -36,12 +36,17 @@ from fast_agent.ui.apply_patch_preview import (
 )
 from fast_agent.ui.edit_file_preview import build_edit_file_preview, format_edit_file_preview
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
+from fast_agent.ui.message_styles import build_code_rule, format_code_tool_pill_label
 from fast_agent.ui.shell_output_truncation import (
     format_shell_output_line_count,
     truncate_shell_output_lines,
 )
 from fast_agent.ui.streaming.json_prefix import format_json_prefix
-from fast_agent.ui.syntax_highlighting import shell_syntax_blocks, syntax_language_for_path
+from fast_agent.ui.syntax_highlighting import (
+    python_syntax_blocks,
+    shell_syntax_blocks,
+    syntax_language_for_path,
+)
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.count_display import format_count
 from fast_agent.utils.numeric import positive_int_or_none
@@ -117,6 +122,7 @@ class PreparedToolCallDisplay:
     max_item_length: int | None
     truncate_content: bool = True
     render_markdown: bool | None = None
+    code_language: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,7 +223,7 @@ class ToolDisplay:
         self,
         tool_args: Mapping[str, Any],
         metadata: Mapping[str, Any],
-    ) -> tuple[Syntax, list[str]]:
+    ) -> tuple[RenderableType, list[str]]:
         code_arg = str(metadata.get("code_arg") or "code")
         language = str(metadata.get("language") or "text")
         raw_code = tool_args.get(code_arg)
@@ -235,6 +241,25 @@ class ToolDisplay:
                 continue
             rendered = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
             footer_items.append(f"{key}: {rendered}")
+
+        if language.lower() == "python":
+            blocks = python_syntax_blocks(code_text, language=language)
+            if len(blocks) > 1:
+                return (
+                    Group(
+                        *(
+                            Syntax(
+                                block.code,
+                                block.language,
+                                theme=self._display.code_style,
+                                line_numbers=False,
+                                word_wrap=self._display.code_word_wrap,
+                            )
+                            for block in blocks
+                        )
+                    ),
+                    footer_items,
+                )
 
         return (
             Syntax(
@@ -277,7 +302,56 @@ class ToolDisplay:
         return TOOL_SOURCE_LABELS.get(source) if source in TOOL_SOURCE_LABELS else None
 
     @staticmethod
+    def _compact_event_prefix(
+        *,
+        message_type: MessageType,
+        name: str | None,
+        is_error: bool = False,
+        show_hook_indicator: bool = False,
+    ) -> Text:
+        config = MESSAGE_CONFIGS[message_type]
+        color = "red" if is_error else config["block_color"]
+        prefix = Text()
+        prefix.append("▎", style=color)
+        prefix.append(config["arrow"], style=config["arrow_style"])
+        if show_hook_indicator:
+            prefix.append(" ◆", style=color)
+        from fast_agent.ui.progress_display import progress_display
+
+        display_name = None if progress_display.is_default_agent_name(name) else name
+        if display_name:
+            prefix.append(f" {display_name}", style=color)
+        return prefix
+
+    @classmethod
+    def _compact_code_rule_line(
+        cls,
+        *,
+        message_type: MessageType,
+        name: str | None,
+        label: str = "",
+        annotations: list[str],
+        is_error: bool = False,
+        show_hook_indicator: bool = False,
+    ) -> Text:
+        prefix = cls._compact_event_prefix(
+            message_type=message_type,
+            name=name,
+            is_error=is_error,
+            show_hook_indicator=show_hook_indicator,
+        )
+        prefix.append(" ")
+        suffix = Text(" · ".join(annotations), style="dim") if annotations else None
+        return build_code_rule(
+            label,
+            max_width=console.console.size.width,
+            prefix=prefix,
+            suffix=suffix,
+        )
+
+    @classmethod
     def _compact_event_line(
+        cls,
         *,
         message_type: MessageType,
         name: str | None,
@@ -286,15 +360,12 @@ class ToolDisplay:
         is_error: bool = False,
         show_hook_indicator: bool = False,
     ) -> Text:
-        config = MESSAGE_CONFIGS[message_type]
-        color = "red" if is_error else config["block_color"]
-        line = Text()
-        line.append("▎", style=color)
-        line.append(config["arrow"], style=config["arrow_style"])
-        if show_hook_indicator:
-            line.append(" ◆", style=color)
-        if name:
-            line.append(f" {name}", style=color)
+        line = cls._compact_event_prefix(
+            message_type=message_type,
+            name=name,
+            is_error=is_error,
+            show_hook_indicator=show_hook_indicator,
+        )
         line.append(f" {identity}")
         if annotations:
             line.append(" · ", style="dim")
@@ -353,6 +424,8 @@ class ToolDisplay:
             return "bash"
         if is_read_text_file_tool_name(tool_name):
             return "file read"
+        if is_write_text_file_tool_name(tool_name):
+            return "file write"
         if is_apply_patch_tool_name(tool_name) or normalized_name == EDIT_FILE_TOOL_NAME:
             return f"edit {ToolDisplay._base_tool_name(tool_name)}"
 
@@ -443,15 +516,15 @@ class ToolDisplay:
 
     def _compact_write_text_file_preview(
         self,
-        syntax: Syntax,
+        code_text: str,
         path_value: object,
         *,
+        language: str,
         max_lines: int | None,
     ) -> Group:
         path = strip_str_to_none(path_value)
-        language = syntax_language_for_path(path) if path else None
         preview = Syntax(
-            limit_preview_lines(syntax.code, max_lines=max_lines),
+            limit_preview_lines(code_text, max_lines=max_lines),
             language or "text",
             theme=self._display.code_style,
             line_numbers=False,
@@ -482,38 +555,58 @@ class ToolDisplay:
         request_count: int,
         show_hook_indicator: bool,
     ) -> None:
-        identity = self._compact_tool_identity(
-            tool_name=tool_name,
+        annotations = self._compact_call_annotations(
             metadata=metadata,
-            source_label=source_label,
-            server_name=server_name,
+            tool_call_id=tool_call_id,
+            request_count=request_count,
         )
-        line = self._compact_event_line(
-            message_type=MessageType.TOOL_CALL,
-            name=name,
-            identity=identity,
-            annotations=self._compact_call_annotations(
+        if prepared.code_language is not None:
+            line = self._compact_code_rule_line(
+                message_type=MessageType.TOOL_CALL,
+                name=name,
+                label=format_code_tool_pill_label(
+                    tool_name,
+                    prepared.code_language,
+                ),
+                annotations=annotations,
+                show_hook_indicator=show_hook_indicator,
+            )
+        else:
+            identity = self._compact_tool_identity(
+                tool_name=tool_name,
                 metadata=metadata,
-                tool_call_id=tool_call_id,
-                request_count=request_count,
-            ),
-            show_hook_indicator=show_hook_indicator,
-        )
+                source_label=source_label,
+                server_name=server_name,
+            )
+            line = self._compact_event_line(
+                message_type=MessageType.TOOL_CALL,
+                name=name,
+                identity=identity,
+                annotations=annotations,
+                show_hook_indicator=show_hook_indicator,
+            )
         console.ensure_blocking_console()
         console.console.print(line, markup=self._markup)
 
         arguments = self._display.tool_display_settings.arguments
         if arguments == "none":
             return
-        if is_write_text_file_tool_name(tool_name) and isinstance(prepared.content, Syntax):
+        if is_write_text_file_tool_name(tool_name) and prepared.code_language is not None:
+            raw_content = tool_args.get("content")
+            code_text = raw_content if isinstance(raw_content, str) else ""
             console.console.print(
                 self._compact_write_text_file_preview(
-                    prepared.content,
+                    code_text,
                     tool_args.get("path"),
+                    language=prepared.code_language,
                     max_lines=(
                         self._display.apply_patch_preview_max_lines if arguments == "auto" else None
                     ),
                 )
+            )
+            console.console.print(
+                build_code_rule(max_width=console.console.size.width),
+                markup=self._markup,
             )
             return
         if (
@@ -538,6 +631,11 @@ class ToolDisplay:
             check_markdown_markers=False,
             render_markdown=prepared.render_markdown,
         )
+        if metadata.get("variant") == "code":
+            console.console.print(
+                build_code_rule(max_width=console.console.size.width),
+                markup=self._markup,
+            )
 
     @staticmethod
     def _parallel_call_identity(request: ToolCallDisplayRequest) -> tuple[str | None, ...]:
@@ -757,6 +855,7 @@ class ToolDisplay:
         is_app_integration_tool: bool,
         structured_content: object,
         app_resource_uri: str | None,
+        show_structured_content: bool = False,
     ) -> None:
         result_policy = self._display.tool_display_settings.results
         collapse_shell_exit = (
@@ -773,23 +872,33 @@ class ToolDisplay:
                 console.console.print(post_content, markup=self._markup)
             return
 
-        identity = self._compact_tool_identity(
-            tool_name=tool_name or "tool",
-            metadata={},
-            source_label=source_label,
-            server_name=server_name,
-        )
         annotations = [status, *(bottom_metadata or [])]
         if short_id := format_tool_call_id(tool_call_id):
             annotations.append(f"id: {short_id}")
-        line = self._compact_event_line(
-            message_type=MessageType.TOOL_RESULT,
-            name=name,
-            identity=identity,
-            annotations=annotations,
-            is_error=result.is_error,
-            show_hook_indicator=show_hook_indicator,
-        )
+        if tool_name and normalize_tool_name(tool_name) == "exec_sandbox":
+            line = self._compact_code_rule_line(
+                message_type=MessageType.TOOL_RESULT,
+                name=name,
+                label="python (sandbox) result",
+                annotations=annotations,
+                is_error=result.is_error,
+                show_hook_indicator=show_hook_indicator,
+            )
+        else:
+            identity = self._compact_tool_identity(
+                tool_name=tool_name or "tool",
+                metadata={},
+                source_label=source_label,
+                server_name=server_name,
+            )
+            line = self._compact_event_line(
+                message_type=MessageType.TOOL_RESULT,
+                name=name,
+                identity=identity,
+                annotations=annotations,
+                is_error=result.is_error,
+                show_hook_indicator=show_hook_indicator,
+            )
         console.console.print(line, markup=self._markup)
 
         show_body = self._compact_result_body_visible(result=result, tool_name=tool_name)
@@ -810,6 +919,11 @@ class ToolDisplay:
             self._render_app_integration_structured_content(
                 structured_content=structured_content,
                 resource_uri=app_resource_uri,
+            )
+        elif show_structured_content and structured_content is not None:
+            self._render_structured_content(
+                structured_content=structured_content,
+                label="■ structured content",
             )
 
     @classmethod
@@ -896,12 +1010,15 @@ class ToolDisplay:
         no_output: bool,
         tool_call_id: str | None,
         output_line_count: int | None,
+        timing_ms: float | None = None,
     ) -> str | None:
         detail_parts: list[str] = []
         if output_line_count is not None and output_line_count > 0:
             detail_parts.append(format_shell_output_line_count(output_line_count))
         if no_output:
             detail_parts.append("(no output)")
+        if timing_ms is not None:
+            detail_parts.append(self._display._format_elapsed(timing_ms / 1000.0))
 
         formatted_id = format_tool_call_id(tool_call_id)
         if formatted_id:
@@ -909,7 +1026,7 @@ class ToolDisplay:
 
         if not detail_parts:
             return None
-        return f" {' '.join(detail_parts)}"
+        return f" {' · '.join(detail_parts)}"
 
     @staticmethod
     def _shell_output_line_count_from_content(content) -> int | None:
@@ -931,6 +1048,7 @@ class ToolDisplay:
         tool_name: str | None,
         tool_call_id: str | None,
         output_line_count: int | None = None,
+        timing_ms: float | None = None,
     ):
         from mcp_types import TextContent
 
@@ -963,6 +1081,7 @@ class ToolDisplay:
             no_output=no_output,
             tool_call_id=tool_call_id,
             output_line_count=line_count,
+            timing_ms=timing_ms,
         )
         additional_message = self._display.style.shell_exit_line(
             exit_code,
@@ -1392,7 +1511,7 @@ class ToolDisplay:
         if len(content) == 1 and is_text_content(content[0]):
             text_content = get_text(content[0])
             char_count = len(text_content) if text_content else 0
-            return f"text only {format_count(char_count, 'char')}"
+            return f"text ({format_count(char_count, 'char')})"
 
         text_count = sum(1 for item in content if is_text_content(item))
         if text_count == len(content):
@@ -1767,6 +1886,7 @@ class ToolDisplay:
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
                     output_line_count=metadata.output_line_count,
+                    timing_ms=timing_ms,
                 )
             )
 
@@ -1819,6 +1939,7 @@ class ToolDisplay:
                     is_app_integration_tool=(app_integration_details.is_app_integration_tool),
                     structured_content=structured_content,
                     app_resource_uri=app_integration_details.resource_uri,
+                    show_structured_content=show_structured_content,
                 )
                 return
 
@@ -2124,6 +2245,7 @@ class ToolDisplay:
             }
 
         if metadata.get("variant") == "code":
+            resolved_language = str(metadata.get("language") or "text")
             content, footer_items = self._build_code_tool_call_syntax(tool_args, metadata)
             return PreparedToolCallDisplay(
                 content=content,
@@ -2133,6 +2255,7 @@ class ToolDisplay:
                 max_item_length=max(max_item_length or 0, 50) or None,
                 truncate_content=False,
                 render_markdown=False,
+                code_language=resolved_language,
             )
 
         if is_apply_patch_tool_name(tool_name):

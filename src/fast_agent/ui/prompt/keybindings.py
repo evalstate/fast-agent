@@ -9,7 +9,7 @@ import sys
 import time
 from typing import TYPE_CHECKING, Any
 
-from prompt_toolkit.application import run_in_terminal
+from prompt_toolkit.application import in_terminal, run_in_terminal
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
@@ -24,9 +24,12 @@ from fast_agent.command_actions.accessors import (
     plugin_commands_for_agent,
     plugin_commands_for_provider,
 )
+from fast_agent.commands.history_summaries import collect_user_turns
+from fast_agent.config import get_settings
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.integrations.hc_children import hc_terminal_id, is_hc_message
 from fast_agent.ui.console import rich_print
+from fast_agent.ui.history_actions import display_history_turn
 from fast_agent.ui.prompt.attachment_tokens import (
     append_attachment_tokens,
     build_local_attachment_token,
@@ -232,6 +235,17 @@ def reset_renderer_cpr_state(renderer: Renderer, *, reset_cpr_support: bool = Fa
         renderer.cpr_support = CPR_Support.UNKNOWN
 
 
+def _scroll_and_clear_vt100_output(output: Vt100_Output) -> None:
+    """Scroll the visible viewport into scrollback, reset SGR/scroll region, and clear."""
+    output.write_raw("\x1b[r\x1b[0m")
+    rows = output.get_size().rows
+    if rows > 0:
+        output.write_raw(f"\x1b[{rows};1H" + "\n" * rows)
+    output.erase_screen()
+    output.cursor_goto(0, 0)
+    output.flush()
+
+
 def _clear_terminal_screen(event: Any, fallback_app: Any | None) -> None:
     app_ref = _event_or_fallback_app(event, fallback_app)
     if not app_ref:
@@ -244,13 +258,7 @@ def _clear_terminal_screen(event: Any, fallback_app: Any | None) -> None:
         # reset scroll region/SGR, then scroll the visible viewport into
         # scrollback so the previous message isn't lost on erase_screen().
         renderer.erase(leave_alternate_screen=False)
-        output.write_raw("\x1b[r\x1b[0m")
-        rows = output.get_size().rows
-        if rows > 0:
-            output.write_raw(f"\x1b[{rows};1H" + "\n" * rows)
-        output.erase_screen()
-        output.cursor_goto(0, 0)
-        output.flush()
+        _scroll_and_clear_vt100_output(output)
     else:
         renderer.clear()
     reset_renderer_cpr_state(renderer)
@@ -278,13 +286,17 @@ async def _edit_current_buffer_in_editor(event: Any) -> None:
         app_ref.invalidate()
 
 
-def _show_copy_notice(event: Any) -> None:
+def _show_toolbar_notice(event: Any, notice: str) -> None:
     session_state = _session_state_module()
-    session_state._copy_notice = "COPIED"
+    session_state._copy_notice = notice
     session_state._copy_notice_until = time.monotonic() + 2.0
     if event.app:
         event.app.invalidate()
-    else:
+
+
+def _show_copy_notice(event: Any) -> None:
+    _show_toolbar_notice(event, "COPIED")
+    if not event.app:
         rich_print("\n[green]✓ Copied to clipboard[/green]")
 
 
@@ -348,6 +360,51 @@ def _copy_last_output(event: Any, kb: AgentKeyBindings) -> None:
     content = _resolve_copyable_output(session_state, kb)
     if content and _copy_text_to_clipboard(content):
         _show_copy_notice(event)
+
+
+async def _review_latest_history_turn(
+    event: Any,
+    kb: AgentKeyBindings,
+    fallback_app: Any | None,
+) -> None:
+    if not kb.agent_provider or not kb.current_agent_name:
+        return
+    try:
+        agent = kb.agent_provider._agent(kb.current_agent_name)
+    except Exception:
+        return
+
+    user_turns = collect_user_turns(list(agent.message_history))
+    if not user_turns:
+        _show_toolbar_notice(event, "NO HISTORY")
+        return
+
+    latest_turn = user_turns[-1]
+    total_turns = len(user_turns)
+    config = agent.context.config if agent.context and agent.context.config else get_settings()
+    app_ref = _event_or_fallback_app(event, fallback_app)
+
+    async with in_terminal(render_cli_done=False):
+        if app_ref:
+            output = app_ref.renderer.output
+            if isinstance(output, Vt100_Output):
+                _scroll_and_clear_vt100_output(output)
+            else:
+                output.erase_screen()
+                output.cursor_goto(0, 0)
+                output.flush()
+        await display_history_turn(
+            agent.name,
+            list(latest_turn.messages),
+            config=config,
+            turn_index=total_turns,
+            total_turns=total_turns,
+        )
+
+    if app_ref:
+        reset_renderer_cpr_state(app_ref.renderer)
+        app_ref.renderer._min_available_height = 0
+        app_ref.invalidate()
 
 
 def _add_completion_keybindings(
@@ -527,6 +584,7 @@ def _add_copy_keybinding(
     *,
     agent_provider: "AgentApp | None",
     agent_name: str | None,
+    app: Any | None = None,
 ) -> None:
     kb.agent_provider = agent_provider
     kb.current_agent_name = agent_name
@@ -535,6 +593,11 @@ def _add_copy_keybinding(
     async def _(event) -> None:
         """Ctrl+Y: Copy last output (shell or assistant) to clipboard."""
         _copy_last_output(event, kb)
+
+    @kb.add("escape", "r")
+    async def _(event) -> None:
+        """Alt+R: Clear screen and re-render the latest history turn at the current width."""
+        await _review_latest_history_turn(event, kb, app)
 
 
 def create_keybindings(
@@ -581,6 +644,7 @@ def create_keybindings(
         kb,
         agent_provider=agent_provider,
         agent_name=agent_name,
+        app=app,
     )
     _add_plugin_command_keybindings(kb, agent_provider=agent_provider, agent_name=agent_name)
 

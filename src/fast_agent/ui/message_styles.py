@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from typing import Final
+
+from rich.cells import cell_len
+from rich.style import Style
 from rich.text import Text
+
+from fast_agent.utils.tool_names import normalize_tool_name
 
 
 def _shorten_items(items: list[str], max_length: int) -> list[str]:
@@ -14,10 +20,73 @@ def _shorten_items(items: list[str], max_length: int) -> list[str]:
 # Indicator shown when jumping to a non-visible highlighted item
 _JUMP_INDICATOR = " ▶ "
 _SHELL_EXIT_CODE_STYLES = {
-    0: "white reverse dim",
+    0: "white dim",
     1: "red reverse dim",
 }
 _SHELL_EXIT_CODE_ERROR_STYLE = "red reverse bold"
+SHORT_RULE_WIDTH: Final[int] = 36
+STREAM_REPRINT_BANNER_WIDTH: Final[int] = 60
+CODE_RULE_EDGE_STYLE: Final[Style] = Style(color="bright_black")
+CODE_RULE_PILL_STYLE: Final[Style] = Style(color="bright_black", reverse=True)
+
+
+def format_code_tool_pill_label(tool_name: str, language: str | None) -> str:
+    """Format the inverse pill label for code-variant tool calls."""
+    normalized = normalize_tool_name(tool_name)
+    base_name = tool_name.rsplit("__", 1)[-1] if "__" in tool_name else tool_name
+    clean_lang = (language or "").strip()
+    if normalized == "exec_sandbox":
+        return f"{clean_lang} (sandbox)" if clean_lang and clean_lang != "text" else "sandbox"
+    if clean_lang and clean_lang != "text":
+        return f"{clean_lang} ({base_name})"
+    return base_name
+
+
+def build_code_rule(
+    label: str = "",
+    *,
+    max_width: int | None = None,
+    prefix: Text | None = None,
+    suffix: Text | None = None,
+) -> Text:
+    """Build a resize-safe short rule line with optional prefix, inverse pill, and metadata."""
+    target = SHORT_RULE_WIDTH if max_width is None else min(max_width, SHORT_RULE_WIDTH)
+    clean_label = label.strip()
+    line = Text()
+    used = 0
+    if prefix is not None:
+        line.append_text(prefix)
+        used += prefix.cell_len
+    elif clean_label:
+        line.append("──", style=CODE_RULE_EDGE_STYLE)
+        used += 2
+
+    if clean_label:
+        pill = f" {clean_label} "
+        line.append(pill, style=CODE_RULE_PILL_STYLE)
+        used += cell_len(pill)
+
+    has_suffix = suffix is not None and bool(suffix.plain)
+    if has_suffix and suffix is not None:
+        if clean_label:
+            line.append(" ")
+            used += 1
+        line.append_text(suffix)
+        used += suffix.cell_len
+
+    remaining = target - used
+    if has_suffix:
+        if remaining >= 3:
+            line.append(" ")
+            line.append("─" * (remaining - 1), style=CODE_RULE_EDGE_STYLE)
+    elif remaining >= 2:
+        line.append("─" * remaining, style=CODE_RULE_EDGE_STYLE)
+    elif clean_label and (max_width is None or used + 2 <= max_width):
+        line.append("──", style=CODE_RULE_EDGE_STYLE)
+    elif prefix is None and not clean_label and target > 0:
+        line.append("─" * target, style=CODE_RULE_EDGE_STYLE)
+
+    return line
 
 
 def _format_bottom_metadata_compact(
@@ -270,28 +339,27 @@ class A3MessageStyle:
     def _header_line_with_rule_fill(self, left_text: Text, right_content: str, width: int) -> Text:
         combined = Text()
         combined.append_text(left_text)
+        target_width = min(width, SHORT_RULE_WIDTH)
 
         if right_content:
             right_text = Text.from_markup(right_content)
             right_text.stylize("dim")
-            remaining = width - left_text.cell_len - right_text.cell_len
+            remaining = target_width - left_text.cell_len - right_text.cell_len
             if remaining >= 3:
                 combined.append(" ", style="default")
-                combined.append("─" * (remaining - 2), style="dim")
+                combined.append("─" * (remaining - 2), style=CODE_RULE_EDGE_STYLE)
                 combined.append(" ", style="default")
                 combined.append_text(right_text)
                 return combined
-            if remaining >= 1:
+            if width - left_text.cell_len - right_text.cell_len >= 1:
                 combined.append(" ", style="default")
             combined.append_text(right_text)
             return combined
 
-        remaining = width - left_text.cell_len
+        remaining = target_width - left_text.cell_len
         if remaining >= 2:
             combined.append(" ", style="default")
-            combined.append("─" * (remaining - 1), style="dim")
-        elif remaining == 1:
-            combined.append(" ", style="default")
+            combined.append("─" * (remaining - 1), style=CODE_RULE_EDGE_STYLE)
         return combined
 
     def metadata_line(self, content: Text) -> Text:
@@ -337,12 +405,16 @@ class A3MessageStyle:
     ) -> Text:
         exit_code_style = _SHELL_EXIT_CODE_STYLES.get(exit_code, _SHELL_EXIT_CODE_ERROR_STYLE)
 
-        exit_code_text = f" exit code {exit_code} "
         line = Text()
-        line.append("▎", style="dim")
-        line.append(exit_code_text, style=exit_code_style)
-        if detail:
-            line.append(detail, style="dim")
+        line.append("▎· ", style="dim")
+        if exit_code == 0:
+            line.append(f"exit code {exit_code}", style=exit_code_style)
+            if detail and (clean_detail := detail.lstrip()):
+                line.append(f" · {clean_detail}", style="dim")
+        else:
+            line.append(f" exit code {exit_code} ", style=exit_code_style)
+            if detail:
+                line.append(detail, style="dim")
         return line
 
     def tool_update_line(self) -> Text:
@@ -355,7 +427,7 @@ class A3MessageStyle:
         *,
         label: str | None = None,
     ) -> list[Text]:
-        banner_width = max(1, width)
+        banner_width = max(1, min(width, STREAM_REPRINT_BANNER_WIDTH))
         banner_style = "bright_green bold"
         banner_label = (label or self.stream_reprint_banner_label).strip()
         if not banner_label:

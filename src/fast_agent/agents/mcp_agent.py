@@ -351,10 +351,7 @@ class McpAgent(ABC, ToolAgent):
         manifests = self._initial_skill_manifests(context)
 
         self._initialize_runtime_slots(context)
-        self._skill_manifests: list[SkillManifest] = []
-        self._skill_map: dict[str, SkillManifest] = {}
-        self._skill_reader: SkillReader | None = None
-        self.set_skill_manifests(manifests)
+        self._update_skill_data(manifests)
         self.skill_registry = self._resolve_skill_registry(context)
         self._warnings: list[str] = []
         self._warning_messages_seen: set[str] = set()
@@ -697,6 +694,9 @@ class McpAgent(ABC, ToolAgent):
     def list_attached_mcp_servers(self) -> list[str]:
         return unique_preserving_order(self._aggregator.list_attached_servers())
 
+    def list_attached_mcp_server_configs(self) -> dict[str, MCPServerSettings]:
+        return self._aggregator.attached_server_configs()
+
     async def list_servers(self) -> list[str]:
         return unique_preserving_order(
             [
@@ -974,13 +974,14 @@ class McpAgent(ABC, ToolAgent):
             )
 
     def set_skill_manifests(self, manifests: Sequence[SkillManifest]) -> None:
+        self._update_skill_data(manifests)
+        if self._skill_manifests:
+            self._ensure_shell_runtime_for_skills()
+
+    def _update_skill_data(self, manifests: Sequence[SkillManifest]) -> None:
         self._skill_manifests = list(manifests)
         self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
-        if self._skill_manifests:
-            self._skill_reader = SkillReader(self._skill_manifests, self.logger)
-            self._ensure_shell_runtime_for_skills()
-        else:
-            self._skill_reader = None
+        self._skill_reader = SkillReader(self._skill_manifests, self.logger) if manifests else None
 
     def _ensure_shell_runtime_for_skills(self) -> None:
         if self._no_shell_requested:

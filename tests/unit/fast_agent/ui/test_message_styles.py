@@ -145,28 +145,28 @@ class TestA3MessageStyle:
     """Tests for A3MessageStyle."""
 
     def test_header_line_rule_fill_without_right_info(self) -> None:
-        """User headers can extend to the edge with a dim rule."""
+        """User headers cap their turn-boundary rule so resizes do not wrap."""
         style = A3MessageStyle()
         result = style.header_line(
-            "[blue]▎[/blue][dim blue]▶[/dim blue] [blue]dev[/blue]", "", 40, rule_fill=True
+            "[blue]▎[/blue][dim blue]▶[/dim blue] [blue]dev[/blue]", "", 80, rule_fill=True
         )
         assert result.plain.startswith("▎▶ dev ")
         assert "─" in result.plain
-        assert result.cell_len == 40
+        assert result.cell_len == 36
 
     def test_header_line_rule_fill_with_right_info(self) -> None:
-        """Rule-fill leaves room for right-aligned turn metadata."""
+        """Rule-fill caps turn metadata headers instead of padding to full width."""
         style = A3MessageStyle()
         result = style.header_line(
             "[blue]▎[/blue][dim blue]▶[/dim blue] [blue]dev[/blue]",
             "[dim]turn 3 (12)[/dim]",
-            40,
+            80,
             rule_fill=True,
         )
         assert result.plain.startswith("▎▶ dev ")
         assert " ─" in result.plain
         assert result.plain.endswith(" turn 3 (12)")
-        assert result.cell_len == 40
+        assert result.cell_len == 36
 
     def test_bottom_metadata_with_jump(self) -> None:
         """A3 style integrates the jump functionality."""
@@ -192,11 +192,8 @@ class TestA3MessageStyle:
             exit_code=0,
             detail="(no output) id: call_…123456",
         )
-        assert result.plain.startswith("▎ exit code 0")
+        assert result.plain == "▎· exit code 0 · (no output) id: call_…123456"
         assert "▎•" not in result.plain
-        assert "exit code 0" in result.plain
-        assert "(no output)" in result.plain
-        assert "id: call_…123456" in result.plain
 
     def test_shell_exit_line_styles_success_warning_and_error(self) -> None:
         """Exit code styling distinguishes clean, simple failure, and other failures."""
@@ -206,22 +203,31 @@ class TestA3MessageStyle:
         warning = style.shell_exit_line(exit_code=1)
         error = style.shell_exit_line(exit_code=2)
 
+        assert success.plain == "▎· exit code 0"
+        assert warning.plain == "▎·  exit code 1 "
+        assert error.plain == "▎·  exit code 2 "
         assert success.spans[0].style == "dim"
-        assert success.spans[1].style == "white reverse dim"
+        assert success.spans[1].style == "white dim"
         assert warning.spans[1].style == "red reverse dim"
         assert error.spans[1].style == "red reverse bold"
 
-    def test_stream_reprint_banner_spans_full_width(self) -> None:
-        """Stream reprint banner renders three full-width bright rows."""
+    def test_stream_reprint_banner_moderates_width_on_wide_terminals(self) -> None:
+        """Stream reprint banner fits narrow widths and caps wide viewports to 60 cells."""
         style = A3MessageStyle()
 
-        lines = style.stream_reprint_banner(40)
+        narrow_lines = style.stream_reprint_banner(40)
+        assert len(narrow_lines) == 3
+        assert all(line.cell_len == 40 for line in narrow_lines)
+        assert narrow_lines[0].plain == "━" * 40
+        assert "FINAL RESPONSE" in narrow_lines[1].plain
+        assert narrow_lines[2].plain == "━" * 40
 
-        assert len(lines) == 3
-        assert all(line.cell_len == 40 for line in lines)
-        assert lines[0].plain == "━" * 40
-        assert "FINAL RESPONSE" in lines[1].plain
-        assert lines[2].plain == "━" * 40
+        wide_lines = style.stream_reprint_banner(120)
+        assert len(wide_lines) == 3
+        assert all(line.cell_len == 60 for line in wide_lines)
+        assert wide_lines[0].plain == "━" * 60
+        assert "FINAL RESPONSE" in wide_lines[1].plain
+        assert wide_lines[2].plain == "━" * 60
 
     def test_bottom_metadata_respects_zero_item_length(self) -> None:
         style = A3MessageStyle()

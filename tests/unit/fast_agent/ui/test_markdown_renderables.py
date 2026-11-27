@@ -1,5 +1,6 @@
 import io
 
+import pytest
 from rich.console import Console, Group
 from rich.markdown import Markdown
 from rich.syntax import Syntax
@@ -354,3 +355,256 @@ def test_extract_single_fenced_code_block_handles_incomplete_stream() -> None:
     assert block.language == "python"
     assert block.code == "print('hi')"
     assert block.complete is False
+
+
+def test_build_markdown_renderable_frames_ansi_code_blocks_with_capped_rules() -> None:
+    renderable = build_markdown_renderable(
+        "Before\n\n```python\nx = 1\n```\n\nAfter",
+        code_theme="ansi_light",
+        escape_xml=True,
+    )
+    console = Console(width=100, force_terminal=True, color_system="truecolor")
+    with console.capture() as capture:
+        console.print(renderable)
+
+    lines = [line for line in capture.get().splitlines() if line.strip()]
+    header = next(line for line in lines if "python" in line)
+    footer = lines[-2]
+    assert "──" in header
+    assert Text.from_ansi(header).cell_len == 36
+    assert Text.from_ansi(footer).cell_len == 36
+    assert Text.from_ansi(footer).plain == "─" * 36
+
+    unlabelled = build_markdown_renderable(
+        "```\nplain line\n```",
+        code_theme="ansi_light",
+        escape_xml=True,
+    )
+    with console.capture() as capture:
+        console.print(unlabelled)
+    unlabelled_lines = [
+        Text.from_ansi(line).plain for line in capture.get().splitlines() if line.strip()
+    ]
+    assert unlabelled_lines[0] == "─" * 36
+    assert "text" not in unlabelled_lines[0]
+
+
+@pytest.mark.parametrize("code_theme", ["ansi_light", "monokai"])
+def test_build_markdown_renderable_omits_trailing_spaces_and_caps_hr_for_reflow(
+    code_theme: str,
+) -> None:
+    sample = (
+        "# Top Heading\n\n"
+        "## 2. Unified semantic coloring\n\n"
+        "All three views share one mapping:\n\n"
+        "- **Tool name**: bold cobalt\n"
+        "  - Nested item\n\n"
+        "    Second paragraph inside bullet.\n"
+        "1. First ordered item\n"
+        "2. Second ordered item\n\n"
+        "> Quoted line one\n"
+        ">\n"
+        "> Quoted line two\n\n"
+        "---\n\n"
+        "Closing paragraph."
+    )
+    renderable = build_markdown_renderable(
+        sample,
+        code_theme=code_theme,
+        escape_xml=True,
+    )
+    buffer_console = Console(width=100, force_terminal=True, color_system="truecolor")
+    lines = buffer_console.render_lines(renderable, buffer_console.options, pad=False)
+    plain_lines = ["".join(segment.text for segment in line) for line in lines]
+
+    for plain in plain_lines:
+        assert plain == plain.rstrip(" "), f"unexpected trailing space in {plain!r}"
+
+    with buffer_console.capture() as capture:
+        buffer_console.print(renderable)
+    printed_lines = [Text.from_ansi(line).plain for line in capture.get().splitlines()]
+    for plain in printed_lines:
+        assert plain == plain.rstrip(" "), f"unexpected trailing space in printed {plain!r}"
+
+    assert "Top Heading" in printed_lines
+    assert "─" * 36 in printed_lines
+    assert "-" * 100 not in printed_lines
+
+
+def test_live_incomplete_fences_omit_bottom_rule_and_keep_single_clean_cursor() -> None:
+    from fast_agent.ui.markdown.truncation import MarkdownTruncator
+    from fast_agent.ui.streaming.display import STREAM_CURSOR_BLOCK, _CursorStyledRenderable
+
+    console = Console(width=80, force_terminal=True, color_system="truecolor")
+
+    def render_plain(markup: str, *, theme: str = "ansi_light", cursor: bool = True) -> list[str]:
+        renderable = build_markdown_renderable(
+            markup,
+            code_theme=theme,
+            escape_xml=True,
+            cursor_suffix=STREAM_CURSOR_BLOCK if cursor else "",
+            close_incomplete_fences=True,
+        )
+        if cursor:
+            renderable = _CursorStyledRenderable(renderable, visible=True, _segment_cache={})
+        return [
+            "".join(seg.text for seg in line)
+            for line in console.render_lines(renderable, console.options, pad=False)
+        ]
+
+    # Open top-level fence: header pill present, NO bottom rule, trailing newline moves cursor to next row
+    open_no_nl = render_plain("Intro\n\n```python\nx = 1")
+    assert any("python" in line and "──" in line for line in open_no_nl)
+    assert open_no_nl[-1] == f"x = 1{STREAM_CURSOR_BLOCK}"
+    assert "─" * 36 not in open_no_nl
+
+    open_with_nl = render_plain("Intro\n\n```python\nx = 1\n")
+    assert open_with_nl[-2:] == ["x = 1", STREAM_CURSOR_BLOCK]
+    assert "─" * 36 not in open_with_nl
+
+    # Closed fence: bottom rule appears, live cursor moves OUTSIDE the framed block
+    closed = render_plain("Intro\n\n```python\nx = 1\n```")
+    assert closed[-2] == "─" * 36
+    assert closed[-1] == STREAM_CURSOR_BLOCK
+
+    # Nested list & blockquote open fences: single cursor, no duplicate block or bouncing closer
+    nested_list = render_plain("- item\n\n  ```python\n  x = 1")
+    assert sum(line.count(STREAM_CURSOR_BLOCK) for line in nested_list) == 1
+    assert nested_list[-1].endswith(f"x = 1{STREAM_CURSOR_BLOCK}")
+    assert not any(line.strip() == "─" * 33 for line in nested_list)
+
+    nested_quote = render_plain("> ```python\n> a")
+    assert sum(line.count(STREAM_CURSOR_BLOCK) for line in nested_quote) == 1
+    assert nested_quote[-1] == f"▌ a{STREAM_CURSOR_BLOCK}"
+
+    # Exiting a blockquote without an explicit closing fence closes the block and moves cursor out
+    exited_quote_blank = render_plain("> ```python\n> a\n\n")
+    assert sum(line.count(STREAM_CURSOR_BLOCK) for line in exited_quote_blank) == 1
+    assert any(line == "▌ " + "─" * 36 for line in exited_quote_blank)
+    assert exited_quote_blank[-1] == STREAM_CURSOR_BLOCK
+
+    exited_quote_prose = render_plain("> ```python\n> a\n\noutside")
+    assert sum(line.count(STREAM_CURSOR_BLOCK) for line in exited_quote_prose) == 1
+    assert any(line == "▌ " + "─" * 36 for line in exited_quote_prose)
+    assert exited_quote_prose[-1] == f"outside{STREAM_CURSOR_BLOCK}"
+
+    # Under ansi_dark, cursor must not inherit Pygments red/underline error styling
+    dark_renderable = _CursorStyledRenderable(
+        build_markdown_renderable(
+            "```python\nx = 1",
+            code_theme="ansi_dark",
+            escape_xml=True,
+            cursor_suffix=STREAM_CURSOR_BLOCK,
+            close_incomplete_fences=True,
+        ),
+        visible=True,
+        _segment_cache={},
+    )
+    cursor_segments = [
+        seg
+        for seg in console.render(dark_renderable, console.options)
+        if STREAM_CURSOR_BLOCK in seg.text
+    ]
+    assert len(cursor_segments) == 1
+    assert cursor_segments[0].style is not None
+    assert not cursor_segments[0].style.underline
+
+    # Truncator height measurement matches open vs closed rule count
+    truncator = MarkdownTruncator()
+    open_h = truncator.measure_rendered_height("```python\nx = 1", console, code_theme="ansi_light")
+    closed_h = truncator.measure_rendered_height(
+        "```python\nx = 1\n```", console, code_theme="ansi_light"
+    )
+    assert closed_h == open_h + 1
+
+
+def test_soft_wrap_emits_unbroken_markdown_lines_and_bypasses_streaming_cache() -> None:
+    import io
+    import re
+
+    from fast_agent.ui.streaming.display import _CachedStaticRenderable
+
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    para = (
+        "Here is a long paragraph that explains how terminal copy-paste and pane resizing "
+        "behave when soft-wrapping is delegated to the terminal."
+    )
+    bullet = (
+        "First bullet item with enough text to exceed sixty columns and stay unbroken "
+        "when printed with soft_wrap enabled."
+    )
+    quote = (
+        "Blockquote text that is deliberately long enough to exceed sixty columns and "
+        "stay unbroken when soft_wrap is enabled."
+    )
+    code_line = '    return f"hello {name}, this is a deliberately long python line exceeding sixty columns"'
+    md_text = (
+        f"{para}\n\n"
+        f"- {bullet}\n\n"
+        f"> {quote}\n\n"
+        f"```python\ndef greet(name: str) -> str:\n{code_line}\n```\n"
+    )
+
+    renderable = _CachedStaticRenderable(
+        build_markdown_renderable(md_text, code_theme="monokai", escape_xml=True),
+        _segment_cache={},
+    )
+
+    # First render at viewport width (streaming mode, soft_wrap=False) populates the cache.
+    stream_buf = io.StringIO()
+    stream_console = Console(
+        file=stream_buf, width=60, force_terminal=True, color_system="truecolor"
+    )
+    stream_console.print(renderable)
+    stream_lines = ansi_re.sub("", stream_buf.getvalue()).splitlines()
+    assert para not in stream_lines
+    assert code_line not in stream_lines
+
+    # Final print on the same Console instance with soft_wrap=True must bypass the cached
+    # hard-wrapped segments and emit unbroken logical lines without trailing padding.
+    stream_buf.truncate(0)
+    stream_buf.seek(0)
+    stream_console.print(renderable, soft_wrap=True)
+    final_lines = ansi_re.sub("", stream_buf.getvalue()).splitlines()
+
+    assert para in final_lines
+    assert f" • {bullet}" in final_lines
+    assert f"▌ {quote}" in final_lines
+    assert code_line in final_lines
+    for line in final_lines:
+        assert line == line.rstrip(" "), f"Unexpected trailing space padding: {line!r}"
+
+
+def test_diff_live_stop_reprints_soft_wrapped_and_respects_transient() -> None:
+    import io
+    import re
+
+    from fast_agent.ui.streaming.display import _DiffLive
+
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    para = (
+        "Streaming output paragraph that is definitely longer than forty columns so live "
+        "frames wrap it and final stop reprints it unbroken."
+    )
+    renderable = build_markdown_renderable(para, code_theme="ansi_light", escape_xml=True)
+
+    buf = io.StringIO()
+    console = Console(file=buf, width=40, force_terminal=True, color_system="truecolor")
+    live = _DiffLive(renderable, console=console, transient=False)
+    cleared: list[bool] = []
+    live._clear_region = lambda: cleared.append(True)  # type: ignore[method-assign]
+    live._stop_drawn_frame()
+
+    assert cleared == [True]
+    plain_lines = ansi_re.sub("", buf.getvalue()).splitlines()
+    assert para in plain_lines
+
+    buf_t = io.StringIO()
+    console_t = Console(file=buf_t, width=40, force_terminal=True, color_system="truecolor")
+    live_t = _DiffLive(renderable, console=console_t, transient=True)
+    cleared_t: list[bool] = []
+    live_t._clear_region = lambda: cleared_t.append(True)  # type: ignore[method-assign]
+    live_t._stop_drawn_frame()
+
+    assert cleared_t == [True]
+    assert buf_t.getvalue() == ""

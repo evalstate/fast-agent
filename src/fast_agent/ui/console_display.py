@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, cast, runtime_checkabl
 
 from mcp_types import CallToolResult, ContentBlock
 from rich.console import Group, RenderableType
-from rich.markdown import Markdown
 from rich.markup import escape as escape_markup
 from rich.panel import Panel
 from rich.protocol import is_renderable
@@ -27,7 +26,11 @@ from fast_agent.ui.display_suppression import (
     display_status_enabled,
     display_tools_enabled,
 )
-from fast_agent.ui.markdown import build_markdown_renderable, prepare_markdown_content
+from fast_agent.ui.markdown import (
+    build_markdown_renderable,
+    build_rich_markdown,
+    prepare_markdown_content,
+)
 from fast_agent.ui.markdown.content import count_non_code_xml_tags
 from fast_agent.ui.mermaid_utils import (
     MermaidDiagram,
@@ -506,9 +509,12 @@ class ConsoleDisplay:
             left += f"[{arrow_style}]{arrow}[/{arrow_style}]"
         if show_hook_indicator:
             left += f" [{block_color}]{HOOK_INDICATOR_GLYPH}[/{block_color}]"
-        if name:
+        from fast_agent.ui.progress_display import progress_display
+
+        display_name = None if progress_display.is_default_agent_name(name) else name
+        if display_name:
             name_color = block_color if not is_error else "red"
-            left += f" [{name_color}]{escape_markup(name)}[/{name_color}]"
+            left += f" [{name_color}]{escape_markup(display_name)}[/{name_color}]"
         return left
 
     def display_message(
@@ -773,7 +779,7 @@ class ConsoleDisplay:
             from fast_agent.ui.markdown.renderables import style_markdown_renderable
 
             renderable = style_markdown_renderable(renderable, markdown_styles)
-        console.console.print(renderable, markup=self._markup)
+        console.console.print(renderable, markup=self._markup, soft_wrap=True)
 
     _LEADING_XML_TAG_RE = re.compile(r"^<[A-Za-z_][A-Za-z0-9_:.-]*(?:\s[^<>]*?)?/?>")
 
@@ -876,7 +882,7 @@ class ConsoleDisplay:
             if render_markdown:
                 prepared_content = prepare_markdown_content(plain_text, self._escape_xml)
                 console.console.print(
-                    Markdown(prepared_content, code_theme=self.code_style),
+                    build_rich_markdown(prepared_content, code_theme=self.code_style),
                     markup=self._markup,
                 )
             else:
@@ -1210,7 +1216,7 @@ class ConsoleDisplay:
         if self._looks_like_markdown(joined):
             try:
                 prepared = prepare_markdown_content(joined, self._escape_xml)
-                markdown = Markdown(
+                markdown = build_rich_markdown(
                     prepared,
                     code_theme=self.code_style,
                     style="dim italic",

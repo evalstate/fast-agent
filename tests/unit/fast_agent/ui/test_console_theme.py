@@ -87,7 +87,7 @@ def test_console_display_without_theme_file_restores_default_theme() -> None:
 
         assert console.console.get_style("markdown.h3") == Style.parse("bold yellow")
         assert console.console.get_style("markdown.block_quote") == Style.parse("blue")
-        assert console.console.get_style("markdown.code") == Style.parse("bright_green on black")
+        assert console.console.get_style("markdown.code") == Style.parse("cyan")
     finally:
         console.configure_console_theme(None)
 

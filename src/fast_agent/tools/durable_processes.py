@@ -347,18 +347,31 @@ class DurableProcessStore:
                 self.prune_terminal_records()
         return self.get(process_id)
 
-    def discover(self) -> list[DurableProcessSnapshot]:
-        """Return valid snapshots, persisting unavailable process tombstones."""
+    def discover(self, *, active_only: bool = False) -> list[DurableProcessSnapshot]:
+        """Return valid snapshots, persisting unavailable process tombstones.
+
+        With active_only, skip completed records before reading their details.
+        Active records still undergo the usual stale-supervisor reconciliation.
+        """
 
         with FileLock(self._root / ".capacity.lock", mode=0o600):
-            return self._discover()
+            return self._discover(active_only=active_only)
 
-    def _discover(self) -> list[DurableProcessSnapshot]:
+    def _discover(self, *, active_only: bool = False) -> list[DurableProcessSnapshot]:
         snapshots: list[DurableProcessSnapshot] = []
         for entry in sorted(self._root.iterdir()):
             if entry.is_dir() and _is_process_id(entry.name):
                 try:
-                    snapshots.append(self.get(entry.name))
+                    # Startup only needs attachable processes. Completed records
+                    # cannot become active again; avoid reading their specs,
+                    # capture counters, output sizes, and session links.
+                    if active_only:
+                        status = _read_status(self._directory(entry.name))
+                        if status.state in _TERMINAL_STATES:
+                            continue
+                    snapshot = self.get(entry.name)
+                    if not active_only or snapshot.status.state in _NONTERMINAL_STATES:
+                        snapshots.append(snapshot)
                 except DurableProcessRecordError:
                     continue
         return snapshots

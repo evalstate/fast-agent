@@ -36,7 +36,7 @@ from fast_agent.ui.edit_file_preview import (
 from fast_agent.ui.streaming.json_prefix import JsonPrefixFormatter
 from fast_agent.ui.syntax_highlighting import syntax_language_for_path
 from fast_agent.utils.reasoning_stream_parser import ReasoningSegment, ReasoningStreamParser
-from fast_agent.utils.text import strip_casefold
+from fast_agent.utils.text import strip_casefold, strip_str_to_none
 from fast_agent.utils.tool_names import is_write_text_file_tool_name
 
 if TYPE_CHECKING:
@@ -466,14 +466,24 @@ class ToolStreamState:
         tool_name = self.canonical_tool_name or self.tool_name
         if is_write_text_file_tool_name(tool_name):
             content = extract_partial_json_string_field(self.raw_text, field_name="content")
-            if content is None or not content.value:
-                return None
-            path = extract_partial_json_string_field(self.raw_text, field_name="path")
-            language = syntax_language_for_path(path.value.strip()) if path is not None else None
+            path_field = extract_partial_json_string_field(self.raw_text, field_name="path")
+            early_path = strip_str_to_none(path_field.value) if path_field is not None else None
+            clean_path = early_path if path_field is not None and path_field.complete else None
+            language = syntax_language_for_path(early_path) if early_path is not None else None
+            if content is None:
+                if clean_path is None:
+                    return None
+                return ToolCodePreview(
+                    code="",
+                    language=language or "text",
+                    complete=False,
+                    path=clean_path,
+                )
             return ToolCodePreview(
                 code=content.value,
                 language=language or "text",
                 complete=content.complete,
+                path=clean_path,
             )
 
         preview_spec = _tool_code_preview_spec(self.tool_metadata)
@@ -819,6 +829,7 @@ class ToolCodePreview:
     language: str
     complete: bool
     variant: Literal["code", "shell"] = "code"
+    path: str | None = None
 
 
 @dataclass(frozen=True)

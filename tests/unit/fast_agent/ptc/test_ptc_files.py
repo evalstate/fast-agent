@@ -757,3 +757,62 @@ async def test_sorted_pathlib_paths_matches_cpython_ordering(tmp_path: Path) -> 
         mixed = await _run(agent, "sorted([pathlib.Path('a'), 'b'])")
         assert mixed.is_error
         assert "TypeError" in _text(mixed)
+
+
+@pytest.mark.asyncio
+async def test_slice_file_helper_reads_ranges_paths_and_non_utf8(tmp_path: Path) -> None:
+    (tmp_path / "sample.py").write_text("alpha\nbeta\ngamma\ndelta\n", encoding="utf-8")
+    (tmp_path / "empty.txt").write_text("", encoding="utf-8")
+    (tmp_path / "latin.txt").write_bytes(b"ok\n\xff\xfebad\n")
+
+    async with _agent(tmp_path) as (agent, _):
+        tools = (await agent.list_tools()).tools
+        code_tool = next(tool for tool in tools if tool.name == PTC_TOOL_NAME)
+        assert code_tool.description is not None
+        assert "slice_file(path, start=1, end=None)" in code_tool.description
+
+        result = await _run(
+            agent,
+            "import json\n"
+            "print(json.dumps({\n"
+            "    'mid': slice_file('sample.py', 2, 3),\n"
+            "    'path_all': slice_file(pathlib.Path('sample.py')),\n"
+            "    'clamped': slice_file('sample.py', 3, 99),\n"
+            "    'empty': slice_file('empty.txt'),\n"
+            "    'past_eof': slice_file('sample.py', 10, 20),\n"
+            "    'non_utf8': slice_file('latin.txt', 1, 2),\n"
+            "}))\n",
+        )
+        assert not result.is_error, _text(result)
+        payload = json.loads(_text(result).split("Output:\n", 1)[1])
+        assert payload["mid"] == "=== sample.py:2-3 (of 4) ===\n   2: beta\n   3: gamma"
+        assert payload["path_all"] == (
+            "=== sample.py:1-4 (of 4) ===\n   1: alpha\n   2: beta\n   3: gamma\n   4: delta"
+        )
+        assert payload["clamped"] == "=== sample.py:3-4 (of 4) ===\n   3: gamma\n   4: delta"
+        assert payload["empty"] == "=== empty.txt (empty) ==="
+        assert payload["past_eof"] == "=== sample.py:10-4 (of 4 lines) ==="
+        assert (
+            payload["non_utf8"] == "=== latin.txt:1-2 (of 2) ===\n   1: ok\n   2: \ufffd\ufffdbad"
+        )
+
+
+@pytest.mark.asyncio
+async def test_slice_file_absent_without_file_read() -> None:
+    agent = McpAgent(
+        AgentConfig(name="ptc-no-files", servers=[], shell=False),
+        context=Context(
+            config=Settings(ptc=ProgrammaticToolCallingSettings(enabled=True)),
+        ),
+    )
+    try:
+        tools = (await agent.list_tools()).tools
+        code_tool = next(tool for tool in tools if tool.name == PTC_TOOL_NAME)
+        assert code_tool.description is not None
+        assert "slice_file" not in code_tool.description
+
+        result = await _run(agent, "slice_file('sample.py')")
+        assert result.is_error
+        assert "slice_file" in _text(result)
+    finally:
+        await agent.shutdown()
