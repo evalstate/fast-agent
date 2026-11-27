@@ -32,10 +32,10 @@ from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekResponsesLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_google_oai import GoogleOaiLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
-from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.provider.openai.llm_openai import DEFAULT_OPENAI_MODEL, OpenAILLM
 from fast_agent.llm.provider.openai.llm_openrouter import OpenRouterLLM
 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
-from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider.openai.responses import DEFAULT_RESPONSES_MODEL, ResponsesLLM
 from fast_agent.llm.provider_types import Provider
 
 
@@ -218,3 +218,21 @@ def test_azure_default_model_overrides_azure_deployment() -> None:
     llm = AzureOpenAILLM(context=Context(config=settings), model="")
 
     assert llm.default_request_params.model == "preferred-model"
+
+
+def test_openai_default_model_fallback_is_gpt_6_luna() -> None:
+    # Selection contract only: pins the bare fallback and checks local resolution.
+    # It does not query OpenAI for lifecycle status. gpt-5-mini (shutdown
+    # 2026-12-11), gpt-4.1-mini and gpt-4o-mini (both shutdown 2027-01-14) are
+    # deprecated; gpt-6-luna is OpenAI's named replacement (issue #959).
+    assert DEFAULT_OPENAI_MODEL == "gpt-6-luna"
+    llm = OpenAILLM(context=Context(config=Settings()), model="")
+    assert llm.default_request_params.model == "gpt-6-luna"
+
+
+def test_responses_default_model_fallback_is_gpt_5_6() -> None:
+    # Selection contract only: pins the bare fallback and checks local resolution.
+    # gpt-5.2 was replaced as the Responses default (issue #959).
+    assert DEFAULT_RESPONSES_MODEL == "gpt-5.6"
+    llm = ResponsesLLM(context=Context(config=Settings()), model="")
+    assert llm.default_request_params.model == "gpt-5.6"
