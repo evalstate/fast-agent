@@ -26,9 +26,10 @@ _EVENTS_TOOL_DESCRIPTION: Final = (
     "Actions:\n"
     "- `list`: list available event types (optionally filtered by `server`).\n"
     "- `status`: show active/completed/terminated subscriptions and whether wake turns are paused.\n"
-    "- `subscribe`: subscribe to `(server, name)` with optional filter `arguments`, `wake=True` "
-    "(start a turn when an event arrives while idle), `once=True` (stop after the first event), "
-    "and `every` (minimum poll interval such as `'30s'` or `'5m'`).\n"
+    "- `subscribe`: subscribe to `(server, name)` with optional filter `arguments`, `wake` "
+    "(defaults to `True`, starting a turn when an event arrives while idle; set `False` for "
+    "passive inbox-only buffering), `once=True` (stop after the first event), and `every` "
+    "(minimum poll interval such as `'30s'` or `'5m'`).\n"
     "- `unsubscribe`: stop a subscription by `id`.\n"
     'Subscribed events arrive later as `<mcp-event subscription="...">` blocks in a user message. '
     "Unsubscribe when you no longer need updates (for example, after a watched job finishes)."
@@ -59,8 +60,11 @@ _EVENTS_INPUT_SCHEMA: Final[dict[str, Any]] = {
         },
         "wake": {
             "type": "boolean",
-            "default": False,
-            "description": "Start a turn when an event arrives while idle.",
+            "default": True,
+            "description": (
+                "Start a turn when an event arrives while idle "
+                "(default: true; set false for passive inbox-only buffering)."
+            ),
         },
         "once": {
             "type": "boolean",
@@ -264,7 +268,7 @@ async def _handle_subscribe(
     else:
         raise ValueError("Parameter 'arguments' must be an object.")
 
-    wake = _optional_bool(payload, "wake", default=False)
+    wake = _optional_bool(payload, "wake", default=True)
     once = _optional_bool(payload, "once", default=False)
 
     raw_every = payload.get("every")

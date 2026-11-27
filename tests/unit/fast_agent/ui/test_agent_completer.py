@@ -3331,14 +3331,14 @@ async def test_events_command_completions_subcommands_servers_events_args_and_id
     assert _complete("/events subscribe 'my jobs' job.status_changed ") == [
         "job_id=",
         "verbose=",
-        "--wake",
+        "--no-wake",
         "--once",
         "--every",
     ]
 
     # 5. Arguments (required first) + flags, skipping present keys/flags
     args_and_flags = _complete("/events subscribe jobs job.status_changed ")
-    assert args_and_flags == ["job_id=", "verbose=", "--wake", "--once", "--every"]
+    assert args_and_flags == ["job_id=", "verbose=", "--no-wake", "--once", "--every"]
     assert _complete("/events subscribe jobs job.status_changed job_id=abc --wake ") == [
         "verbose=",
         "--once",

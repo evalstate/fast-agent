@@ -75,12 +75,16 @@ matters.
 
 ## Waking an idle agent
 
-By default an event waits for the next turn. Add `--wake` and an arrival starts
-one:
+Interactive subscriptions (`/events subscribe`, `/events select`, and the
+`events` tool) wake an idle agent by default. Pass `--no-wake` (or `wake=False`)
+to buffer events passively until the next turn instead:
 
 ```text
-/events subscribe jobs job.status_changed job_id=abc123 --wake
+/events subscribe jobs job.status_changed job_id=abc123 --no-wake
 ```
+
+Subscriptions declared in `fastagent.config.yaml` remain passive (`wake: false`)
+by default unless `wake: true` is set.
 
 While the prompt is idle, an event from a subscription with wake set ends the
 prompt and starts a turn whose input is the event message. Text you were typing

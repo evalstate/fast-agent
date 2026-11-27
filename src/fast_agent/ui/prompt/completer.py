@@ -288,7 +288,7 @@ _EVENTS_SUBCOMMANDS: dict[str, str] = {
 }
 
 _EVENTS_SUBSCRIBE_FLAGS: tuple[tuple[str, str], ...] = (
-    ("--wake", "Wake idle session when event arrives"),
+    ("--no-wake", "Buffer events passively without waking an idle session"),
     ("--once", "Stop after the first event"),
     ("--every", "Minimum poll interval (e.g. 5m)"),
 )
@@ -2354,8 +2354,8 @@ class AgentCompleter(Completer):
         present_keys: set[str] = set()
         present_flags: set[str] = set()
         for token in preceding:
-            if token == "--wake":
-                present_flags.add("--wake")
+            if token in ("--wake", "--no-wake"):
+                present_flags.add("--no-wake")
             elif token == "--once":
                 present_flags.add("--once")
             elif token == "--every" or token.startswith("--every="):

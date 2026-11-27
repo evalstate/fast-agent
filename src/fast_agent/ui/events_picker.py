@@ -553,7 +553,9 @@ class _EventsPicker:
 
     async def _subscribe_item(self, item: EventsPickerItem, *, exit_after: bool) -> None:
         try:
-            sub = await self.manager.subscribe(item.server_name, item.name, {}, origin="user")
+            sub = await self.manager.subscribe(
+                item.server_name, item.name, {}, wake=True, origin="user"
+            )
         except Exception as exc:
             self.state.status_message = f"Subscribe failed: {exc}"
             self._invalidate_if_running()
