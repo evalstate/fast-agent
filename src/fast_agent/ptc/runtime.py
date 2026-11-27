@@ -43,6 +43,9 @@ from fast_agent.ptc.catalog import (
     unavailable_tool_message,
 )
 from fast_agent.ptc.output import (
+    FILE_HELPER_NAMES,
+    FILE_PRELUDE,
+    FILE_STUBS,
     OUTPUT_HELPER_NAMES,
     OUTPUT_PRELUDE,
     OUTPUT_STUBS,
@@ -257,7 +260,11 @@ _IO_NOTE = (
 _FILES_NOTE = (
     "- Files are the machine's real files: `open()`, `pathlib.Path` and the `os` file functions "
     "(`os.listdir`, `os.walk`, `os.path.exists`, `os.makedirs`, ...) read and write them, "
-    "relative to the working directory.{commands}\n"
+    "relative to the working directory.{slice_note}{commands}\n"
+)
+_SLICE_FILE_NOTE = (
+    " Use `print(slice_file(path, start=1, end=None))` (pre-defined, no `await`) to inspect "
+    "1-based inclusive numbered line ranges with a header instead of writing your own reader."
 )
 _READ_LIMITS_NOTE = (
     "- A read loads the whole file (at most {binary} binary or {text} text), even for `read(n)` "
@@ -539,7 +546,9 @@ class ProgrammaticToolRuntime:
         routes: Mapping[str, ToolRoute],
     ) -> PtcCatalog:
         canonical = self.vocabulary == 1
-        reserved = OUTPUT_HELPER_NAMES if self._output_guidance != "off" else frozenset()
+        reserved = (OUTPUT_HELPER_NAMES if self._output_guidance != "off" else frozenset()) | (
+            FILE_HELPER_NAMES if self._file_read else frozenset()
+        )
         functions = build_functions(
             nested,
             profile_names=not canonical,
@@ -572,6 +581,8 @@ class ProgrammaticToolRuntime:
         stubs = render_stubs(functions)
         if self._output_guidance != "off":
             stubs += OUTPUT_STUBS
+        if self._file_read:
+            stubs += FILE_STUBS
         if search_active:
             stubs += SEARCH_STUBS
         return PtcCatalog(
@@ -605,14 +616,22 @@ class ProgrammaticToolRuntime:
 
     def _prelude(self, catalog: PtcCatalog) -> str:
         # Old calls stay catchable after a refresh, without advertising missing tools.
-        helpers = self._output_guidance != "off"
-        retired = catalog.retired - OUTPUT_HELPER_NAMES if helpers else catalog.retired
+        output_helpers = self._output_guidance != "off"
+        reserved_helpers = (OUTPUT_HELPER_NAMES if output_helpers else frozenset()) | (
+            FILE_HELPER_NAMES if self._file_read else frozenset()
+        )
+        retired = catalog.retired - reserved_helpers
         unavailable = "".join(
             f"\nasync def {name}(*args, **kwargs):\n"
             f"    raise RuntimeError({unavailable_tool_message(name)!r})\n"
             for name in sorted(retired)
         )
-        return _PRELUDE + unavailable + (OUTPUT_PRELUDE if helpers else "")
+        return (
+            _PRELUDE
+            + unavailable
+            + (OUTPUT_PRELUDE if output_helpers else "")
+            + (FILE_PRELUDE if self._file_read else "")
+        )
 
     def surface(
         self, model_tools: Sequence[Tool], *, seen_signatures: frozenset[str] = frozenset()
@@ -743,6 +762,7 @@ class ProgrammaticToolRuntime:
             from fast_agent.ptc.files import MAX_BINARY_READ_BYTES, MAX_TEXT_READ_BYTES, format_size
 
             files_note = _FILES_NOTE.format(
+                slice_note=_SLICE_FILE_NOTE if self._file_read else "",
                 commands=_COMMANDS_NOTE.format(how=how) if how else "",
             )
             return files_note + _READ_LIMITS_NOTE.format(

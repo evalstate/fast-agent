@@ -224,21 +224,6 @@ async def helpers(tmp_path: Path) -> AsyncIterator[ProgrammaticToolRuntime]:
 @pytest.mark.parametrize(
     ("expression", "expected"),
     [
-        ("tail('a\\nb\\nc\\n', 2)", "b\nc"),
-        ("head('a\\nb\\nc\\n', 2)", "a\nb"),
-        ("tail('a\\nb', 0)", ""),
-        ("head('a\\nb', -1)", ""),
-        ("tail('')", ""),
-        ("tail('\\n'.join(str(i) for i in range(45)))", "\n".join(map(str, range(5, 45)))),
-        ("head('\\n'.join(str(i) for i in range(45)))", "\n".join(map(str, range(40)))),
-        (
-            "grep('a\\nError one\\nb\\nFAIL two\\nc\\nerror three', 'error|fail', 1, 2)",
-            "1: a\n2: Error one\n3: b\n4: FAIL two\n5: c\n[1 more matches]",
-        ),
-        ("grep('a\\nB\\nc', 'b', 20)", "1: a\n2: B\n3: c"),
-        ("grep('a\\nb', 'missing')", ""),
-        ("grep('x\\nx', 'x', limit=0)", "[2 more matches]"),
-        ("grep('a\\nB\\nc', 'b', context=-1)", "2: B"),
         (
             (
                 "show({'stdout': 'a\\nb\\nc\\n', 'stderr': 'warn\\nbad\\n', "
@@ -246,7 +231,7 @@ async def helpers(tmp_path: Path) -> AsyncIterator[ProgrammaticToolRuntime]:
             ),
             (
                 "exit_code=1 status=failed process_id=p1\n--- stderr\nwarn\nbad\n--- stdout\n"
-                "a\n[... 1 of 3 lines omitted; print the stream or use head()/grep() to see them ...]\nc"
+                "a\n[... 1 of 3 lines omitted; print the stream or use show(r, pattern=...) to see them ...]\nc"
             ),
         ),
         (
@@ -256,16 +241,16 @@ async def helpers(tmp_path: Path) -> AsyncIterator[ProgrammaticToolRuntime]:
             ),
             (
                 "exit_code=1 status=failed\n--- stderr\n"
-                "[... 1 of 1 lines omitted; print the stream or use head()/grep() to see them ...]\n"
+                "[... 1 of 1 lines omitted; print the stream or use show(r, pattern=...) to see them ...]\n"
                 "--- stdout\n"
-                "[... 3 of 3 lines omitted; print the stream or use head()/grep() to see them ...]"
+                "[... 3 of 3 lines omitted; print the stream or use show(r, pattern=...) to see them ...]"
             ),
         ),
         (
             "show({'stdout': 'a\\nb\\nc\\n', 'exit_code': 0, 'status': 'completed'}, n=-2)",
             (
                 "exit_code=0 status=completed\n--- stdout\n"
-                "[... 3 of 3 lines omitted; print the stream or use head()/grep() to see them ...]"
+                "[... 3 of 3 lines omitted; print the stream or use show(r, pattern=...) to see them ...]"
             ),
         ),
         (
@@ -309,10 +294,10 @@ async def test_helpers_are_only_defined_with_guidance(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_helper_names_win_over_tools(tmp_path: Path) -> None:
-    names = ("tail", "head", "grep", "show")
     tools = [
         *_shell(tmp_path).tools,
-        *(Tool(name=n, input_schema={"type": "object"}) for n in names),
+        Tool(name="show", input_schema={"type": "object"}),
+        Tool(name="grep", input_schema={"type": "object"}),
     ]
     runtime = ProgrammaticToolRuntime(ProgrammaticToolCallingSettings())
 
@@ -321,17 +306,24 @@ async def test_helper_names_win_over_tools(tmp_path: Path) -> None:
 
     try:
         runtime.model_tools(tools, output_guidance="off")
-        assert {f.python_name for f in runtime.functions.values()} >= set(names)
+        assert {f.python_name for f in runtime.functions.values()} >= {"show", "grep"}
         runtime.model_tools(tools, output_guidance="helpers")
-        for name in names:
-            function = next(f for f in runtime.functions.values() if f.tool_name == name)
-            assert function.python_name == f"{name}_tool"
-            result = await runtime.execute(
-                {"code": f"print(await {function.python_name}())\nprint(tail('a\\nb', 1))"},
-                dispatch,
-            )
-            assert not result.is_error, _text(result)
-            assert _text(result).endswith(f"{name}\nb")
+        show_fn = next(f for f in runtime.functions.values() if f.tool_name == "show")
+        grep_fn = next(f for f in runtime.functions.values() if f.tool_name == "grep")
+        assert show_fn.python_name == "show_tool"
+        assert grep_fn.python_name == "grep"
+        result = await runtime.execute(
+            {
+                "code": (
+                    "print(await show_tool())\n"
+                    "print(await grep())\n"
+                    "print(show({'stdout': 'ok', 'exit_code': 0, 'status': 'completed'}))"
+                )
+            },
+            dispatch,
+        )
+        assert not result.is_error, _text(result)
+        assert _text(result).endswith("show\ngrep\nexit_code=0 status=completed\n--- stdout\nok")
     finally:
         await runtime.close()
 
@@ -504,7 +496,7 @@ async def test_store_recovers_short_output_that_show_omits(tmp_path: Path) -> No
         assert unavailable.is_error
         assert "retained_output: unavailable" in _text(unavailable)
         recovered = await runtime.execute(
-            {"code": "r = await load('result')\nprint(grep(r['stdout'], 'earlier'))"}, dispatch
+            {"code": "r = await load('result')\nprint(show(r, pattern='earlier'))"}, dispatch
         )
         assert not recovered.is_error, _text(recovered)
         assert _text(recovered).endswith("21: earlier-detail")
