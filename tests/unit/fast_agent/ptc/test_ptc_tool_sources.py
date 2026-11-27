@@ -155,8 +155,8 @@ async def test_roster_is_sent_once_and_again_when_it_changes(harness: _Agent) ->
     assert get_text(first.content[0]) == "hi"
     expected = (
         "<fastagent:tool-sources>\n"
-        "Searchable tool sources in `exec_sandbox` (discover signatures with "
-        '`await search_tools(query="...", server="...")`):\n'
+        "Searchable tool sources in `exec_sandbox` (discover signatures across all sources with "
+        '`await search_tools(query="...")`; pass `server="..."` only when the source is known):\n'
         "- github: 4 functions\n"
         "</fastagent:tool-sources>"
     )

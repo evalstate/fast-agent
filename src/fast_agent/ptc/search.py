@@ -37,7 +37,7 @@ async def search_tools(
     offset: int = 0,
 ) -> str:
     """Search deferred sandbox functions by task keywords (e.g. "list repository files") or exact function name.
-    Pass `server` to scope to one source from <fastagent:tool-sources>, or `exclude` to skip function names already seen.
+    Pass `server` only when certain which source from <fastagent:tool-sources> owns the capability (omit `server` to search all sources), or `exclude` to skip function names already seen.
     Omit `query` to list searchable sources. If a result continues, repeat the call with the supplied `offset`.
     Print or return the result to inspect full callable Python stubs."""
     ...
@@ -452,13 +452,21 @@ def _search_result(
         match for match in all_matches if not _is_excluded(match.document.function, excluded)
     ]
     retired = _retired_name(catalog, query)
+    other_hint = (
+        _other_source_hint(catalog, index, query, source, excluded) if source is not None else None
+    )
     if not matches:
         if retired is not None:
             return f"# search_tools: {unavailable_tool_message(retired)}"
-        return _no_matches(
+        base = _no_matches(
             catalog, query, source, excluded_hits=len(all_matches) if excluded else 0
         )
-    note = f"# Note: {unavailable_tool_message(retired)}" if retired is not None else None
+        return f"{other_hint}\n{base}" if other_hint else base
+    notes = [
+        *([f"# Note: {unavailable_tool_message(retired)}"] if retired is not None else []),
+        *([other_hint] if other_hint is not None else []),
+    ]
+    note = "\n".join(notes) if notes else None
     return _render_matches(
         matches,
         limit,
@@ -468,6 +476,44 @@ def _search_result(
         seen_full=seen_full,
         remaining_cell=remaining_cell,
         newly_shown_full=newly_shown_full,
+    )
+
+
+def _other_source_hint(
+    catalog: PtcCatalog,
+    index: dict[str, SearchDocument],
+    query: str,
+    source: str,
+    excluded: frozenset[str],
+) -> str | None:
+    global_docs = [
+        document
+        for name, document in index.items()
+        if name in catalog.deferred and not _is_excluded(document.function, excluded)
+    ]
+    if not global_docs:
+        return None
+    global_matches = rank(global_docs, query)
+    best_scoped = max(
+        (match.score for match in global_matches if match.document.source == source),
+        default=0.0,
+    )
+    stronger = [
+        match
+        for match in global_matches
+        if match.document.source != source and match.score > best_scoped
+    ]
+    if not stronger:
+        return None
+    examples = ", ".join(match.document.function.python_name for match in stronger[:3])
+    if best_scoped <= 0.0:
+        return (
+            f"# Note: matching functions exist in other sources ({examples}); "
+            "omit `server` to search all sources."
+        )
+    return (
+        f"# Note: stronger matches exist in other sources ({examples}); "
+        "omit `server` to include them."
     )
 
 
@@ -527,7 +573,7 @@ def _list_sources(catalog: PtcCatalog) -> str:
     return (
         f"# search_tools: {_count(total, 'searchable function')}\n"
         + _source_lines(catalog)
-        + '\nSearch with `await search_tools(query="operation object", server="...")`.'
+        + '\nSearch with `await search_tools(query="operation object")` (omit `server` unless the target source is certain).'
     )
 
 

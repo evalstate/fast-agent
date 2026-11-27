@@ -756,3 +756,36 @@ def test_cell_search_state_compact_demoted_tool_not_marked_seen() -> None:
     assert "# Already shown in this run:" not in second
     assert "cell search budget reached" in second
     assert "async def svc__item_4(" in second
+
+
+def test_server_scoping_hints_when_other_source_has_stronger_match() -> None:
+    tools = [
+        _tool("github__add_pr_comment", "Reply to a pull request review or discussion thread."),
+        _tool("github__list_pull_requests", "List pull requests in a repository."),
+        _tool(
+            "huggingface__hf_discussions_list",
+            "List open discussions across repositories of an organization.",
+        ),
+        _tool("playwright__browser_navigate", "Navigate browser to a URL."),
+    ]
+    catalog = _catalog_runtime(tools).catalog
+
+    # Weak prose hit in github while huggingface has an exact identifier/name match.
+    weak_scoped = search_tools(catalog, query="discussions", server="github")
+    assert (
+        "# Note: stronger matches exist in other sources (huggingface__hf_discussions_list); "
+        "omit `server` to include them."
+    ) in weak_scoped
+    assert _result_names(weak_scoped) == ["github__add_pr_comment"]
+
+    # Zero matches in github while playwright matches.
+    empty_scoped = search_tools(catalog, query="browser navigate", server="github")
+    assert (
+        "# Note: matching functions exist in other sources (playwright__browser_navigate); "
+        "omit `server` to search all sources."
+    ) in empty_scoped
+
+    # Control: github holds the strongest match -> no cross-source note emitted.
+    strong_scoped = search_tools(catalog, query="list pull requests", server="github")
+    assert "other sources" not in strong_scoped
+    assert _result_names(strong_scoped)[0] == "github__list_pull_requests"

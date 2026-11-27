@@ -39,8 +39,8 @@ TOOL_SOURCES_FINGERPRINT_META: Final = "fast_agent_tool_sources_fingerprint"
 """Text block metadata recording which source roster a user message carried."""
 _MAX_ROSTER_ENTRIES = 40
 _ROSTER_HEADER = (
-    "Searchable tool sources in `exec_sandbox` (discover signatures with "
-    '`await search_tools(query="...", server="...")`):'
+    "Searchable tool sources in `exec_sandbox` (discover signatures across all sources with "
+    '`await search_tools(query="...")`; pass `server="..."` only when the source is known):'
 )
 
 
