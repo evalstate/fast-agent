@@ -20,12 +20,23 @@ from fast_agent.ui.message_styles import SHORT_RULE_WIDTH
 DEFAULT_PROMPT_PREFIX = "❯"
 _MAX_VISIBLE_QUEUED = 3
 _MAX_VISIBLE_DRAFT_ROWS = 6
+_MAX_VISIBLE_COMPLETIONS = 4
 _MIN_RENDER_WIDTH = 12
 _EOL_CURSOR_GLYPH = "▏"
 
 # Matches ANSI CSI, OSC, and 2-byte ESC sequences so pasted terminal output
 # cannot emit raw cursor-control codes into the live renderer.
 _ANSI_ESCAPE_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_])")
+
+
+@dataclass(frozen=True)
+class TurnInputCompletion:
+    """Single completion item rendered in the live dock popup."""
+
+    text: str
+    display: str
+    display_meta: str = ""
+    start_position: int = 0
 
 
 @dataclass(frozen=True)
@@ -37,6 +48,8 @@ class TurnInputSnapshot:
     cursor_position: int
     queued_messages: tuple[str, ...]
     multiline: bool
+    completions: tuple[TurnInputCompletion, ...] = ()
+    selected_completion: int = 0
 
 
 @dataclass(frozen=True)
@@ -335,23 +348,82 @@ def _build_draft_physical_rows(
     return physical_rows[start:end]
 
 
+def _build_completion_rows(
+    snapshot: TurnInputSnapshot,
+    *,
+    width: int,
+    max_rows: int,
+) -> list[Text]:
+    completions = snapshot.completions
+    if not completions or max_rows <= 0:
+        return []
+    selected = max(0, min(snapshot.selected_completion, len(completions) - 1))
+    start, end = _visible_row_window(len(completions), selected, max_rows)
+    window = completions[start:end]
+
+    # Align meta descriptions cleanly across the visible window.
+    max_label_cells = min(
+        max(8, width // 2),
+        max((cell_len(_sanitize_single_line(item.display)) for item in window), default=8),
+    )
+    rows: list[Text] = []
+    for offset, item in enumerate(window):
+        is_selected = (start + offset) == selected
+        marker = "  ▸ " if is_selected else "    "
+        marker_cells = cell_len(marker)
+        label = _single_line_preview(
+            item.display, max_cells=max(1, min(max_label_cells, width - marker_cells))
+        )
+        row = Text(no_wrap=True, overflow="crop")
+        if is_selected:
+            row.append(marker, style="bold cyan")
+            row.append(label, style="bold reverse")
+        else:
+            row.append(marker, style="dim")
+            row.append(label, style="cyan")
+        if item.display_meta:
+            pad = max(2, max_label_cells - cell_len(label) + 2)
+            remaining = width - marker_cells - cell_len(label) - pad
+            if remaining >= 4:
+                meta = _single_line_preview(item.display_meta, max_cells=remaining)
+                row.append(" " * pad)
+                row.append(meta, style="dim")
+        rows.append(row)
+    return rows
+
+
 @lru_cache(maxsize=8)
 def _render_dock_cached(
     snapshot: TurnInputSnapshot,
     safe_width: int,
     effective_max_height: int | None,
 ) -> RenderedTurnInputDock:
+    has_completions = bool(snapshot.completions)
     if effective_max_height is None:
         max_queued_rows = _MAX_VISIBLE_QUEUED
+        max_completion_rows = _MAX_VISIBLE_COMPLETIONS if has_completions else 0
     else:
-        max_queued_rows = min(_MAX_VISIBLE_QUEUED, max(0, effective_max_height - 2))
+        budget = max(0, effective_max_height - 2)
+        if has_completions:
+            if snapshot.queued_messages and budget >= 2:
+                max_queued_rows = 1
+                max_completion_rows = min(_MAX_VISIBLE_COMPLETIONS, budget - 1)
+            else:
+                max_queued_rows = 0
+                max_completion_rows = min(_MAX_VISIBLE_COMPLETIONS, budget)
+        else:
+            max_queued_rows = min(_MAX_VISIBLE_QUEUED, budget)
+            max_completion_rows = 0
 
     queued_rows = _build_queued_rows(snapshot, width=safe_width, max_queued_rows=max_queued_rows)
+    completion_rows = _build_completion_rows(
+        snapshot, width=safe_width, max_rows=max_completion_rows
+    )
     divider = Text(
         "─" * min(safe_width, SHORT_RULE_WIDTH), style="dim", no_wrap=True, overflow="crop"
     )
 
-    fixed_rows = len(queued_rows) + 1
+    fixed_rows = len(queued_rows) + 1 + len(completion_rows)
     max_draft_rows = _MAX_VISIBLE_DRAFT_ROWS
     if effective_max_height is not None:
         max_draft_rows = max(1, min(_MAX_VISIBLE_DRAFT_ROWS, effective_max_height - fixed_rows))
@@ -361,7 +433,7 @@ def _render_dock_cached(
         width=safe_width,
         max_rows=max_draft_rows,
     )
-    all_rows = [*queued_rows, divider, *draft_rows]
+    all_rows = [*queued_rows, divider, *draft_rows, *completion_rows]
     return RenderedTurnInputDock(renderable=Group(*all_rows), height=len(all_rows))
 
 

@@ -30,12 +30,17 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.ui.prompt.turn_input_dock import DEFAULT_PROMPT_PREFIX, TurnInputSnapshot
+from fast_agent.ui.prompt.turn_input_dock import (
+    DEFAULT_PROMPT_PREFIX,
+    TurnInputCompletion,
+    TurnInputSnapshot,
+)
 from fast_agent.utils.env import is_truthy_env_value
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
+    from prompt_toolkit.completion import Completer
     from prompt_toolkit.input import Input
     from prompt_toolkit.key_binding import KeyPress
 
@@ -43,6 +48,7 @@ logger = get_logger(__name__)
 
 _DISABLE_ENV = "FAST_AGENT_DISABLE_TURN_INPUT"
 _ESCAPE_TIMEOUT_SECONDS = 0.05
+_MAX_COMPLETION_ITEMS = 24
 _BRACKETED_PASTE_ON = "\x1b[?2004h"
 _BRACKETED_PASTE_OFF = "\x1b[?2004l"
 
@@ -223,6 +229,8 @@ class TurnInputReader:
         input: Input,
         multiline: bool = False,
         prompt_prefix: str = DEFAULT_PROMPT_PREFIX,
+        completer: Completer | None = None,
+        on_submit: Callable[[str], bool] | None = None,
         on_cancel: Callable[[], None] = _default_cancel,
         on_queued: Callable[[int], None] = _publish_queued_count,
         write: Callable[[str], None] = _write_stdout,
@@ -235,6 +243,8 @@ class TurnInputReader:
         self._input = input
         self._multiline = multiline
         self._prompt_prefix = prompt_prefix
+        self._completer = completer
+        self._on_submit = on_submit
         self._submit_key = Keys.ControlJ if multiline else Keys.ControlM
         self._submit_data = "\n" if multiline else "\r"
         self._fd = input.fileno()
@@ -247,6 +257,10 @@ class TurnInputReader:
         self._draft_image_pastes: list[str] = []
         # A draft set aside while an hc message pasted behind it is submitted.
         self._saved_draft: _DraftState | None = None
+        self._completions: tuple[TurnInputCompletion, ...] = ()
+        self._selected_completion = 0
+        self._completion_seq = 0
+        self._completion_task: asyncio.Task[None] | None = None
         self._escape_pending = False
         self._escape_timer: asyncio.TimerHandle | None = None
         self._saved_attrs: list[Any] | None = None
@@ -277,10 +291,20 @@ class TurnInputReader:
             cursor_position=self._buffer.cursor_position,
             queued_messages=self.queued_messages,
             multiline=self._multiline,
+            completions=self._completions,
+            selected_completion=self._selected_completion,
         )
 
-    def _state_signature(self) -> tuple[str, int, tuple[str, ...]]:
-        return (self._buffer.text, self._buffer.cursor_position, self.queued_messages)
+    def _state_signature(
+        self,
+    ) -> tuple[str, int, tuple[str, ...], tuple[TurnInputCompletion, ...], int]:
+        return (
+            self._buffer.text,
+            self._buffer.cursor_position,
+            self.queued_messages,
+            self._completions,
+            self._selected_completion,
+        )
 
     @property
     def held_keys(self) -> list[KeyPress]:
@@ -463,7 +487,122 @@ class TurnInputReader:
         self._write(_BRACKETED_PASTE_ON)
         return True
 
+    def _clear_completions(self) -> None:
+        self._completion_seq += 1
+        if self._completion_task is not None:
+            self._completion_task.cancel()
+            self._completion_task = None
+        self._completions = ()
+        self._selected_completion = 0
+
+    @staticmethod
+    def _collect_completions(
+        completer: Completer,
+        document: Any,
+        *,
+        explicit: bool,
+    ) -> tuple[TurnInputCompletion, ...]:
+        from prompt_toolkit.completion import CompleteEvent
+
+        event = CompleteEvent(text_inserted=not explicit, completion_requested=explicit)
+        items: list[TurnInputCompletion] = []
+        for comp in completer.get_completions(document, event):
+            items.append(
+                TurnInputCompletion(
+                    text=comp.text,
+                    display=comp.display_text or comp.text,
+                    display_meta=comp.display_meta_text or "",
+                    start_position=comp.start_position,
+                )
+            )
+            if len(items) >= _MAX_COMPLETION_ITEMS:
+                break
+        return tuple(items)
+
+    def _apply_completion(self, item: TurnInputCompletion) -> bool:
+        before = self._buffer.text
+        if item.start_position < 0:
+            self._buffer.delete_before_cursor(count=-item.start_position)
+        self._buffer.insert_text(item.text)
+        self._clear_completions()
+        return self._buffer.text != before
+
+    def _accept_selected_completion(self) -> bool:
+        if not self._completions:
+            return False
+        idx = max(0, min(self._selected_completion, len(self._completions) - 1))
+        return self._apply_completion(self._completions[idx])
+
+    def _apply_completion_results(
+        self,
+        seq: int,
+        items: tuple[TurnInputCompletion, ...],
+        *,
+        explicit: bool,
+    ) -> None:
+        if seq != self._completion_seq:
+            return
+        if explicit and len(items) == 1:
+            self._apply_completion(items[0])
+            _notify_turn_input_listeners()
+            return
+        if items != self._completions or self._selected_completion != 0:
+            self._completions = items
+            self._selected_completion = 0
+            _notify_turn_input_listeners()
+
+    def _request_completions(self, *, explicit: bool) -> None:
+        completer = self._completer
+        if completer is None:
+            return
+        self._completion_seq += 1
+        seq = self._completion_seq
+        if self._completion_task is not None:
+            self._completion_task.cancel()
+            self._completion_task = None
+        document = self._buffer.document
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            try:
+                items = self._collect_completions(completer, document, explicit=explicit)
+            except Exception:
+                logger.debug("Turn input completion failed", exc_info=True)
+                items = ()
+            if explicit and len(items) == 1:
+                self._apply_completion(items[0])
+            else:
+                self._completions = items
+                self._selected_completion = 0
+            return
+
+        async def _run() -> None:
+            try:
+                items = await loop.run_in_executor(
+                    None,
+                    lambda: self._collect_completions(completer, document, explicit=explicit),
+                )
+            except asyncio.CancelledError:
+                return
+            except Exception:
+                logger.debug("Turn input completion failed", exc_info=True)
+                items = ()
+            self._apply_completion_results(seq, items, explicit=explicit)
+
+        self._completion_task = loop.create_task(_run())
+
+    def _maybe_refresh_completions(self) -> None:
+        if self._completer is None:
+            return
+        text = self._buffer.text
+        if not text:
+            if self._completions:
+                self._clear_completions()
+            return
+        if self._completions or text.startswith(("/", "@", "#")):
+            self._request_completions(explicit=False)
+
     def _pause(self) -> None:
+        self._clear_completions()
         if not self._reading:
             return
         self._reading = False
@@ -520,7 +659,11 @@ class TurnInputReader:
             _notify_turn_input_listeners()
         if self._escape_pending:
             self._escape_pending = False
-            self._on_cancel()
+            if self._completions:
+                self._clear_completions()
+                _notify_turn_input_listeners()
+            else:
+                self._on_cancel()
 
     def _move_cursor(self, delta: int | None) -> None:
         if delta:
@@ -585,54 +728,99 @@ class TurnInputReader:
             self._buffer.insert_text(pasted)
             if pasted_image_paths(key_press.data):
                 self._draft_image_pastes.append(pasted)
+        elif key == Keys.ControlI:
+            if len(self._completions) == 1:
+                self._accept_selected_completion()
+            elif self._completions:
+                self._selected_completion = (self._selected_completion + 1) % len(self._completions)
+            elif self._completer is not None:
+                self._request_completions(explicit=True)
+        elif key == Keys.BackTab:
+            if self._completions:
+                self._selected_completion = (self._selected_completion - 1) % len(self._completions)
         elif key == self._submit_key:
+            if self._completions:
+                changed = self._accept_selected_completion()
+                if changed:
+                    return
+            self._clear_completions()
             text = self._buffer.text
             active_image_pastes = tuple(p for p in self._draft_image_pastes if p in text)
-            self._submissions.append(_Submission(text=text, image_pastes=active_image_pastes))
-            if text.strip():
-                self._queued += 1
-                self._on_queued(self._queued)
+            handled_concurrently = False
+            if self._on_submit is not None and text.strip() and not active_image_pastes:
+                from fast_agent.integrations.hc_children import is_hc_message
+
+                if not is_hc_message(text):
+                    handled_concurrently = bool(self._on_submit(text))
+            if not handled_concurrently:
+                self._submissions.append(_Submission(text=text, image_pastes=active_image_pastes))
+                if text.strip():
+                    self._queued += 1
+                    self._on_queued(self._queued)
             self._buffer.reset()
             self._draft_image_pastes = []
             self._restore_draft()
         elif key in (Keys.ControlM, Keys.ControlJ):
+            self._clear_completions()
             self._buffer.insert_text("\n")
         elif key == Keys.ControlH:
             self._buffer.delete_before_cursor(1)
+            self._maybe_refresh_completions()
         elif key == Keys.Delete:
             self._buffer.delete(1)
+            self._maybe_refresh_completions()
         elif key == Keys.Left:
             self._buffer.cursor_left(1)
+            if self._completions:
+                self._maybe_refresh_completions()
         elif key == Keys.Right:
             self._buffer.cursor_right(1)
+            if self._completions:
+                self._maybe_refresh_completions()
         elif key == Keys.ControlLeft:
             self._move_word_left()
+            if self._completions:
+                self._maybe_refresh_completions()
         elif key == Keys.ControlRight:
             self._move_word_right()
+            if self._completions:
+                self._maybe_refresh_completions()
         elif key in (Keys.Home, Keys.ControlA):
             self._move_cursor(self._buffer.document.get_start_of_line_position())
+            if self._completions:
+                self._clear_completions()
         elif key in (Keys.End, Keys.ControlE):
             self._move_cursor(self._buffer.document.get_end_of_line_position())
+            if self._completions:
+                self._maybe_refresh_completions()
         elif key == Keys.ControlW:
             self._delete_word_before_cursor()
+            self._maybe_refresh_completions()
         elif key == Keys.ControlU:
             delta = self._buffer.document.get_start_of_line_position()
             if delta < 0:
                 self._buffer.delete_before_cursor(count=-delta)
+            self._maybe_refresh_completions()
         elif key == Keys.ControlK:
             delta = self._buffer.document.get_end_of_line_position()
             if delta > 0:
                 self._buffer.delete(count=delta)
+            self._maybe_refresh_completions()
         elif key == Keys.Up:
-            if self._buffer.document.cursor_position_row > 0:
+            if self._completions:
+                self._selected_completion = (self._selected_completion - 1) % len(self._completions)
+            elif self._buffer.document.cursor_position_row > 0:
                 self._buffer.cursor_up(1)
             elif not self._buffer.text and self._submissions:
                 self._pop_last_queued_submission()
         elif key == Keys.Down:
-            if self._buffer.document.cursor_position_row < self._buffer.document.line_count - 1:
+            if self._completions:
+                self._selected_completion = (self._selected_completion + 1) % len(self._completions)
+            elif self._buffer.document.cursor_position_row < self._buffer.document.line_count - 1:
                 self._buffer.cursor_down(1)
         elif not isinstance(key, Keys) and key_press.data.isprintable():
             self._buffer.insert_text(key_press.data)
+            self._maybe_refresh_completions()
 
 
 def _store_typeahead(input: Input, key_presses: list[KeyPress]) -> None:
@@ -653,7 +841,10 @@ def keep_draft_for_next_prompt(input: Input, draft: str) -> None:
 
 @contextmanager
 def hold_turn_input(
-    *, prompt_prefix: str = DEFAULT_PROMPT_PREFIX
+    *,
+    prompt_prefix: str = DEFAULT_PROMPT_PREFIX,
+    completer: Completer | None = None,
+    on_submit: Callable[[str], bool] | None = None,
 ) -> Generator[TurnInputReader | None]:
     """Queue terminal input for the next prompt while the body runs."""
     global _active
@@ -669,6 +860,8 @@ def hold_turn_input(
             input=input,
             multiline=in_multiline_mode,
             prompt_prefix=prompt_prefix,
+            completer=completer,
+            on_submit=on_submit,
         )
         try:
             started = candidate.start()

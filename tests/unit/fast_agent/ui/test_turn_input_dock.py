@@ -530,3 +530,147 @@ def test_progress_live_render_rewinds_reflowed_height_on_width_shrink() -> None:
         code for code in control.segment.control or () if code[0] == ControlType.CURSOR_UP
     ]
     assert len(cursor_ups) == 3  # 4 physical rows -> 3 CURSOR_UP moves
+
+
+def test_dock_renders_completion_popup_within_max_height() -> None:
+    from fast_agent.ui.prompt.turn_input_dock import TurnInputCompletion
+
+    completions = tuple(
+        TurnInputCompletion(
+            text=f"cmd{i}",
+            display=f"/cmd{i}",
+            display_meta=f"Description {i}",
+            start_position=-1,
+        )
+        for i in range(6)
+    )
+    snap = TurnInputSnapshot(
+        prompt_prefix="❯",
+        draft_text="/c",
+        cursor_position=2,
+        queued_messages=("queued one", "queued two"),
+        multiline=False,
+        completions=completions,
+        selected_completion=1,
+    )
+
+    lines, _ = _render_dock(snap, width=80, max_height=6)
+    assert len(lines) <= 6
+    joined = "\n".join(lines)
+    assert "/cmd1" in joined
+    assert "▸" in joined
+
+    tight_lines, _ = _render_dock(snap, width=80, max_height=3)
+    assert len(tight_lines) <= 3
+
+
+def test_turn_input_reader_tab_completion_navigation_and_esc() -> None:
+    from prompt_toolkit.completion import Completer, Completion
+    from prompt_toolkit.input.defaults import create_pipe_input
+    from prompt_toolkit.key_binding import KeyPress
+    from prompt_toolkit.keys import Keys
+
+    from fast_agent.ui.prompt.turn_input import TurnInputReader
+
+    class _FakeCompleter(Completer):
+        def get_completions(self, document, complete_event):
+            text = document.text_before_cursor
+            for cmd in ("/usage", "/update", "/status"):
+                if cmd.startswith(text):
+                    yield Completion(
+                        cmd, start_position=-len(text), display=cmd, display_meta="cmd"
+                    )
+
+    cancelled = 0
+
+    def on_cancel() -> None:
+        nonlocal cancelled
+        cancelled += 1
+
+    with create_pipe_input() as pipe:
+        reader = TurnInputReader(
+            input=pipe,
+            completer=_FakeCompleter(),
+            on_cancel=on_cancel,
+            on_queued=lambda _n: None,
+            write=lambda _s: None,
+        )
+
+        def press(*keys: KeyPress) -> None:
+            for k in keys:
+                reader._on_key(k)
+
+        # Typing "/u" auto-populates completions (/usage, /update)
+        press(KeyPress("/", "/"), KeyPress("u", "u"))
+        snap = reader.snapshot()
+        assert [c.display for c in snap.completions] == ["/usage", "/update"]
+        assert snap.selected_completion == 0
+
+        # Tab cycles selection forward, Shift+Tab cycles backward
+        press(KeyPress(Keys.ControlI, "\t"))
+        assert reader.snapshot().selected_completion == 1
+        press(KeyPress(Keys.BackTab, ""))
+        assert reader.snapshot().selected_completion == 0
+
+        # Down selects /update, Enter accepts completion into buffer without submitting yet
+        press(KeyPress(Keys.Down, ""))
+        assert reader.snapshot().selected_completion == 1
+        press(KeyPress(Keys.ControlM, "\r"))
+        assert reader.snapshot().draft_text == "/update"
+        assert reader.snapshot().completions == ()
+        assert reader.queued_messages == ()
+
+        # Esc closes an open completion menu without cancelling the turn
+        press(KeyPress(Keys.ControlU, ""), KeyPress("/", "/"), KeyPress("u", "u"))
+        assert len(reader.snapshot().completions) == 2
+        reader._escape_pending = True
+        reader.flush()
+        assert reader.snapshot().completions == ()
+        assert cancelled == 0
+
+        # Second Esc with menu closed cancels the turn
+        reader._escape_pending = True
+        reader.flush()
+        assert cancelled == 1
+
+        # Tab with single match auto-accepts immediately
+        press(KeyPress(Keys.ControlU, ""), KeyPress("/", "/"), KeyPress("s", "s"))
+        press(KeyPress(Keys.ControlI, "\t"))
+        assert reader.snapshot().draft_text == "/status"
+        assert reader.snapshot().completions == ()
+
+
+def test_turn_input_reader_on_submit_intercepts_concurrent_commands() -> None:
+    from prompt_toolkit.input.defaults import create_pipe_input
+    from prompt_toolkit.key_binding import KeyPress
+    from prompt_toolkit.keys import Keys
+
+    from fast_agent.ui.prompt.turn_input import TurnInputReader
+
+    intercepted: list[str] = []
+
+    def on_submit(text: str) -> bool:
+        if text.startswith("/usage"):
+            intercepted.append(text)
+            return True
+        return False
+
+    with create_pipe_input() as pipe:
+        reader = TurnInputReader(
+            input=pipe,
+            on_submit=on_submit,
+            on_cancel=lambda: None,
+            on_queued=lambda _n: None,
+            write=lambda _s: None,
+        )
+        # Concurrent command is intercepted and NOT queued
+        for k in [KeyPress(ch, ch) for ch in "/usage"] + [KeyPress(Keys.ControlM, "\r")]:
+            reader._on_key(k)
+        assert intercepted == ["/usage"]
+        assert reader.queued_messages == ()
+
+        # Normal message is NOT intercepted and IS queued
+        for k in [KeyPress(ch, ch) for ch in "hello"] + [KeyPress(Keys.ControlM, "\r")]:
+            reader._on_key(k)
+        assert intercepted == ["/usage"]
+        assert reader.queued_messages == ("hello",)
