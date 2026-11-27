@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.llm.provider_types import Provider
@@ -39,6 +39,9 @@ if TYPE_CHECKING:
     from fast_agent.session.snapshot import SessionGitSnapshot
 
     from .session_manager import Session
+
+
+DEFAULT_RESTORE_EVENT_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
 
 @dataclass(slots=True, frozen=True)
@@ -107,6 +110,40 @@ class _McpAttachCapable(Protocol):
     ) -> object: ...
 
     def list_attached_mcp_servers(self) -> list[str]: ...
+
+
+@runtime_checkable
+class _EventSubscriptionRestoreCapable(Protocol):
+    def list_attached_mcp_servers(self) -> list[str]: ...
+
+    async def restore_event_subscription(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        wake: bool = False,
+        once: bool = False,
+        min_poll_ms: int | None = None,
+        origin: Literal["user", "declared", "model"] = "user",
+        cursor: str | None = None,
+        max_age_ms: int | None = None,
+    ) -> object: ...
+
+
+@runtime_checkable
+class _EventResetCapable(Protocol):
+    async def reset_events(self) -> None: ...
+
+
+@runtime_checkable
+class _DeclaredEventCheckCapable(Protocol):
+    def is_declared_event(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> bool: ...
 
 
 @runtime_checkable
@@ -203,6 +240,20 @@ class SessionHydrator:
             for name, agent in agents.items():
                 if name not in agent_snapshots and isinstance(agent, PtcSessionAgent):
                     await agent.clear_session_ptc(refresh_instruction=False)
+                if isinstance(agent, _EventResetCapable):
+                    try:
+                        await agent.reset_events()
+                    except Exception as exc:
+                        warnings.append(
+                            SessionHydrationWarning(
+                                code="event-subscription-reset-failed",
+                                message=(
+                                    f"Failed to reset previous event subscriptions for agent "
+                                    f"'{name}': {exc}"
+                                ),
+                                agent_name=name,
+                            )
+                        )
 
         for agent_name, agent_snapshot in agent_snapshots.items():
             await self._hydrate_agent(
@@ -288,6 +339,7 @@ class SessionHydrator:
                 agent_snapshot=agent_snapshot,
                 agents=agents,
                 warnings=state.warnings,
+                usage_notices=state.usage_notices,
             )
         if policy.restore_transcript:
             await self._restore_agent_transcript(
@@ -529,6 +581,7 @@ class SessionHydrator:
         agent_snapshot: SessionAgentSnapshot,
         agents: Mapping[str, AgentProtocol],
         warnings: list[SessionHydrationWarning],
+        usage_notices: list[str],
     ) -> None:
         # Before the model, whose attachment decides PTC with the session's own setting.
         restored_ptc = agent_snapshot.ptc_enabled
@@ -557,6 +610,9 @@ class SessionHydrator:
         self._restore_agent_request_settings(agent, agent_name, agent_snapshot, warnings)
         self._restore_agent_capability_mode(agent, agent_name, agent_snapshot, warnings)
         await self._restore_mcp_attachments(agent, agent_name, agent_snapshot, warnings)
+        await self._restore_event_subscriptions(
+            agent, agent_name, agent_snapshot, warnings, usage_notices
+        )
         self._restore_agent_tool_attachments(agent, agent_name, agent_snapshot, agents, warnings)
 
     async def _restore_agent_model(
@@ -750,6 +806,79 @@ class SessionHydrator:
             headers=add_hf_auth_header(url, None),
             protocol_mode=entry.protocol_mode,
         )
+
+    async def _restore_event_subscriptions(
+        self,
+        agent: AgentProtocol,
+        agent_name: str,
+        agent_snapshot: SessionAgentSnapshot,
+        warnings: list[SessionHydrationWarning],
+        usage_notices: list[str],
+    ) -> None:
+        if not agent_snapshot.event_subscriptions or not isinstance(
+            agent, _EventSubscriptionRestoreCapable
+        ):
+            return
+
+        attached = set(agent.list_attached_mcp_servers())
+        restored_count = 0
+        wake_count = 0
+        for entry in agent_snapshot.event_subscriptions:
+            if entry.server not in attached:
+                warnings.append(
+                    SessionHydrationWarning(
+                        code="event-subscription-restore-failed",
+                        message=(
+                            f"Could not restore event subscription '{entry.name}' on server "
+                            f"'{entry.server}' for agent '{agent_name}': server is not attached."
+                        ),
+                        agent_name=agent_name,
+                        ref=f"{entry.server}/{entry.name}",
+                    )
+                )
+                continue
+            arguments = dict(entry.arguments)
+            origin = entry.origin
+            if isinstance(agent, _DeclaredEventCheckCapable):
+                if agent.is_declared_event(entry.server, entry.name, arguments):
+                    origin = "declared"
+                elif origin == "declared":
+                    origin = "user"
+            try:
+                await agent.restore_event_subscription(
+                    entry.server,
+                    entry.name,
+                    arguments,
+                    wake=entry.wake,
+                    once=entry.once,
+                    min_poll_ms=entry.min_poll_ms,
+                    origin=origin,
+                    cursor=entry.cursor,
+                    max_age_ms=(
+                        DEFAULT_RESTORE_EVENT_MAX_AGE_MS if entry.cursor is not None else None
+                    ),
+                )
+            except Exception as exc:
+                warnings.append(
+                    SessionHydrationWarning(
+                        code="event-subscription-restore-failed",
+                        message=(
+                            f"Failed to restore event subscription '{entry.name}' on server "
+                            f"'{entry.server}' for agent '{agent_name}': {exc}"
+                        ),
+                        agent_name=agent_name,
+                        ref=f"{entry.server}/{entry.name}",
+                    )
+                )
+            else:
+                restored_count += 1
+                if entry.wake:
+                    wake_count += 1
+
+        if restored_count > 0:
+            noun = "subscription" if restored_count == 1 else "subscriptions"
+            wake_suffix = f" ({wake_count} wakes)" if wake_count > 0 else ""
+            usage_notices.append(f"Restored {restored_count} event {noun}{wake_suffix}")
 
     def _restore_agent_tool_attachments(
         self,

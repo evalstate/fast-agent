@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html import escape as escape_html
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -37,6 +37,7 @@ from fast_agent.core.cache_warmer import status_level as warm_status_level
 from fast_agent.history.turns import total_user_turns
 from fast_agent.integrations.hc_children import (
     HcAttachments,
+    active_event_waits,
     current_hc_attachments,
     format_hc_elapsed,
     format_status_summary,
@@ -253,6 +254,13 @@ def render_input_toolbar(
         copy_notice_until,
         mode.style,
     )
+    event_waits, event_wake_paused = active_event_waits(resolved_agent_state.state.agent)
+    if event_waits:
+        hc_attachments = replace(
+            hc_attachments,
+            event_waits=event_waits,
+            event_wake_paused=event_wake_paused,
+        )
     agent_identity_segment = _with_hc_waiting_badge(
         agent_identity_segment,
         hc_attachments,
@@ -816,20 +824,33 @@ def _build_hc_services_segment(attachments: HcAttachments) -> str:
     return f" | {_toolbar_style_segment(f'hc: {summary}', foreground='ansiblack', background='ansicyan')}"
 
 
-def _hc_waiting_badge(attachments: HcAttachments, *, compact: bool) -> str:
+def _hc_waiting_badge(
+    attachments: HcAttachments,
+    *,
+    compact: bool,
+) -> str:
     """Who will wake this idle session, and for how long it has waited."""
     resuming = attachments.resuming
-    if not resuming:
+    event_waits = attachments.event_waits
+    if not resuming and not event_waits:
         return ""
-    if compact:
-        label = f"⧗ {len(resuming)}"
-    else:
-        names = ", ".join(child.name or child.address for child in resuming[:2])
-        more = f" +{len(resuming) - 2}" if len(resuming) > 2 else ""
-        label = f"⧗ {names}{more}"
+    parts: list[str] = []
+    if resuming:
+        if compact:
+            parts.append(str(len(resuming)))
+        else:
+            names = ", ".join(child.name or child.address for child in resuming[:2])
+            more = f" +{len(resuming) - 2}" if len(resuming) > 2 else ""
+            parts.append(f"{names}{more}")
+    if event_waits:
+        paused = " ⏸" if attachments.event_wake_paused else ""
+        parts.append(f"{len(event_waits)} ev{paused}")
+    label = f"⧗ {', '.join(parts)}"
     waiting_since = hc_waiting_since()
-    if waiting_since is not None and (
-        elapsed := format_hc_elapsed(time.monotonic() - waiting_since)
+    if (
+        resuming
+        and waiting_since is not None
+        and (elapsed := format_hc_elapsed(time.monotonic() - waiting_since))
     ):
         label = f"{label} · {elapsed}"
     # bottom-toolbar renders with reverse video, so fg=cyan/bg=black is a crisp cyan pill.

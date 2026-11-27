@@ -21,7 +21,12 @@ from prompt_toolkit.styles import Style
 from rich.markup import escape as escape_markup
 
 from fast_agent.ui.agent_identity import is_default_agent_name
-from fast_agent.ui.command_payloads import CommandPayload, EOFCommand, InterruptCommand
+from fast_agent.ui.command_payloads import (
+    CommandPayload,
+    EOFCommand,
+    EventWakeCommand,
+    InterruptCommand,
+)
 from fast_agent.ui.console import rich_print
 from fast_agent.ui.prompt.keybindings import PromptInputInterrupt, reset_renderer_cpr_state
 from fast_agent.ui.prompt.turn_input import acknowledge_replayed_input
@@ -29,7 +34,7 @@ from fast_agent.ui.prompt_marks import emit_prompt_mark, prompt_mark_sequence
 from fast_agent.ui.terminal_streams import is_tty_stream
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from prompt_toolkit.formatted_text.base import AnyFormattedText
 
@@ -59,6 +64,10 @@ def _synchronized_vt100_output(output: Any):
         _ACTIVE_SYNC_OUTPUTS.discard(output_id)
         output.write_raw("\x1b[?2026l")
         original_flush()
+
+
+class PromptEventWake(Exception):
+    """Internal prompt-toolkit exit used when an MCP event should start a turn."""
 
 
 def _format_prompt_prefix(agent_name: str, *, default_agent_name: str | None = None) -> str:
@@ -287,13 +296,30 @@ def _prompt_text_with_end_mark(
     return fragments
 
 
+async def _exit_prompt_on_wake(
+    session: PromptSession,
+    wait_for_wake: "Callable[[], Awaitable[None]]",
+) -> None:
+    await wait_for_wake()
+    if session.app.is_running and not session.app.is_done:
+        session.app.exit(exception=PromptEventWake())
+
+
 async def _prompt_async_result(
     *,
     session: PromptSession,
     default_buffer: str,
     resolve_prompt_text: "Callable[[], AnyFormattedText]",
     prompt_end_state: dict[str, bool],
+    wait_for_wake: "Callable[[], Awaitable[None]] | None" = None,
 ) -> tuple[str | CommandPayload, float | None]:
+    wake_tasks: list[asyncio.Task[None]] = []
+
+    def _watch_for_wake() -> None:
+        # Started from pre_run so the prompt is running before it can be ended.
+        if wait_for_wake is not None:
+            wake_tasks.append(asyncio.create_task(_exit_prompt_on_wake(session, wait_for_wake)))
+
     try:
         if isinstance(session, PromptSession):
             renderer = session.app.renderer
@@ -305,6 +331,7 @@ async def _prompt_async_result(
                 default=default_buffer,
                 set_exception_handler=False,
                 reserve_space_for_menu=_completion_menu_reserved_lines(),
+                pre_run=_watch_for_wake,
             )
         acknowledge_replayed_input()
         return result, time.perf_counter()
@@ -314,10 +341,16 @@ async def _prompt_async_result(
     except EOFError:
         _emit_prompt_end_mark_if_needed(emitted=prompt_end_state["emitted"])
         return EOFCommand(), None
+    except PromptEventWake:
+        _emit_prompt_end_mark_if_needed(emitted=prompt_end_state["emitted"])
+        return EventWakeCommand(buffer_text=session.default_buffer.text), None
     except Exception as exc:
         _emit_prompt_end_mark_if_needed(emitted=prompt_end_state["emitted"])
         print(f"\nInput error: {type(exc).__name__}: {exc}")
         return "STOP", None
+    finally:
+        for task in wake_tasks:
+            task.cancel()
 
 
 def _truncate_prompt_preview(text: str, *, limit: int = 80) -> str:
@@ -371,6 +404,7 @@ async def run_prompt_once(
     default_buffer: str,
     resolve_prompt_text: "Callable[[], AnyFormattedText]",
     parse_special_input: "Callable[[str], str | CommandPayload]",
+    wait_for_wake: "Callable[[], Awaitable[None]] | None" = None,
 ) -> str | CommandPayload:
     """Run a single prompt cycle and normalize command/signal outcomes."""
     accept_state: dict[str, Any] = {}
@@ -384,6 +418,7 @@ async def run_prompt_once(
             default_buffer=default_buffer,
             resolve_prompt_text=resolve_prompt_text,
             prompt_end_state=prompt_end_state,
+            wait_for_wake=wait_for_wake,
         )
     finally:
         buffer.accept_handler = original_accept_handler

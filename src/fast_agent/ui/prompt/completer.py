@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import time
 from collections import Counter
 from collections.abc import Mapping
@@ -16,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, cast, runtime
 from urllib.parse import unquote
 
 from mcp_types import ResourceTemplate
+from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.completion import Completer, Completion
 
 from fast_agent.agents.agent_types import AgentType
@@ -73,6 +75,8 @@ if TYPE_CHECKING:
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import FastAgentLLMProtocol
+    from fast_agent.mcp.events_extension import EventDescriptor
+    from fast_agent.mcp.events_subscriptions import EventSubscription
     from fast_agent.session.session_manager import SessionManager
     from fast_agent.types import PromptMessageExtended
 
@@ -250,6 +254,46 @@ class CompleterToolAgent(Protocol):
     async def list_tools(self) -> "ListToolsResult": ...
 
 
+@runtime_checkable
+class _EventsCompleterManager(Protocol):
+    def subscriptions(self) -> "Sequence[EventSubscription]": ...
+
+    def cached_descriptors(self, server_name: str) -> list[EventDescriptor] | None: ...
+
+    async def list_descriptors(
+        self, server_name: str, *, refresh: bool = False
+    ) -> list[EventDescriptor]: ...
+
+
+@runtime_checkable
+class _EventsCompleterAggregator(Protocol):
+    @property
+    def events(self) -> _EventsCompleterManager: ...
+
+    def events_capable_servers(self) -> "Iterable[str]": ...
+
+
+@runtime_checkable
+class _EventsCompleterAgent(Protocol):
+    @property
+    def aggregator(self) -> _EventsCompleterAggregator: ...
+
+
+_EVENTS_SUBCOMMANDS: dict[str, str] = {
+    "list": "Show the event types attached servers offer",
+    "subscribe": "Poll a server for an event type",
+    "poll": "Poll a subscription now, from its cursor",
+    "unsubscribe": "Stop a subscription (or all)",
+    "select": "Interactively browse and manage event subscriptions",
+}
+
+_EVENTS_SUBSCRIBE_FLAGS: tuple[tuple[str, str], ...] = (
+    ("--no-wake", "Buffer events passively without waking an idle session"),
+    ("--once", "Stop after the first event"),
+    ("--every", "Minimum poll interval (e.g. 5m)"),
+)
+
+
 def _catalog_command_description(command_name: str) -> str:
     spec = get_command_spec(command_name)
     if spec is None:
@@ -325,6 +369,7 @@ class AgentCompleter(Completer):
             "markdown": "Show last assistant message without markdown formatting",
             "environment": "List configured execution environments",
             "process": "Show, attach, or terminate shell processes",
+            "events": "Subscribe to MCP server events",
             "resume": "Resume the last session or specified session id",
             "session": "Manage sessions (/session list|new|resume|title|fork|delete|pin|unpin|export)",
             "card": _catalog_command_description("card"),
@@ -345,6 +390,7 @@ class AgentCompleter(Completer):
         self._mention_cache: dict[tuple[Any, ...], AgentCompleter._CacheEntry] = {}
         self._mention_cache_ttl_seconds = 3.0
         self._completion_wait_timeout_seconds = 1.5
+        self._event_descriptor_fetches: set[tuple[str | None, str]] = set()
         try:
             self._owner_loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -2179,6 +2225,309 @@ class AgentCompleter(Completer):
 
         return None
 
+    def _current_events_aggregator(self) -> _EventsCompleterAggregator | None:
+        if self.agent_provider is None or not self.current_agent:
+            return None
+        agent = lookup_agent(self.agent_provider, self.current_agent)
+        if not isinstance(agent, _EventsCompleterAgent):
+            return None
+        aggregator = agent.aggregator
+        if not isinstance(aggregator, _EventsCompleterAggregator):
+            return None
+        return aggregator
+
+    def _events_capable_servers(self, aggregator: _EventsCompleterAggregator) -> list[str]:
+        return sorted(dict.fromkeys(aggregator.events_capable_servers()))
+
+    def _schedule_event_descriptor_fetch(
+        self,
+        manager: _EventsCompleterManager,
+        server_name: str,
+    ) -> None:
+        fetch_key = (self.current_agent, server_name)
+        if fetch_key in self._event_descriptor_fetches:
+            return
+        loop = self._owner_loop
+        if loop is None or not loop.is_running():
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+        self._event_descriptor_fetches.add(fetch_key)
+
+        async def _fetch() -> None:
+            try:
+                await manager.list_descriptors(server_name)
+            except Exception:
+                return
+            finally:
+                self._event_descriptor_fetches.discard(fetch_key)
+            app = get_app_or_none()
+            if app is not None:
+                app.invalidate()
+
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            loop.create_task(_fetch())
+        else:
+            asyncio.run_coroutine_threadsafe(_fetch(), loop)
+
+    @staticmethod
+    def _split_events_commandline(remainder: str) -> tuple[list[str], str, str, bool]:
+        """Quote-aware tokenizer for ``/events`` completion that tolerates unclosed quotes."""
+        completed: list[str] = []
+        token_chars: list[str] = []
+        token_start: int | None = None
+        quote: str | None = None
+        escaped = False
+
+        for index, ch in enumerate(remainder):
+            if escaped:
+                if token_start is None:
+                    token_start = index
+                token_chars.append(ch)
+                escaped = False
+                continue
+            if ch == "\\" and quote != "'":
+                if token_start is None:
+                    token_start = index
+                escaped = True
+                continue
+            if quote is not None:
+                if ch == quote:
+                    quote = None
+                else:
+                    token_chars.append(ch)
+                continue
+            if ch in ("'", '"'):
+                if token_start is None:
+                    token_start = index
+                quote = ch
+                continue
+            if ch.isspace():
+                if token_start is not None:
+                    completed.append("".join(token_chars))
+                    token_chars = []
+                    token_start = None
+                continue
+            if token_start is None:
+                token_start = index
+            token_chars.append(ch)
+
+        if token_start is None:
+            trailing_space = bool(remainder) and remainder[-1].isspace()
+            return completed, "", "", trailing_space
+        return completed, "".join(token_chars), remainder[token_start:], False
+
+    def _complete_event_servers(
+        self,
+        aggregator: _EventsCompleterAggregator,
+        partial: str,
+        raw_partial: str | None = None,
+    ) -> list[Completion]:
+        replace_len = len(partial) if raw_partial is None else len(raw_partial)
+        return [
+            Completion(
+                shlex.quote(server_name),
+                start_position=-replace_len,
+                display=server_name,
+                display_meta="events server",
+            )
+            for server_name in self._events_capable_servers(aggregator)
+            if not partial or starts_with_casefold(server_name, partial)
+        ]
+
+    def _complete_event_subscribe_args(
+        self,
+        aggregator: _EventsCompleterAggregator,
+        server_name: str,
+        event_name: str,
+        preceding: Sequence[str],
+        partial: str,
+    ) -> list[Completion]:
+        if preceding and preceding[-1] == "--every":
+            return []
+
+        present_keys: set[str] = set()
+        present_flags: set[str] = set()
+        for token in preceding:
+            if token in ("--wake", "--no-wake"):
+                present_flags.add("--no-wake")
+            elif token == "--once":
+                present_flags.add("--once")
+            elif token == "--every" or token.startswith("--every="):
+                present_flags.add("--every")
+            elif "=" in token:
+                key, _, _ = token.partition("=")
+                if key:
+                    present_keys.add(key)
+
+        if "=" in partial:
+            return []
+
+        completions: list[Completion] = []
+        if not partial.startswith("-"):
+            descriptors = aggregator.events.cached_descriptors(server_name)
+            descriptor = (
+                next(
+                    (
+                        item
+                        for item in descriptors
+                        if item.name == event_name and item.supports("poll")
+                    ),
+                    None,
+                )
+                if descriptors is not None
+                else None
+            )
+            schema = descriptor.input_schema if descriptor is not None else None
+            properties = schema.get("properties") if isinstance(schema, Mapping) else None
+            if isinstance(properties, Mapping):
+                raw_required = schema.get("required") if isinstance(schema, Mapping) else None
+                required_order = (
+                    [name for name in raw_required if isinstance(name, str) and name in properties]
+                    if isinstance(raw_required, list)
+                    else []
+                )
+                required_set = set(required_order)
+                ordered_keys = [
+                    *required_order,
+                    *(
+                        key
+                        for key in properties
+                        if isinstance(key, str) and key not in required_set
+                    ),
+                ]
+                for key in ordered_keys:
+                    if key in present_keys:
+                        continue
+                    if partial and not starts_with_casefold(key, partial):
+                        continue
+                    prop = properties.get(key)
+                    desc = prop.get("description") if isinstance(prop, Mapping) else None
+                    tag = "required" if key in required_set else "optional"
+                    meta = f"{tag}: {desc}" if isinstance(desc, str) and desc.strip() else tag
+                    completions.append(
+                        Completion(
+                            f"{key}=",
+                            start_position=-len(partial),
+                            display=f"{key}=",
+                            display_meta=meta,
+                        )
+                    )
+
+        for flag, description in _EVENTS_SUBSCRIBE_FLAGS:
+            if flag in present_flags:
+                continue
+            if partial and not starts_with_casefold(flag, partial):
+                continue
+            completions.append(
+                Completion(
+                    flag,
+                    start_position=-len(partial),
+                    display=flag,
+                    display_meta=description,
+                )
+            )
+        return completions
+
+    def _events_command_completions(self, text: str, text_lower: str) -> list[Completion] | None:
+        if not text_lower.startswith("/events "):
+            return None
+
+        remainder = text[len("/events ") :]
+        completed, partial, raw_partial, _ = self._split_events_commandline(remainder)
+
+        if not completed:
+            parts = [partial] if partial else []
+            return list(self._complete_subcommands(parts, remainder, _EVENTS_SUBCOMMANDS))
+
+        aggregator = self._current_events_aggregator()
+        if aggregator is None:
+            return []
+
+        subcmd = casefold_text(completed[0])
+        if subcmd == "list":
+            if len(completed) == 1:
+                return self._complete_event_servers(aggregator, partial, raw_partial)
+            return []
+
+        if subcmd == "poll":
+            if len(completed) == 1:
+                return [
+                    Completion(
+                        sub.key,
+                        start_position=-len(raw_partial),
+                        display=sub.key,
+                        display_meta=f"{sub.server_name}/{sub.name}",
+                    )
+                    for sub in aggregator.events.subscriptions()
+                    if sub.status == "active"
+                    and (not partial or starts_with_casefold(sub.key, partial))
+                ]
+            return []
+
+        if subcmd == "unsubscribe":
+            if len(completed) == 1:
+                completions = [
+                    Completion(
+                        sub.key,
+                        start_position=-len(raw_partial),
+                        display=sub.key,
+                        display_meta=f"{sub.server_name}/{sub.name}",
+                    )
+                    for sub in aggregator.events.subscriptions()
+                    if not partial or starts_with_casefold(sub.key, partial)
+                ]
+                if not partial or starts_with_casefold("all", partial):
+                    completions.append(
+                        Completion(
+                            "all",
+                            start_position=-len(raw_partial),
+                            display="all",
+                            display_meta="Remove all event subscriptions",
+                        )
+                    )
+                return completions
+            return []
+
+        if subcmd == "subscribe":
+            if len(completed) == 1:
+                return self._complete_event_servers(aggregator, partial, raw_partial)
+
+            server_name = completed[1]
+            if len(completed) == 2:
+                descriptors = aggregator.events.cached_descriptors(server_name)
+                if descriptors is None:
+                    self._schedule_event_descriptor_fetch(aggregator.events, server_name)
+                    return []
+                return [
+                    Completion(
+                        descriptor.name,
+                        start_position=-len(raw_partial),
+                        display=descriptor.name,
+                        display_meta=descriptor.description or "poll event",
+                    )
+                    for descriptor in descriptors
+                    if descriptor.supports("poll")
+                    and (not partial or starts_with_casefold(descriptor.name, partial))
+                ]
+
+            event_name = completed[2]
+            preceding = completed[3:]
+            return self._complete_event_subscribe_args(
+                aggregator,
+                server_name,
+                event_name,
+                preceding,
+                partial,
+            )
+
+        return []
+
     def _slash_command_completions(self, text_lower: str) -> list[Completion] | None:
         if not text_lower.startswith("/"):
             return None
@@ -2261,6 +2610,11 @@ class AgentCompleter(Completer):
         plugin_completions = self._plugin_command_argument_completions(text)
         if plugin_completions is not None:
             yield from plugin_completions
+            return
+
+        events_completions = self._events_command_completions(text, text_lower)
+        if events_completions is not None:
+            yield from events_completions
             return
 
         from fast_agent.ui.prompt.completion_sources import command_completions

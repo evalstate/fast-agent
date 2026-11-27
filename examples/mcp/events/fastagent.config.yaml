@@ -1,0 +1,22 @@
+default_model: passthrough
+
+logger:
+  level: error
+  type: console
+
+mcp:
+  servers:
+    # The server beside this file. Events need the 2026-07-28 protocol.
+    jobs:
+      command: uv
+      args: [run, job_events_server.py]
+      protocol_mode: modern
+      events:
+        - name: job.status_changed
+          arguments:
+            job_id: job-1
+          wake: true
+
+ptc:
+  # Programmatic tool calling is a model default on POSIX. Off here so tools are called directly.
+  enabled: false

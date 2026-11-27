@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import warnings
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 from urllib.parse import parse_qsl, urlencode, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
     from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
     from fast_agent.llm.request_params import RequestParams
+    from fast_agent.mcp.events_subscriptions import EventSubscription
     from fast_agent.ptc.store import SandboxStore
     from fast_agent.session.identity import SessionSaveIdentity
     from fast_agent.session.session_manager import Session, SessionInfo
@@ -162,6 +163,21 @@ class SessionHttpMcpServerSnapshot(BaseModel):
     protocol_mode: Literal["auto", "legacy", "modern"] = "auto"
 
 
+class SessionEventSubscriptionSnapshot(BaseModel):
+    """Persisted state for an active MCP event subscription."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    server: str
+    name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    wake: bool = False
+    once: bool = False
+    min_poll_ms: int | None = None
+    origin: Literal["user", "declared", "model"] = "user"
+    cursor: str | None = None
+
+
 class SessionAgentSnapshot(BaseModel):
     """Persisted continuation state for a single agent."""
 
@@ -183,6 +199,7 @@ class SessionAgentSnapshot(BaseModel):
     card_provenance: list[SessionCardProvenanceRef] = Field(default_factory=list)
     attachment_refs: list[SessionAttachmentRef] = Field(default_factory=list)
     http_mcp_servers: list[SessionHttpMcpServerSnapshot] = Field(default_factory=list)
+    event_subscriptions: list[SessionEventSubscriptionSnapshot] = Field(default_factory=list)
     model_overlay_refs: list[SessionModelOverlayRef] = Field(default_factory=list)
 
 
@@ -350,6 +367,11 @@ class _AttachedMcpServerProvider(Protocol):
 @runtime_checkable
 class _AttachedMcpServerConfigProvider(Protocol):
     def list_attached_mcp_server_configs(self) -> Mapping[str, "MCPServerSettings"]: ...
+
+
+@runtime_checkable
+class _ActiveEventSubscriptionProvider(Protocol):
+    def list_active_event_subscriptions(self) -> Sequence["EventSubscription"]: ...
 
 
 @runtime_checkable
@@ -1113,6 +1135,7 @@ def _capture_agent_snapshot(
         card_provenance=_capture_card_provenance(agent),
         attachment_refs=_capture_attachment_refs(agent),
         http_mcp_servers=_capture_http_mcp_servers(agent),
+        event_subscriptions=_capture_event_subscriptions(agent),
         model_overlay_refs=_capture_model_overlay_refs(agent),
     )
 
@@ -1322,6 +1345,29 @@ def _capture_http_mcp_servers(agent: "AgentProtocol") -> list[SessionHttpMcpServ
                 url=config.url.strip(),
                 transport=config.transport,
                 protocol_mode=config.protocol_mode,
+            )
+        )
+    return snapshots
+
+
+def _capture_event_subscriptions(
+    agent: "AgentProtocol",
+) -> list[SessionEventSubscriptionSnapshot]:
+    if not isinstance(agent, _ActiveEventSubscriptionProvider):
+        return []
+
+    snapshots: list[SessionEventSubscriptionSnapshot] = []
+    for subscription in agent.list_active_event_subscriptions():
+        snapshots.append(
+            SessionEventSubscriptionSnapshot(
+                server=subscription.server_name,
+                name=subscription.name,
+                arguments=dict(subscription.arguments),
+                wake=subscription.wake,
+                once=subscription.once,
+                min_poll_ms=subscription.min_poll_ms,
+                origin=subscription.origin,
+                cursor=subscription.consumed_cursor,
             )
         )
     return snapshots

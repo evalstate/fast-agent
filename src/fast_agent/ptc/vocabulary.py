@@ -22,6 +22,7 @@ PTC_VOCABULARY_META: Final = "fast-agent-ptc-vocabulary"
 PTC_BUILTIN_ORDER: Final = (
     PTC_SHELL_FUNCTION,
     "process",
+    "events",
     "write_text_file",
     "edit_file",
     "attach_media",

@@ -12,6 +12,7 @@ from fast_agent.commands.results import CommandChannel, CommandMessage
 from fast_agent.config import Settings, get_settings
 from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
 from fast_agent.ui.enhanced_prompt import get_argument_input, get_selection_input
+from fast_agent.ui.events_picker import run_events_picker_async
 from fast_agent.ui.history_actions import display_history_turn
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.model_picker_common import normalize_generic_model_spec
@@ -22,15 +23,18 @@ from fast_agent.ui.model_reference_picker import (
 from fast_agent.ui.tool_picker import run_tool_picker_async
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from rich.console import RenderableType
 
     from fast_agent.command_actions import MarkdownTextStyle
     from fast_agent.commands.context import AgentProvider
+    from fast_agent.commands.handlers.events import EventsPickerResult
     from fast_agent.config import Settings
     from fast_agent.llm.model_reference_diagnostics import ModelReferenceSetupItem
     from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.mcp.events_extension import EventDescriptor
+    from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
     from fast_agent.tools.tool_surface import ToolSurface
     from fast_agent.types import PromptMessageExtended
     from fast_agent.ui.model_picker_common import ProviderActivation
@@ -425,6 +429,17 @@ class TuiCommandIO(CommandIO):
 
     async def pick_tools(self, surface: "ToolSurface") -> tuple[str, ...] | None:
         return await run_tool_picker_async(surface)
+
+    async def pick_events(
+        self,
+        *,
+        manager: "EventSubscriptionManager",
+        descriptors_by_server: "Mapping[str, Sequence[EventDescriptor]]",
+    ) -> "EventsPickerResult | None":
+        return await run_events_picker_async(
+            manager=manager,
+            descriptors_by_server=descriptors_by_server,
+        )
 
     async def prompt_argument(
         self,

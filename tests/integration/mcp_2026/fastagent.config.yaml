@@ -35,3 +35,18 @@ mcp:
     modern_http:
       url: http://127.0.0.1:${FAST_AGENT_TEST_HTTP_PORT}/mcp
       transport: http
+    job_events:
+      command: uv
+      args: [run, ../../../examples/mcp/events/job_events_server.py]
+      transport: stdio
+      protocol_mode: modern
+    job_events_configured:
+      command: uv
+      args: [run, ../../../examples/mcp/events/job_events_server.py]
+      transport: stdio
+      protocol_mode: modern
+      events:
+        - name: job.status_changed
+          arguments:
+            job_id: job-1
+          wake: true

@@ -3,7 +3,7 @@ from asyncio import Lock
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import (
@@ -72,10 +72,24 @@ from fast_agent.mcp.common import (
     create_namespaced_name,
     is_namespaced_name,
 )
+from fast_agent.mcp.events_extension import (
+    ListEventsResult,
+    PollEventsResult,
+    server_supports_mcp_events,
+)
+from fast_agent.mcp.events_subscriptions import (
+    EventInboxItem,
+    EventSubscription,
+    EventSubscriptionManager,
+    SubscriptionOrigin,
+    build_event_prompt_message,
+    format_event_messages,
+)
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager, ServerConnection
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_metadata import with_prompt_metadata
 from fast_agent.mcp.skills_extension import (
     GetSkillResult,
@@ -120,15 +134,23 @@ _CONNECTION_ERROR_REPLAY_SAFE_METHODS = frozenset(
         "complete",
         "get_prompt",
         "get_skill",
+        "list_events",
         "list_skills",
         "list_prompts",
         "list_resource_templates",
         "list_resources",
         "list_tools",
+        "poll_events",
         "read_directory",
         "read_resource",
     }
 )
+
+
+def _sync_event_notifications(pending_count: int, *, owner: str) -> None:
+    from fast_agent.ui import notification_tracker
+
+    notification_tracker.set_mcp_event_count(pending_count, owner=owner)
 
 
 def _display_tool_id(tool_id: str | None) -> str:
@@ -418,6 +440,7 @@ class ServerStatus(BaseModel):
     transport_channels: TransportSnapshot | None = None
     app_integration_config: AppServerConfig | None = None
     mcp_skills_enabled: bool | None = None
+    mcp_events_enabled: bool | None = None
     reconnect_count: int = 0
     ping_interval_seconds: int | None = None
     ping_max_missed: int | None = None
@@ -456,6 +479,7 @@ class MCPAttachResult:
     tools_total: int | None = None
     prompts_total: int | None = None
     skills_total: int | None = None
+    events_supported: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -612,6 +636,9 @@ class MCPAggregator(ContextDependent):
 
         self._app_integration_configs: dict[str, AppServerConfig] = {}
         self._mcp_skill_registries: dict[str, McpSkillRegistry] = {}
+        self._events: EventSubscriptionManager | None = None
+        self._configured_events_started = False
+        self._configured_events_lock = Lock()
 
         # Cache for capabilities discovered by on-demand clients.
         self._capabilities_cache: dict[str, ServerCapabilities] = {}
@@ -722,6 +749,11 @@ class MCPAggregator(ContextDependent):
             if self._closed:
                 return
             self._closed = True
+            if self._events is not None:
+                await self._events.aclose()
+                from fast_agent.ui import notification_tracker
+
+                notification_tracker.clear_mcp_events(owner=self._event_notification_owner())
             try:
                 if (
                     self.connection_persistence
@@ -879,6 +911,46 @@ class MCPAggregator(ContextDependent):
         self._display_startup_state()
 
         self.initialized = True
+        if self._configured_events_started:
+            for server_name in list(self._attached_server_names):
+                await self._subscribe_configured_events(server_name)
+
+    async def start_configured_events(self) -> None:
+        """Start the event subscriptions server settings declare.
+
+        Called when the agent is first used, so an agent that is loaded and
+        never used does not poll. Servers attached later subscribe on attach.
+        """
+        async with self._configured_events_lock:
+            if self._configured_events_started:
+                return
+            for server_name in list(self._attached_server_names):
+                await self._subscribe_configured_events(server_name)
+            self._configured_events_started = True
+
+    async def _subscribe_configured_events(self, server_name: str) -> None:
+        """Start the event subscriptions a server's settings declare."""
+        config = self._attachment_configs.get(server_name)
+        if config is None or not config.events:
+            return
+        for declared in config.events:
+            if self.events.has_subscription(server_name, declared.name, declared.arguments):
+                continue
+            try:
+                await self.events.subscribe(
+                    server_name,
+                    declared.name,
+                    declared.arguments,
+                    wake=declared.wake,
+                    once=declared.once,
+                    min_poll_ms=declared.min_poll_ms,
+                    origin="declared",
+                )
+            except Exception as exc:
+                logger.warning(
+                    f"Could not subscribe to event '{declared.name}' on server "
+                    f"'{server_name}': {exc}"
+                )
 
     async def _reset_runtime_indexes(self) -> None:
         async with self._lifecycle_lock:
@@ -896,6 +968,8 @@ class MCPAggregator(ContextDependent):
 
         async with self._capabilities_cache_lock:
             self._capabilities_cache.clear()
+        if self._events is not None:
+            self._events.clear_descriptor_cache()
 
         self._app_integration_configs.clear()
         self._mcp_skill_registries.clear()
@@ -990,11 +1064,17 @@ class MCPAggregator(ContextDependent):
             if self._closed:
                 raise RuntimeError("MCP aggregator is closed")
             async with self._attachment_locks.setdefault(server_name, Lock()):
-                return await self._attach_server_locked(
+                result = await self._attach_server_locked(
                     server_name=server_name,
                     server_config=server_config,
                     options=options,
                 )
+        if self._events is not None:
+            self._events.clear_descriptor_cache(server_name)
+        # load_servers subscribes for the servers it attaches once it has finished.
+        if self.initialized and self._configured_events_started:
+            await self._subscribe_configured_events(server_name)
+        return result
 
     async def _attach_server_locked(
         self,
@@ -1328,6 +1408,8 @@ class MCPAggregator(ContextDependent):
             self._capabilities_cache.pop(server_name, None)
         registry.clear_server_capabilities(server_name)
         if clear_existing:
+            if self._events is not None:
+                await self._events.unsubscribe_server(server_name)
             async with self._tool_map_lock:
                 for namespaced in self._server_to_tool_map.pop(server_name, []):
                     self._namespaced_tool_map.pop(namespaced.namespaced_tool_name, None)
@@ -1366,6 +1448,9 @@ class MCPAggregator(ContextDependent):
         tool_names = self._attached_tool_names(server_name)
         prompt_names = self._attached_prompt_names(server_name)
         skills_total = await self._mcp_skills_total(server_name)
+        events_supported = server_supports_mcp_events(
+            await self._capabilities_for_status(server_name)
+        )
         return MCPAttachResult(
             server_name=self.server_display_name(server_name),
             transport=resolved_config.transport,
@@ -1377,6 +1462,7 @@ class MCPAggregator(ContextDependent):
             tools_total=len(tool_names),
             prompts_total=len(prompt_names),
             skills_total=skills_total,
+            events_supported=events_supported,
         )
 
     async def _mcp_skills_total(self, server_name: str) -> int | None:
@@ -1389,7 +1475,10 @@ class MCPAggregator(ContextDependent):
         server_name = self._resolve_server_key(server_name)
         async with self._lifecycle_lock:
             async with self._attachment_locks.setdefault(server_name, Lock()):
-                return await self._detach_server_locked(server_name)
+                result = await self._detach_server_locked(server_name)
+        if result.detached and self._events is not None:
+            await self._events.unsubscribe_server(server_name)
+        return result
 
     async def _detach_server_locked(self, server_name: str) -> MCPDetachResult:
         display_name = self.server_display_name(server_name)
@@ -1469,6 +1558,10 @@ class MCPAggregator(ContextDependent):
         registry = self.context.server_registry if self.context else None
         config = registry.get_server_config(server_name) if registry is not None else None
         return config.name if config is not None and config.name else server_name
+
+    def resolve_server_key(self, server_name: str) -> str:
+        """Resolve a server display name or alias to its canonical internal key."""
+        return self._resolve_server_key(server_name)
 
     def _resolve_server_key(self, server_name: str) -> str:
         registry = self.context.server_registry if self.context else None
@@ -2189,6 +2282,7 @@ class MCPAggregator(ContextDependent):
             if status.server_capabilities is None:
                 status.server_capabilities = await self._capabilities_for_status(server_name)
             status.mcp_skills_enabled = server_supports_mcp_skills(status.server_capabilities)
+            status.mcp_events_enabled = server_supports_mcp_events(status.server_capabilities)
             status_map[server_name] = status
 
         return status_map
@@ -2263,6 +2357,7 @@ class MCPAggregator(ContextDependent):
 
         status.server_capabilities = server_conn.server_capabilities
         status.mcp_skills_enabled = server_supports_mcp_skills(server_conn.server_capabilities)
+        status.mcp_events_enabled = server_supports_mcp_events(server_conn.server_capabilities)
         client_info = server_conn._callback_runtime.client_info
         status.client_info_name = client_info.name
         status.client_info_version = client_info.version
@@ -3974,6 +4069,240 @@ class MCPAggregator(ContextDependent):
             method_name="get_skill",
             method_args={"uri": uri},
         )
+
+    def _event_notification_owner(self) -> str:
+        return f"aggregator:{id(self)}"
+
+    @property
+    def events(self) -> EventSubscriptionManager:
+        """Event subscriptions held for this aggregator's servers (SEP-3415)."""
+        if self._events is None:
+            owner = self._event_notification_owner()
+            manager = EventSubscriptionManager(self)
+            manager.add_listener(
+                lambda _item: _sync_event_notifications(manager.pending_count, owner=owner)
+            )
+            self._events = manager
+        return self._events
+
+    def _take_event_items(self) -> list[EventInboxItem]:
+        if self._events is None or self._events.pending_count == 0:
+            return []
+        items = self._events.take()
+        if items:
+            from fast_agent.ui import notification_tracker
+
+            notification_tracker.clear_mcp_events(owner=self._event_notification_owner())
+        normalized: list[EventInboxItem] = []
+        for item in items:
+            display_name = self.server_display_name(item.server_name)
+            if display_name != item.server_name:
+                normalized.append(replace(item, server_name=display_name))
+            else:
+                normalized.append(item)
+        return normalized
+
+    def take_event_messages(self) -> list[str]:
+        """Drain delivered events as text for the next model call."""
+        items = self._take_event_items()
+        if not items:
+            return []
+        return [format_event_messages(items)]
+
+    def take_event_prompt_messages(self) -> list[PromptMessageExtended]:
+        """Drain delivered events as structured user messages for the next model call."""
+        items = self._take_event_items()
+        if not items:
+            return []
+        return [build_event_prompt_message(items)]
+
+    def active_wake_subscriptions(self) -> list[EventSubscription]:
+        """Return currently active event subscriptions with ``wake=True``."""
+        if self._events is None:
+            return []
+        normalized: list[EventSubscription] = []
+        for subscription in self._events.active_wake_subscriptions():
+            display_name = self.server_display_name(subscription.server_name)
+            if display_name != subscription.server_name:
+                normalized.append(replace(subscription, server_name=display_name))
+            else:
+                normalized.append(subscription)
+        return normalized
+
+    def list_active_event_subscriptions(self) -> list[EventSubscription]:
+        """Return persistable event subscriptions normalized to server display names."""
+        if self._events is None:
+            return []
+        normalized: list[EventSubscription] = []
+        for subscription in self._events.persistable_subscriptions():
+            display_name = self.server_display_name(subscription.server_name)
+            if display_name != subscription.server_name:
+                normalized.append(replace(subscription, server_name=display_name))
+            else:
+                normalized.append(subscription)
+        return normalized
+
+    def is_declared_event(
+        self,
+        server_name: str,
+        name: str,
+        arguments: Mapping[str, Any] | None = None,
+    ) -> bool:
+        """Return True if the server's current config declares this (name, arguments) event."""
+        resolved = self._resolve_server_key(server_name)
+        config = self._attachment_configs.get(resolved)
+        if config is None and self.context and self.context.server_registry is not None:
+            config = self.context.server_registry.get_server_config(resolved)
+        if config is None or not config.events:
+            return False
+        target_args = dict(arguments or {})
+        return any(
+            declared.name == name and dict(declared.arguments) == target_args
+            for declared in config.events
+        )
+
+    async def restore_event_subscription(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        wake: bool = False,
+        once: bool = False,
+        min_poll_ms: int | None = None,
+        origin: SubscriptionOrigin = "user",
+        cursor: str | None = None,
+        max_age_ms: int | None = None,
+    ) -> EventSubscription:
+        """Restore a persisted event subscription via the subscription manager."""
+        return await self.events.subscribe(
+            server_name,
+            name,
+            arguments,
+            wake=wake,
+            once=once,
+            min_poll_ms=min_poll_ms,
+            origin=origin,
+            cursor=cursor,
+            max_age_ms=max_age_ms,
+        )
+
+    def record_event_wake_turn(self) -> None:
+        """Record one consecutive wake turn on the event subscription manager."""
+        if self._events is not None:
+            self._events.record_wake_turn()
+
+    def reset_event_wake_budget(self) -> None:
+        """Reset the consecutive wake turn budget after a human-typed turn."""
+        if self._events is not None:
+            self._events.reset_wake_budget()
+
+    @property
+    def event_wake_paused(self) -> bool:
+        """Whether consecutive wake turns have reached the configured budget."""
+        return self._events is not None and self._events.wake_paused
+
+    async def reset_events(self) -> None:
+        """Reset session-scoped event subscriptions, inbox, wake budget, and toolbar notices."""
+        if self._events is not None:
+            await self._events.reset()
+        from fast_agent.ui import notification_tracker
+
+        notification_tracker.clear_mcp_events(owner=self._event_notification_owner())
+
+    def cached_capabilities(self, server_name: str) -> ServerCapabilities | None:
+        """Return cached server capabilities without opening new connections."""
+        server_name = self._resolve_server_key(server_name)
+        cached = self._capabilities_cache.get(server_name)
+        if cached is not None:
+            return cached
+        registry = self.context.server_registry if self.context else None
+        if registry is not None:
+            reg_caps = registry.get_server_capabilities(server_name)
+            if reg_caps is not None:
+                return reg_caps
+        manager = self._persistent_connection_manager
+        if self.connection_persistence and manager is not None:
+            server_conn = manager.running_servers.get(server_name)
+            if server_conn is not None:
+                return server_conn.server_capabilities
+        return None
+
+    def events_capable_servers(self) -> frozenset[str]:
+        """Return attached server display names that declared MCP Events support (cached only)."""
+        capable: set[str] = set()
+        for server_name in self.server_names:
+            display_name = self.server_display_name(server_name)
+            if server_supports_mcp_events(self.cached_capabilities(server_name)) or (
+                self._events is not None
+                and self._events.cached_descriptors(server_name) is not None
+            ):
+                capable.add(display_name)
+        return frozenset(capable)
+
+    async def supports_events(self, server_name: str) -> bool:
+        """Whether a server declared the SEP-3415 Events extension."""
+        if not self.initialized:
+            await self.load_servers()
+
+        server_name = self._resolve_server_key(server_name)
+        if server_name not in self.server_names:
+            return False
+        return server_supports_mcp_events(await self.get_capabilities(server_name))
+
+    async def list_events(
+        self,
+        server_name: str,
+        cursor: str | None = None,
+    ) -> ListEventsResult:
+        """List one page of event types from one server via SEP-3415."""
+        server_name = await self._require_events_server(server_name)
+        method_args = {"cursor": cursor} if cursor is not None else None
+        return await self._execute_on_server(
+            server_name=server_name,
+            operation_type="events/list",
+            operation_name="",
+            method_name="list_events",
+            method_args=method_args,
+        )
+
+    async def poll_events(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        cursor: str | None = None,
+        max_age_ms: int | None = None,
+        max_events: int | None = None,
+    ) -> PollEventsResult:
+        """Poll one event subscription on one server via SEP-3415."""
+        server_name = await self._require_events_server(server_name)
+        method_args: dict[str, Any] = {"name": name, "arguments": arguments or {}}
+        if cursor is not None:
+            method_args["cursor"] = cursor
+        if max_age_ms is not None:
+            method_args["max_age_ms"] = max_age_ms
+        if max_events is not None:
+            method_args["max_events"] = max_events
+        return await self._execute_on_server(
+            server_name=server_name,
+            operation_type="events/poll",
+            operation_name=name,
+            method_name="poll_events",
+            method_args=method_args,
+        )
+
+    async def _require_events_server(self, server_name: str) -> str:
+        if not self.initialized:
+            await self.load_servers()
+
+        server_name = self._resolve_server_key(server_name)
+        if server_name not in self.server_names:
+            raise ValueError(f"Server '{server_name}' not found")
+        if not server_supports_mcp_events(await self.get_capabilities(server_name)):
+            raise ValueError(f"Server '{server_name}' does not support the events extension")
+        return server_name
 
     async def _read_directory_from_server(
         self, server_name: str, uri: str, *, cursor: str | None = None

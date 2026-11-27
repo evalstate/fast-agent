@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-WarmReason = Literal["tools", "hc", "/warm"]
+WarmReason = Literal["tools", "hc", "events", "/warm"]
 WarmState = Literal["off", "active", "failed"]
 
 # A request that reads less than this share of its prompt from cache found the

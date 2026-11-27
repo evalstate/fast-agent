@@ -49,6 +49,7 @@ from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.queued_input import queued_input_source
+from fast_agent.integrations.hc_children import is_hc_message
 from fast_agent.integrations.herdr_lifecycle import herdr_blocked
 from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
 from fast_agent.tools.execution_environment import ShellExecutionResult
@@ -58,6 +59,7 @@ from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     CommandPayload,
     EOFCommand,
+    EventWakeCommand,
     InterruptCommand,
     ShellCommand,
     is_command_payload,
@@ -138,6 +140,17 @@ class PendingCommandExecution:
 class _ShellRuntimeProvider(Protocol):
     @property
     def shell_runtime(self) -> object | None: ...
+
+
+@runtime_checkable
+class _EventWakeAgent(Protocol):
+    def take_event_prompt_messages(self) -> list[PromptMessageExtended]: ...
+
+    async def wait_for_event_wake(self) -> None: ...
+
+    def record_event_wake_turn(self) -> None: ...
+
+    def reset_event_wake_budget(self) -> None: ...
 
 
 @runtime_checkable
@@ -812,6 +825,7 @@ class InteractivePrompt:
         session_manager: "SessionManager | None",
     ) -> PromptInputPhase:
         no_home_mode = prompt_provider.no_home_mode
+        wake_agent = self._event_wake_agent(prompt_provider, agent_state.current_agent)
         try:
             user_input = await get_enhanced_input(
                 agent_name=agent_state.current_agent,
@@ -825,6 +839,7 @@ class InteractivePrompt:
                 no_home_mode=no_home_mode,
                 pre_populate_buffer=buffer_prefill,
                 session_manager=session_manager,
+                wait_for_wake=wake_agent.wait_for_event_wake if wake_agent else None,
             )
         except KeyboardInterrupt:
             self._handle_ctrl_c_interrupt(
@@ -841,6 +856,8 @@ class InteractivePrompt:
         next_buffer_prefill = ""
         if isinstance(user_input, str):
             user_input = parse_special_input(user_input)
+        elif isinstance(user_input, EventWakeCommand):
+            next_buffer_prefill = user_input.buffer_text
 
         if not isinstance(user_input, InterruptCommand):
             self._clear_ctrl_c_interrupt(runtime_state=runtime_state)
@@ -1356,6 +1373,46 @@ class InteractivePrompt:
             True,
         )
 
+    @staticmethod
+    def _event_wake_agent(prompt_provider: "AgentApp", agent_name: str) -> _EventWakeAgent | None:
+        try:
+            agent = prompt_provider._agent(agent_name)
+        except Exception:
+            return None
+        return agent if isinstance(agent, _EventWakeAgent) else None
+
+    async def _send_event_wake_turn(
+        self,
+        *,
+        send_func: SendFunc,
+        prompt_provider: "AgentApp",
+        agent_name: str,
+        runtime_state: PromptLoopRuntimeState,
+    ) -> PromptLoopResult | None:
+        """Start a turn whose input is the MCP events that ended the prompt."""
+        wake_agent = self._event_wake_agent(prompt_provider, agent_name)
+        if wake_agent is None:
+            return None
+        messages = wake_agent.take_event_prompt_messages()
+        if not messages:
+            return None
+        wake_agent.record_event_wake_turn()
+        prompt_payload = (
+            messages[0]
+            if len(messages) == 1
+            else PromptMessageExtended(
+                role="user",
+                content=[block for message in messages for block in message.content],
+            )
+        )
+        return await self._send_regular_message(
+            send_func=send_func,
+            prompt_payload=prompt_payload,
+            prompt_provider=prompt_provider,
+            agent_name=agent_name,
+            runtime_state=runtime_state,
+        )
+
     async def prompt_loop(
         self,
         send_func: SendFunc,
@@ -1452,6 +1509,17 @@ class InteractivePrompt:
             buffer_prefill = input_phase.buffer_prefill
             user_input = input_phase.user_input
 
+            if isinstance(user_input, EventWakeCommand):
+                wake_result = await self._send_event_wake_turn(
+                    send_func=send_func,
+                    prompt_provider=prompt_provider,
+                    agent_name=agent_state.current_agent,
+                    runtime_state=runtime_state,
+                )
+                if wake_result is not None:
+                    result = wake_result
+                continue
+
             command_phase = await self._process_turn_command_phase(
                 prompt_provider=prompt_provider,
                 agent_state=agent_state,
@@ -1498,6 +1566,9 @@ class InteractivePrompt:
             if prompt_payload is None:
                 buffer_prefill = user_input
                 continue
+            wake_agent = self._event_wake_agent(prompt_provider, agent_state.current_agent)
+            if wake_agent is not None and not is_hc_message(user_input):
+                wake_agent.reset_event_wake_budget()
             send_result = await self._send_regular_message(
                 send_func=send_func,
                 prompt_payload=prompt_payload,

@@ -8,7 +8,7 @@ import os
 import threading
 import time
 from contextlib import nullcontext, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html import escape as escape_html
 from importlib.metadata import version
 from typing import TYPE_CHECKING, Any, TypeVar, cast
@@ -37,6 +37,8 @@ from fast_agent.core.agent_capabilities import cycle_agent_capability_mode
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.integrations.hc_children import (
+    HcAttachments,
+    active_event_waits,
     current_hc_attachments,
     format_status_summary,
     format_turn_end_lines,
@@ -89,7 +91,7 @@ from fast_agent.ui.prompt.status_bar.service_tier import cycle_service_tier
 from fast_agent.utils.env import env_flag
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Awaitable, Callable, Iterable
     from pathlib import Path
 
     from fast_agent.agents.agent_types import AgentType
@@ -766,18 +768,42 @@ async def _show_input_startup(
     help_message_shown = True
 
 
+def _resolve_event_waits(
+    agent_provider: "AgentApp | None",
+    agent_name: str,
+) -> tuple[tuple[str, ...], bool]:
+    if agent_provider is None:
+        return (), False
+    try:
+        agent = agent_provider._agent(agent_name)
+    except Exception:
+        return (), False
+    return active_event_waits(agent)
+
+
 async def refresh_session_attachments(
     *, agent_name: str, agent_provider: "AgentApp | None", reuse_recent: bool = False
 ) -> list[str]:
-    """Update what an idle session is still attached to inside herdr-core.
+    """Update what an idle session is still attached to (hc children and/or wake events).
 
     Feeds the toolbar and the terminal status message; returns the lines to
-    print when a turn ends. Empty outside herdr-core.
+    print when a turn ends.
     """
-    if hc_terminal_id() is None:
+    in_hc = hc_terminal_id() is not None
+    attachments = (
+        await refresh_hc_attachments(reuse_recent=reuse_recent) if in_hc else HcAttachments()
+    )
+    background = active_process_count(agent_provider, agent_name) if in_hc else 0
+    event_waits, event_wake_paused = _resolve_event_waits(agent_provider, agent_name)
+    if event_waits:
+        attachments = replace(
+            attachments,
+            event_waits=event_waits,
+            event_wake_paused=event_wake_paused,
+        )
+    if not in_hc and not attachments.has_event_waits:
+        report_session_attached(None)
         return []
-    attachments = await refresh_hc_attachments(reuse_recent=reuse_recent)
-    background = active_process_count(agent_provider, agent_name)
     report_session_attached(format_status_summary(attachments, background))
     return format_turn_end_lines(attachments, background)
 
@@ -808,6 +834,7 @@ async def get_enhanced_input(
     no_home_mode: bool = False,
     pre_populate_buffer: str = "",
     session_manager: "SessionManager | None" = None,
+    wait_for_wake: "Callable[[], Awaitable[None]] | None" = None,
 ) -> str | CommandPayload:
     """
     Enhanced input with advanced prompt_toolkit features.
@@ -826,6 +853,7 @@ async def get_enhanced_input(
         no_home_mode: Whether session operations should be disabled for --no-home mode
         pre_populate_buffer: Text to pre-populate in the input buffer for editing (one-off)
         session_manager: Optional session manager for session completions
+        wait_for_wake: Optional awaitable that ends the prompt with an EventWakeCommand
 
     Returns:
         User input string or parsed command payload
@@ -931,11 +959,16 @@ async def get_enhanced_input(
         is_human_input=is_human_input,
     )
 
+    event_waits, event_wake_paused = (
+        ((), False) if is_human_input else _resolve_event_waits(agent_provider, agent_name)
+    )
     warming = (
         nullcontext()
         if is_human_input
         else idle_cache_warming(
-            session=session, warmer=resolve_cache_warmer(agent_provider, agent_name)
+            session=session,
+            warmer=resolve_cache_warmer(agent_provider, agent_name),
+            has_event_waits=bool(event_waits and not event_wake_paused),
         )
     )
     try:
@@ -947,6 +980,7 @@ async def get_enhanced_input(
                 default_buffer=buffer_default,
                 resolve_prompt_text=resolve_prompt_text,
                 parse_special_input=parse_special_input,
+                wait_for_wake=wait_for_wake,
             )
     finally:
         await cleanup_prompt_session(

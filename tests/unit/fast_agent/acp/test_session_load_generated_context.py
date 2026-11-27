@@ -59,3 +59,32 @@ def test_session_load_replays_only_user_authored_chunks(typed: str) -> None:
     assert normalize_user_prompt(message) == typed
     assert isinstance(message.content[0], TextContent)
     assert message.content[0].text == typed.removesuffix("^tool:fetch").rstrip()
+
+
+@pytest.mark.unit
+def test_session_load_replays_mcp_events_messages() -> None:
+    from fast_agent.mcp.events_extension import EventOccurrence
+    from fast_agent.mcp.events_subscriptions import EventInboxItem, build_event_prompt_message
+
+    store = ACPServerSessionStore(cast("SessionStoreHost", SimpleNamespace()))
+    event_message = build_event_prompt_message(
+        [
+            EventInboxItem(
+                "event",
+                "sub1",
+                "jobs",
+                "job.status_changed",
+                occurrence=EventOccurrence(
+                    event_id="ev-1",
+                    name="job.status_changed",
+                    timestamp="2026-11-12T10:00:00Z",
+                    data={"stage": "DONE"},
+                ),
+            )
+        ]
+    )
+
+    updates = store.build_history_updates([event_message])
+    assert [type(update) for update in updates] == [UserMessageChunk]
+    assert isinstance(updates[0].content, TextContentBlock)
+    assert 'subscription="sub1"' in updates[0].content.text

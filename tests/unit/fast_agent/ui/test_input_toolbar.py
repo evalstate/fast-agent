@@ -123,6 +123,26 @@ def test_build_notification_segment_pluralizes_multiple_event_types() -> None:
         notification_tracker.clear()
 
 
+def test_build_notification_segment_clears_mcp_events_when_consumed() -> None:
+    notification_tracker.clear()
+    notification_tracker.add_mcp_event("jobs")
+    notification_tracker.add_mcp_event("jobs")
+
+    try:
+        assert _build_notification_segment() == " | ◀ 2 events"
+        assert notification_tracker.clear_mcp_events(server_name="jobs") == 2
+        assert _build_notification_segment() == ""
+
+        notification_tracker.set_mcp_event_count(5, owner="agg-1")
+        notification_tracker.set_mcp_event_count(3, owner="agg-1")
+        assert notification_tracker.get_counts_by_type() == {"mcp_event": 3}
+        assert notification_tracker.notifications == []
+        assert notification_tracker.clear_mcp_events(owner="agg-1") == 3
+        assert _build_notification_segment() == ""
+    finally:
+        notification_tracker.clear()
+
+
 def test_build_notification_segment_escapes_active_server_name() -> None:
     notification_tracker.clear()
     notification_tracker.start_sampling("server<one&two>")
@@ -716,3 +736,25 @@ def test_toolbar_services_alone_are_quiet_text_not_a_badge(
 
     assert " | <style fg='ansiblack' bg='ansicyan'>hc: 1 service</style>" in markup
     assert "⧗" not in text and _BADGE_STYLE not in markup
+
+
+def test_toolbar_badge_shows_active_event_waits_and_combines_with_hc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    subs = ("jobs/job.status_changed", "ci/build.finished")
+
+    monkeypatch.setattr(renderer, "active_event_waits", lambda _agent: (subs, False))
+    markup, text = _render_toolbar_text(monkeypatch, width=200)
+    assert f"{_BADGE_STYLE} ⧗ 2 ev </style>" in markup
+    assert "⧗ 2 ev" in text
+
+    monkeypatch.setattr(renderer, "active_event_waits", lambda _agent: (subs, True))
+    markup_paused, _ = _render_toolbar_text(monkeypatch, width=200)
+    assert f"{_BADGE_STYLE} ⧗ 2 ev ⏸ </style>" in markup_paused
+
+    monkeypatch.setattr(renderer, "active_event_waits", lambda _agent: (subs, False))
+    hc_one = HcAttachments(resuming=(HcChild("t7"),))
+    markup_both, _ = _render_toolbar_text(
+        monkeypatch, width=200, attachments=hc_one, waited_seconds=720
+    )
+    assert f"{_BADGE_STYLE} ⧗ t7, 2 ev · 12m </style>" in markup_both

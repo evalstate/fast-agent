@@ -24,6 +24,8 @@ from fast_agent.ui.interactive_prompt import _turn_end_line_text
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.core.agent_app import AgentApp
+
 # A stand-in for the hc CLI: answers `wait <parent> --children` and `get <t>` from a JSON file.
 _FAKE_HC = """#!{python}
 import json, os, sys
@@ -233,3 +235,86 @@ def test_multi_notice_paste_unwraps_cleanly_and_counts_all_blocks() -> None:
         )
         == "hc · t7 error"
     )
+
+
+def test_turn_end_lines_and_status_summary_include_event_waits() -> None:
+    label1 = "jobs/job.status_changed (job_id=abc123)"
+    label2 = "ci/build.finished"
+
+    assert format_turn_end_lines(HcAttachments(event_waits=(label1,)), 0) == [
+        "⧗ events · waiting on jobs/job.status_changed (job_id=abc123) · resumes when an event arrives"
+    ]
+    assert format_turn_end_lines(
+        HcAttachments(event_waits=(label1, label2), event_wake_paused=True),
+        0,
+    ) == ["⧗ events · waiting on 2 events · wake paused"]
+    assert format_turn_end_lines(
+        HcAttachments(
+            resuming=(HcChild("t7", "review"),),
+            event_waits=(label1, label2),
+        ),
+        0,
+    ) == ["⧗ hc · waiting on review (t7) · resumes when it reports or exits · 2 events"]
+
+    assert (
+        format_status_summary(HcAttachments(event_waits=(label1,)), 0)
+        == "waiting on jobs/job.status_changed (job_id=abc123)"
+    )
+    assert (
+        format_status_summary(
+            HcAttachments(
+                resuming=(HcChild("t7", "review"),),
+                event_waits=(label1, label2),
+            ),
+            0,
+        )
+        == "waiting on 1: review, 2 events"
+    )
+    assert (
+        format_status_summary(
+            HcAttachments(event_waits=(label1, label2), event_wake_paused=True),
+            0,
+        )
+        == "waiting on 2 events (wake paused)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_refresh_session_attachments_reports_event_waits_outside_hc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typing import cast
+
+    from fast_agent.commands.context import StaticAgentProvider
+    from fast_agent.mcp.events_subscriptions import EventSubscription
+    from fast_agent.ui.prompt import input as prompt_input
+
+    monkeypatch.delenv("HC_TERMINAL_ID", raising=False)
+    monkeypatch.delenv("HC_TERMINAL_SOCKET", raising=False)
+    reported: list[str | None] = []
+    monkeypatch.setattr(prompt_input, "report_session_attached", reported.append)
+
+    class _WakeAgent:
+        def __init__(self, subs: list[EventSubscription], paused: bool = False) -> None:
+            self._subs = subs
+            self._paused = paused
+
+        def event_wait_state(self) -> tuple[list[EventSubscription], bool]:
+            return list(self._subs), self._paused
+
+    sub = EventSubscription(
+        server_name="jobs",
+        name="job.status_changed",
+        arguments={"job_id": "abc123"},
+        wake=True,
+    )
+    provider = StaticAgentProvider({"main": _WakeAgent([sub])})
+    lines = await prompt_input.refresh_session_attachments(
+        agent_name="main",
+        agent_provider=cast("AgentApp", provider),
+    )
+
+    assert lines == [
+        "⧗ events · waiting on jobs/job.status_changed (job_id=abc123) · resumes when an event arrives"
+    ]
+    assert reported == ["waiting on jobs/job.status_changed (job_id=abc123)"]

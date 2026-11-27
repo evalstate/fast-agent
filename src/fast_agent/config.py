@@ -722,6 +722,50 @@ class MCPRootSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class MCPEventSubscriptionSettings(BaseModel):
+    """An MCP Events subscription started when an agent first uses its server."""
+
+    name: str
+    """The event type to subscribe to."""
+
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    """Subscription arguments, as described by the event type's input schema."""
+
+    wake: bool = False
+    """Whether an arrival starts a turn in an idle agent."""
+
+    once: bool = False
+    """Whether to stop polling cleanly after the first event arrives."""
+
+    every: str | int | None = None
+    """Optional client-side minimum poll interval (e.g. '30s', '5m', '500ms', or ms int)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("every", mode="before")
+    @classmethod
+    def _validate_every(cls, value: Any) -> str | int | None:
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (str, int)):
+            raise ValueError(
+                "every must be a positive duration string (e.g. '30s', '5m') "
+                "or positive integer milliseconds"
+            )
+        from fast_agent.mcp.events_subscriptions import parse_poll_interval_ms
+
+        parse_poll_interval_ms(value)
+        return value
+
+    @property
+    def min_poll_ms(self) -> int | None:
+        if self.every is None:
+            return None
+        from fast_agent.mcp.events_subscriptions import parse_poll_interval_ms
+
+        return parse_poll_interval_ms(self.every)
+
+
 class MCPServerSettings(BaseModel):
     """
     Represents the configuration for an individual server.
@@ -811,6 +855,9 @@ class MCPServerSettings(BaseModel):
     """
 
     implementation: Implementation | None = None
+
+    events: list[MCPEventSubscriptionSettings] | None = None
+    """MCP Events subscriptions to start when an agent first uses this server."""
 
     defer_loading: bool = False
     """Provider-managed OpenAI Responses hint to defer remote tool loading."""

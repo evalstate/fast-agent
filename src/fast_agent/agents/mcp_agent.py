@@ -142,6 +142,11 @@ from fast_agent.tools.elicitation import (
     run_elicitation_form,
     set_elicitation_input_callback,
 )
+from fast_agent.tools.events_tool import (
+    EVENTS_TOOL_NAME,
+    build_events_tool,
+    execute_events_tool,
+)
 from fast_agent.tools.file_read_access import (
     SKILL_READER_FILE_READS,
     TOOL_FILE_READS,
@@ -271,6 +276,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.llm_decorator import LlmDecorator
     from fast_agent.context import Context
     from fast_agent.mcp.app_integrations import AppServerConfig
+    from fast_agent.mcp.events_subscriptions import EventSubscription, SubscriptionOrigin
     from fast_agent.ptc.store import SandboxStore
     from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
     from fast_agent.tools.execution_environment import (
@@ -615,6 +621,42 @@ class McpAgent(ABC, ToolAgent):
             access_modes=(access_mode,),
         )
 
+    def take_event_messages(self) -> list[str]:
+        """Drain MCP events delivered since the last model call."""
+        return self._aggregator.take_event_messages()
+
+    def take_event_prompt_messages(self) -> list[PromptMessageExtended]:
+        """Drain MCP events delivered since the last model call as structured messages."""
+        return self._aggregator.take_event_prompt_messages()
+
+    async def start_configured_events(self) -> None:
+        """Start the MCP event subscriptions this agent's server settings declare."""
+        await self._aggregator.start_configured_events()
+
+    async def wait_for_event_wake(self) -> None:
+        """Return once an MCP event from a subscription with ``wake`` set is waiting."""
+        await self._aggregator.start_configured_events()
+        await self._aggregator.events.wait_for_wake()
+
+    def event_wait_state(self) -> tuple[list[EventSubscription], bool]:
+        """Return ``(active_wake_subscriptions, wake_paused)`` for this agent."""
+        return (
+            self._aggregator.active_wake_subscriptions(),
+            self._aggregator.event_wake_paused,
+        )
+
+    def record_event_wake_turn(self) -> None:
+        """Record one consecutive event wake turn."""
+        self._aggregator.record_event_wake_turn()
+
+    def reset_event_wake_budget(self) -> None:
+        """Reset the consecutive event wake turn budget after a human-typed turn."""
+        self._aggregator.reset_event_wake_budget()
+
+    async def reset_events(self) -> None:
+        """Reset session-scoped event subscriptions, inbox, wake budget, and toolbar notices."""
+        await self._aggregator.reset_events()
+
     async def get_server_status(self) -> dict[str, ServerStatus]:
         """Expose server status details for UI and diagnostics consumers."""
         if not self._aggregator:
@@ -696,6 +738,42 @@ class McpAgent(ABC, ToolAgent):
 
     def list_attached_mcp_server_configs(self) -> dict[str, MCPServerSettings]:
         return self._aggregator.attached_server_configs()
+
+    def list_active_event_subscriptions(self) -> list[EventSubscription]:
+        return self._aggregator.list_active_event_subscriptions()
+
+    def is_declared_event(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> bool:
+        return self._aggregator.is_declared_event(server_name, name, arguments)
+
+    async def restore_event_subscription(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        wake: bool = False,
+        once: bool = False,
+        min_poll_ms: int | None = None,
+        origin: SubscriptionOrigin = "user",
+        cursor: str | None = None,
+        max_age_ms: int | None = None,
+    ) -> EventSubscription:
+        return await self._aggregator.restore_event_subscription(
+            server_name,
+            name,
+            arguments,
+            wake=wake,
+            once=once,
+            min_poll_ms=min_poll_ms,
+            origin=origin,
+            cursor=cursor,
+            max_age_ms=max_age_ms,
+        )
 
     async def list_servers(self) -> list[str]:
         return unique_preserving_order(
@@ -2386,6 +2464,12 @@ class McpAgent(ABC, ToolAgent):
                 tool_handler=self.tool_handler_for(request_params),
             )
 
+        if name == EVENTS_TOOL_NAME:
+            if self._events_runtime_tool() is not None and (
+                builtin_only or name not in self._execution_tools
+            ):
+                return await execute_events_tool(self._aggregator, arguments)
+
         if name == HUMAN_INPUT_TOOL_NAME:
             if builtin_only and self._human_input_runtime_tool() is None:
                 return None
@@ -2844,6 +2928,7 @@ class McpAgent(ABC, ToolAgent):
             or self._is_filesystem_runtime_tool(name)
             or (self._skill_reader is not None and name == READ_SKILL_TOOL_NAME)
             or (self._shell_runtime is not None and self._shell_runtime.owns_tool(name))
+            or (name == EVENTS_TOOL_NAME and self._events_runtime_tool() is not None)
             or name == HUMAN_INPUT_TOOL_NAME
             or name in self._execution_tools
         )
@@ -3576,6 +3661,7 @@ class McpAgent(ABC, ToolAgent):
                 merged_tools,
                 sources=self._ptc_function_sources(routes),
                 unavailable_sources=self._ptc_unavailable_sources(mcp_tools),
+                events_sources=self.events_capable_servers(),
                 routes=routes,
                 file_read=self._shell_runtime_enabled
                 or READ_TEXT_FILE_TOOL_NAME in filesystem_tools,
@@ -3740,6 +3826,9 @@ class McpAgent(ABC, ToolAgent):
         skill_tool = self._skill_reader_fallback_tool()
         if skill_tool is not None:
             tools.append(skill_tool)
+        events_tool = self._events_runtime_tool()
+        if events_tool is not None and all(tool.name != events_tool.name for tool in tools):
+            tools.append(events_tool)
         human_tool = self._human_input_runtime_tool()
         # ToolAgent may already install its own human input tool under the same name.
         if human_tool is not None and all(tool.name != human_tool.name for tool in tools):
@@ -3777,6 +3866,15 @@ class McpAgent(ABC, ToolAgent):
         ):
             return self._skill_reader.tool
         return None
+
+    def events_capable_servers(self) -> frozenset[str]:
+        """Return attached server display names that declared MCP Events support (cached only)."""
+        return self._aggregator.events_capable_servers()
+
+    def _events_runtime_tool(self) -> Tool | None:
+        if not self.events_capable_servers():
+            return None
+        return build_events_tool()
 
     def _human_input_runtime_tool(self) -> Tool | None:
         if not self.config.human_input:

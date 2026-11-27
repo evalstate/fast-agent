@@ -7,7 +7,9 @@ from contextlib import AsyncExitStack, suppress
 from typing import TYPE_CHECKING, Any, Literal, TypeVar
 
 from mcp.client import CacheConfig, CacheMode, Client, Transport
+from mcp.client.extension import advertise
 from mcp.shared.exceptions import MCPError
+from mcp.shared.inbound import find_invalid_x_mcp_header
 from mcp_types import (
     INVALID_REQUEST,
     CallToolResult,
@@ -30,6 +32,17 @@ from mcp_types import (
 from mcp_types.version import LATEST_MODERN_VERSION, MODERN_PROTOCOL_VERSIONS
 
 from fast_agent.core.exceptions import ServerSessionTerminatedError
+from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.events_extension import (
+    EVENTS_EXTENSION,
+    EventDescriptor,
+    ListEventsRequest,
+    ListEventsRequestParams,
+    ListEventsResult,
+    PollEventsRequest,
+    PollEventsRequestParams,
+    PollEventsResult,
+)
 from fast_agent.mcp.skills_extension import (
     GetSkillRequest,
     GetSkillRequestParams,
@@ -56,6 +69,8 @@ if TYPE_CHECKING:
     from mcp.shared.dispatcher import ProgressFnT
 
     from fast_agent.mcp.client_callback_runtime import MCPClientCallbackRuntime
+
+logger = get_logger(__name__)
 
 URL_ELICITATION_REQUIRED = -32042
 T = TypeVar("T")
@@ -119,6 +134,7 @@ class MCPClientConnection:
             message_handler=callbacks.message_handler,
             client_info=callbacks.client_info,
             cache=CacheConfig() if cache else None,
+            extensions=[advertise(EVENTS_EXTENSION)],
         )
 
     async def __aenter__(self) -> MCPClientConnection:
@@ -308,6 +324,47 @@ class MCPClientConnection:
         return await self._request(
             self.client.session.send_request(request, ReadResourceDirectoryResult)
         )
+
+    async def list_events(self, *, cursor: str | None = None) -> ListEventsResult:
+        """List event types published under the MCP Events extension.
+
+        SEP-3415 requires leaving out an event type whose ``x-mcp-header``
+        annotations are invalid.
+        """
+        request = ListEventsRequest(params=ListEventsRequestParams(cursor=cursor))
+        result = await self._request(self.client.session.send_request(request, ListEventsResult))
+        kept: list[EventDescriptor] = []
+        for event in result.events:
+            reason = find_invalid_x_mcp_header(event.input_schema)
+            if reason is None:
+                kept.append(event)
+            else:
+                logger.warning(
+                    f"Dropping event type '{event.name}': invalid x-mcp-header ({reason})"
+                )
+        result.events = kept
+        return result
+
+    async def poll_events(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        cursor: str | None = None,
+        max_age_ms: int | None = None,
+        max_events: int | None = None,
+    ) -> PollEventsResult:
+        """Poll one subscription under the MCP Events extension."""
+        request = PollEventsRequest(
+            params=PollEventsRequestParams(
+                name=name,
+                arguments=arguments or {},
+                cursor=cursor,
+                max_age_ms=max_age_ms,
+                max_events=max_events,
+            )
+        )
+        return await self._request(self.client.session.send_request(request, PollEventsResult))
 
     async def _request(self, operation: Awaitable[T]) -> T:
         try:

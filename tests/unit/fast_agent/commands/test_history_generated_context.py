@@ -63,3 +63,31 @@ def test_history_turn_text_and_rows_exclude_generated_tool_context() -> None:
     rows = build_history_rows([*history, image_only])
     assert rows[0].preview == "what changed?"
     assert rows[-1].preview == "<no text>"
+
+
+@pytest.mark.unit
+def test_acp_history_turn_text_renders_heading_for_mcp_events() -> None:
+    from fast_agent.mcp.events_extension import EventOccurrence
+    from fast_agent.mcp.events_subscriptions import EventInboxItem, build_event_prompt_message
+
+    event_message = build_event_prompt_message(
+        [
+            EventInboxItem(
+                "event",
+                "sub1",
+                "jobs",
+                "job.status_changed",
+                occurrence=EventOccurrence(
+                    event_id="ev-1",
+                    name="job.status_changed",
+                    timestamp="2026-11-12T10:00:00Z",
+                    data={"stage": "DONE"},
+                ),
+            )
+        ]
+    )
+
+    rendered = render_history_turn_text("agent", [event_message])
+    assert "- user: events · jobs/job.status_changed" in rendered
+    assert '"stage": "DONE"' in rendered
+    assert "<no text>" not in rendered

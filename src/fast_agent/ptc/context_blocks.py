@@ -9,6 +9,7 @@ from mcp_types import TextContent
 from fast_agent.constants import (
     FAST_AGENT_COMPACTION_CHANNEL,
     FAST_AGENT_PROVIDER_CHECKPOINT,
+    MCP_EVENTS_BLOCK_META,
     OPENAI_COMPACTION_ITEMS,
 )
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -67,9 +68,13 @@ def seen_tool_signatures(messages: Sequence[PromptMessageExtended]) -> frozenset
 
 
 def is_generated_ptc_context_block(block: ContentBlock) -> bool:
-    """Whether ``block`` is a generated tool-source roster or ``^tool:`` definitions block."""
+    """Whether ``block`` is a generated context block (PTC roster/definitions or MCP events)."""
     meta = block.meta
-    return bool(meta) and (TOOL_SOURCES_FINGERPRINT_META in meta or TOOL_DEFINITIONS_META in meta)
+    return bool(meta) and (
+        TOOL_SOURCES_FINGERPRINT_META in meta
+        or TOOL_DEFINITIONS_META in meta
+        or MCP_EVENTS_BLOCK_META in meta
+    )
 
 
 def user_authored_content(

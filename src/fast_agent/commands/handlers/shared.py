@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.commands.results import CommandMessage
@@ -100,12 +100,35 @@ async def prompt_selection_after_message(
     )
 
 
+@runtime_checkable
+class EventResettableAgent(Protocol):
+    async def reset_events(self) -> None: ...
+
+
+async def reset_agent_events(
+    agents: "Mapping[str, object]",
+    logger: Logger | None = None,
+) -> None:
+    """Reset session-scoped MCP event subscriptions across agents."""
+    for name, agent in agents.items():
+        if not isinstance(agent, EventResettableAgent):
+            continue
+        try:
+            await agent.reset_events()
+        except Exception as exc:
+            if logger:
+                logger.warning(
+                    "Failed to reset agent event subscriptions",
+                    data={"agent": name, "error": str(exc)},
+                )
+
+
 async def clear_agent_histories(
     agents: "Mapping[str, object]",
     logger: Logger | None = None,
 ) -> list[str]:
     """
-    Clear agent histories and the previous session's PTC setting for a new session.
+    Clear agent histories and the previous session's PTC/events state for a new session.
 
     Args:
         agents: Dictionary mapping agent names to agent instances
@@ -124,6 +147,8 @@ async def clear_agent_histories(
             agent.clear()
             if isinstance(agent, PtcSessionAgent):
                 await agent.clear_session_ptc(refresh_instruction=True)
+            if isinstance(agent, EventResettableAgent):
+                await agent.reset_events()
             cleared.append(name)
         except Exception as exc:
             if logger:

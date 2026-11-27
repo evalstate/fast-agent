@@ -40,6 +40,7 @@ from fast_agent.ui.command_payloads import (
     CompactCommand,
     CreateSessionCommand,
     EnvironmentCommand,
+    EventsCommand,
     ExportSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
@@ -777,6 +778,7 @@ _COMMAND_PARSERS: dict[str, _RemainderCommandParser] = {
     "tools": lambda remainder: ListToolsCommand(argument=strip_to_none(remainder)),
     "process": _parse_process_command,
     "processes": _parse_process_command,
+    "events": lambda remainder: EventsCommand(argument=strip_to_none(remainder)),
 }
 
 

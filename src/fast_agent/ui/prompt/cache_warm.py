@@ -55,15 +55,20 @@ async def _running(coroutine: Coroutine[object, object, None]) -> AsyncGenerator
 
 @asynccontextmanager
 async def idle_cache_warming(
-    *, session: "PromptSession", warmer: CacheWarmer | None
+    *,
+    session: "PromptSession",
+    warmer: CacheWarmer | None,
+    has_event_waits: bool = False,
 ) -> AsyncGenerator[None]:
     """Show the cache's expected lifetime while the prompt is idle, and keep it warm if asked.
 
-    A ``/warm`` window is one reason to warm; herdr-core children that will
-    resume this session are the other. Leaving the scope (any submitted input)
-    stops warming before the next turn makes a request of its own.
+    A ``/warm`` window is one reason to warm; herdr-core children or wake-enabled
+    MCP event subscriptions that will resume this session are the other. Leaving
+    the scope (any submitted input) stops warming before the next turn makes a
+    request of its own.
     """
-    attached = bool(current_hc_attachments().resuming)
+    hc_attached = bool(current_hc_attachments().resuming)
+    attached = hc_attached or has_event_waits
     waiting = _running(_redraw_while_waiting(session)) if attached else nullcontext()
     if warmer is None:
         async with waiting:
@@ -82,8 +87,9 @@ async def idle_cache_warming(
 
     report(None)
     armed = warmer.armed_until is not None
+    reason = "/warm" if armed else ("hc" if hc_attached else "events")
     warming = (
-        warmer.keep_warm("/warm" if armed else "hc", automatic=attached, armed=armed, report=report)
+        warmer.keep_warm(reason, automatic=attached, armed=armed, report=report)
         if armed or attached
         else nullcontext()
     )

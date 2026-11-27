@@ -270,3 +270,29 @@ async def test_plugin_fallback_handles_unknown_payload_before_unknown_report(
     assert executed == [("review", "latest response")]
     assert printed == []
     assert len(patched_context) == 1
+
+
+@pytest.mark.asyncio
+async def test_events_command_forwards_buffer_prefill_through_display_route(
+    monkeypatch: pytest.MonkeyPatch,
+    patched_context: list[CommandOutcome],
+) -> None:
+    from fast_agent.ui.command_payloads import EventsCommand
+
+    async def fake_handle_events(
+        context: Any, *, agent_name: str, argument: str | None = None
+    ) -> CommandOutcome:
+        del context, agent_name, argument
+        return CommandOutcome(buffer_prefill="/events subscribe jobs job.done job_id=")
+
+    monkeypatch.setitem(
+        command_dispatch._COMMAND_OUTCOME_ROUTE_BY_PAYLOAD_TYPE,
+        EventsCommand,
+        _route_with_handler(EventsCommand, fake_handle_events),
+    )
+
+    result = await _dispatch_raw("/events select", _Provider())
+
+    assert result.handled is True
+    assert result.buffer_prefill == "/events subscribe jobs job.done job_id="
+    assert len(patched_context) == 1

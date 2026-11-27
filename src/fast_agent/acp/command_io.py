@@ -11,6 +11,11 @@ from fast_agent.commands.context import (
 from fast_agent.commands.history_summaries import HistoryOverview, build_history_overview
 from fast_agent.commands.results import CommandMessage
 from fast_agent.commands.status_summaries import SystemPromptSummary
+from fast_agent.mcp.events_subscriptions import (
+    EVENT_MESSAGE_PREAMBLE,
+    is_mcp_events_message,
+    mcp_events_heading,
+)
 from fast_agent.ptc.context_blocks import user_authored_text
 
 if TYPE_CHECKING:
@@ -35,6 +40,16 @@ def render_history_turn_text(
     for message in turn:
         role = str(message.role)
         text = user_authored_text(message.content)
+        if not text and is_mcp_events_message(message):
+            body = message.first_text()
+            if body.startswith(EVENT_MESSAGE_PREAMBLE):
+                body = body[len(EVENT_MESSAGE_PREAMBLE) :].strip()
+            event_heading = mcp_events_heading(message)
+            text = (
+                f"{event_heading}: {body}"
+                if event_heading and body
+                else (body or event_heading or "")
+            )
 
         lines.append(f"- {role}: {' '.join(text.split()) if text else '<no text>'}")
 

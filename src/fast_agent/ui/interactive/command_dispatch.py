@@ -25,6 +25,7 @@ from fast_agent.commands.handlers import agent_cards as agent_card_handlers
 from fast_agent.commands.handlers import cards_manager as cards_handlers
 from fast_agent.commands.handlers import compact as compact_handlers
 from fast_agent.commands.handlers import display as display_handlers
+from fast_agent.commands.handlers import events as events_handlers
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.handlers import model as model_handlers
@@ -57,6 +58,7 @@ from fast_agent.ui.command_payloads import (
     CompactCommand,
     CreateSessionCommand,
     EnvironmentCommand,
+    EventsCommand,
     ExportSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
@@ -275,6 +277,12 @@ _COMMAND_OUTCOME_ROUTES: tuple[_CommandOutcomeRoute, ...] = (
         "display",
         "process_view",
         display_handlers.handle_processes,
+    ),
+    _CommandOutcomeRoute(
+        EventsCommand,
+        "display",
+        "argument",
+        events_handlers.handle_events,
     ),
     _CommandOutcomeRoute(
         CheckCommand,
@@ -973,13 +981,13 @@ async def _dispatch_display_payload(
     if handler is None:
         return None
 
-    await _run_command_handler(
+    outcome = await _run_command_handler(
         prompt_provider=prompt_provider,
         agent=agent,
         handler=handler,
         session_manager=session_manager,
     )
-    return DispatchResult(handled=True)
+    return DispatchResult(handled=True, buffer_prefill=outcome.buffer_prefill)
 
 
 def _history_command_target_agent(payload: CommandPayload) -> str | None:

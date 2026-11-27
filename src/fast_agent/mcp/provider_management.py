@@ -41,6 +41,7 @@ _PROVIDER_MANAGED_UNSUPPORTED_FIELD_CHECKS: tuple[tuple[str, Callable[[object], 
     ("headers", _truthy),
     ("auth", _is_not_none),
     ("roots", _truthy),
+    ("events", _truthy),
     ("protocol_mode", _is_not_auto),
 )
 

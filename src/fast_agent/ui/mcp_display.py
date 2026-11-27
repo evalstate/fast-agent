@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shlex
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -303,6 +304,7 @@ def _format_capability_shorthand(
         ("Ex", bool(experimental_caps), False),
         ("In", _instruction_capability_state(status, template_expected=template_expected), False),
         ("Sk", bool(status.mcp_skills_enabled), False),
+        ("Ev", bool(status.mcp_events_enabled), False),
         ("Ui", _app_integration_capability_state(status), False),
         ("Ro", bool(status.roots_configured), False),
         ("El", _elicitation_capability_state(status.elicitation_mode), False),
@@ -1147,6 +1149,18 @@ def _render_mcp_skills_hint(server: str, status: ServerStatus, *, indent: str) -
     _status_console().print(skills_line)
 
 
+def _render_mcp_events_hint(server: str, status: ServerStatus, *, indent: str) -> None:
+    if not status.mcp_events_enabled:
+        return
+
+    events_line = Text(indent + "  ")
+    events_line.append(
+        f"Events are available: use `/events list {shlex.quote(server)}` to inspect them",
+        style=Colours.TEXT_SUCCESS,
+    )
+    _status_console().print(events_line)
+
+
 def _render_capability_banner(
     tokens: list[tuple[str, str]],
     *,
@@ -1191,6 +1205,7 @@ def _render_server_status_block(
     _render_server_calls(status, indent=indent)
     _render_channel_summary(status, indent, total_width)
     _render_mcp_skills_hint(server, status, indent=indent)
+    _render_mcp_events_hint(server, status, indent=indent)
     _render_capability_banner(
         primary_caps + secondary_caps,
         indent=indent,

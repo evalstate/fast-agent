@@ -59,15 +59,27 @@ def is_hc_prompt(message: PromptMessageExtended) -> bool:
     return is_user_prompt(message) and is_hc_message(message.first_text())
 
 
+def is_mcp_events_prompt(message: PromptMessageExtended) -> bool:
+    """True for a prompt that MCP events delivered rather than a person typing it."""
+    from fast_agent.mcp.events_subscriptions import is_mcp_events_message
+
+    return is_user_prompt(message) and is_mcp_events_message(message)
+
+
 def typed_turn_starts(messages: list[PromptMessageExtended]) -> list[int]:
     """Indices where the turns a person reviews or rewinds to start.
 
-    herdr-core wakes an idle agent with peer messages and notices. Each starts a
-    turn for the model, but to the person it continues what they last asked, so
-    those turns join the one before. Only the first turn may open with one.
+    herdr-core and MCP event wakes start a turn for the model, but to the person
+    they continue what they last asked, so those turns join the one before. Only
+    the first turn may open with one.
     """
     starts = user_turn_starts(messages)
-    return [start for start in starts if start == starts[0] or not is_hc_prompt(messages[start])]
+    return [
+        start
+        for start in starts
+        if start == starts[0]
+        or not (is_hc_prompt(messages[start]) or is_mcp_events_prompt(messages[start]))
+    ]
 
 
 def compacted_turn_count(message: PromptMessageExtended) -> int:

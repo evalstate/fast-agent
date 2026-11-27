@@ -505,6 +505,52 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             ],
         },
         {
+            "name": "events",
+            "summary": "Subscribe to MCP server events",
+            "usage": (
+                "/events [select|list [server]|subscribe <server> <event> [key=value ...] "
+                "[--wake] [--once] [--every <duration>]|poll <id>|unsubscribe <id>|unsubscribe all]"
+            ),
+            "actions": [
+                {
+                    "name": "select",
+                    "summary": "interactively browse and manage event subscriptions",
+                    "usage": "/events select",
+                },
+                {
+                    "name": "list",
+                    "summary": "show the event types attached servers offer",
+                    "usage": "/events list [server]",
+                },
+                {
+                    "name": "subscribe",
+                    "summary": "poll a server for an event type",
+                    "usage": (
+                        "/events subscribe <server> <event> [key=value ...] "
+                        "[--wake] [--once] [--every <duration>]"
+                    ),
+                },
+                {
+                    "name": "poll",
+                    "summary": "poll a subscription now, from its cursor",
+                    "usage": "/events poll <id>",
+                },
+                {
+                    "name": "unsubscribe",
+                    "summary": "stop a subscription",
+                    "usage": "/events unsubscribe <id>|all",
+                },
+            ],
+            "examples": [
+                "/events",
+                "/events select",
+                "/events list",
+                "/events subscribe jobs job.status_changed job_id=abc123",
+                "/events subscribe jobs job.status_changed job_id=abc123 --wake",
+                "/events unsubscribe 3f9a1c2b7d10",
+            ],
+        },
+        {
             "name": "mcp",
             "summary": "Runtime MCP control",
             "usage": "/mcp [list|status|attach|connect|disconnect|reconnect] [args]",
