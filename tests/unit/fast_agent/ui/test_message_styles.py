@@ -192,11 +192,8 @@ class TestA3MessageStyle:
             exit_code=0,
             detail="(no output) id: call_…123456",
         )
-        assert result.plain.startswith("▎ exit code 0")
+        assert result.plain == "▎· exit code 0 · (no output) id: call_…123456"
         assert "▎•" not in result.plain
-        assert "exit code 0" in result.plain
-        assert "(no output)" in result.plain
-        assert "id: call_…123456" in result.plain
 
     def test_shell_exit_line_styles_success_warning_and_error(self) -> None:
         """Exit code styling distinguishes clean, simple failure, and other failures."""
@@ -206,8 +203,11 @@ class TestA3MessageStyle:
         warning = style.shell_exit_line(exit_code=1)
         error = style.shell_exit_line(exit_code=2)
 
+        assert success.plain == "▎· exit code 0"
+        assert warning.plain == "▎·  exit code 1 "
+        assert error.plain == "▎·  exit code 2 "
         assert success.spans[0].style == "dim"
-        assert success.spans[1].style == "white reverse dim"
+        assert success.spans[1].style == "white dim"
         assert warning.spans[1].style == "red reverse dim"
         assert error.spans[1].style == "red reverse bold"
 

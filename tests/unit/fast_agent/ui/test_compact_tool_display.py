@@ -429,7 +429,7 @@ def test_compact_completed_process_collapses_to_exit_summary() -> None:
         )
 
     rendered = " ".join(capture.get().split())
-    assert "▎ exit code 0 2 lines · id: call_…456789" in rendered
+    assert "▎· exit code 0 · 2 lines · id: call_…456789" in rendered
     assert "▎▶ dev process" not in rendered
     assert "background process started" not in rendered
     assert "output_activity" not in rendered
@@ -609,7 +609,7 @@ def test_compact_exec_sandbox_omits_default_agent_name() -> None:
     assert any(line.startswith("▎◀  python (sandbox)  id: call_…456789") for line in lines)
     assert any(line == "─" * 36 for line in lines)
     assert any(line.startswith("▎◀ bash · id:") for line in lines)
-    assert any("▎ exit code 0  3 lines · 3.08s · id:" in line for line in lines)
+    assert any("▎· exit code 0 · 3 lines · 3.08s · id:" in line for line in lines)
     assert any(
         line.startswith("▎▶  python (sandbox) result  text (2 chars) · 150ms · id: call_…456789")
         for line in lines

@@ -20,7 +20,7 @@ def _shorten_items(items: list[str], max_length: int) -> list[str]:
 # Indicator shown when jumping to a non-visible highlighted item
 _JUMP_INDICATOR = " ▶ "
 _SHELL_EXIT_CODE_STYLES = {
-    0: "white reverse dim",
+    0: "white dim",
     1: "red reverse dim",
 }
 _SHELL_EXIT_CODE_ERROR_STYLE = "red reverse bold"
@@ -405,12 +405,16 @@ class A3MessageStyle:
     ) -> Text:
         exit_code_style = _SHELL_EXIT_CODE_STYLES.get(exit_code, _SHELL_EXIT_CODE_ERROR_STYLE)
 
-        exit_code_text = f" exit code {exit_code} "
         line = Text()
-        line.append("▎", style="dim")
-        line.append(exit_code_text, style=exit_code_style)
-        if detail:
-            line.append(detail, style="dim")
+        line.append("▎· ", style="dim")
+        if exit_code == 0:
+            line.append(f"exit code {exit_code}", style=exit_code_style)
+            if detail and (clean_detail := detail.lstrip()):
+                line.append(f" · {clean_detail}", style="dim")
+        else:
+            line.append(f" exit code {exit_code} ", style=exit_code_style)
+            if detail:
+                line.append(detail, style="dim")
         return line
 
     def tool_update_line(self) -> Text:
