@@ -2,8 +2,8 @@
 title: Additional Providers
 social:
   title: Additional Providers
-  tagline: Configure Groq, Aliyun, OpenRouter, TensorZero, and generic endpoints.
-  description: Configure Groq, Aliyun, OpenRouter, TensorZero, and generic endpoints.
+  tagline: Configure Atlas Cloud, Groq, Aliyun, OpenRouter, TensorZero, and generic endpoints.
+  description: Configure Atlas Cloud, Groq, Aliyun, OpenRouter, TensorZero, and generic endpoints.
   alt: fast-agent social card — Additional model providers
 ---
 
@@ -33,6 +33,7 @@ Run `fast-agent check` after adding credentials to confirm they are visible to f
 
 | Provider | Config key | API key environment variable | Default endpoint | Model string examples |
 | --- | --- | --- | --- | --- |
+| Atlas Cloud | `atlascloud` | `ATLASCLOUD_API_KEY` | `https://api.atlascloud.ai/v1` | `atlascloud.qwen/qwen3.8-max` |
 | Groq | `groq` | `GROQ_API_KEY` | `https://api.groq.com/openai/v1` | `groq.openai/gpt-oss-120b` |
 | Aliyun | `aliyun` | `ALIYUN_API_KEY` | `https://dashscope-intl.aliyuncs.com/compatible-mode/v1` | `qwen-turbo`, `aliyun.qwen3-max` |
 | OpenRouter | `openrouter` | `OPENROUTER_API_KEY` | `https://openrouter.ai/api/v1` | `openrouter.google/gemini-2.5-pro-exp-03-25:free` |
@@ -47,6 +48,21 @@ Run `fast-agent check` after adding credentials to confirm they are visible to f
 ## OpenAI-compatible hosted providers
 
 Use these when the provider exposes an OpenAI-compatible API but has its own credentials, model catalog, or small behavior differences.
+
+### Atlas Cloud
+
+```yaml
+atlascloud:
+  api_key: "${ATLASCLOUD_API_KEY}"
+```
+
+```bash
+fast-agent --model atlascloud.qwen/qwen3.8-max
+```
+
+Atlas Cloud uses its OpenAI-compatible Chat Completions endpoint. The provider
+defaults to `qwen/qwen3.8-max`; set `default_model` or pass an explicit model
+string to use another model from the Atlas Cloud catalog.
 
 ### Groq
 

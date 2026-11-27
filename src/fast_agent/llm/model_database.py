@@ -1848,6 +1848,15 @@ class ModelDatabase:
             )
         }
     )
+    # Atlas Cloud's OpenAI-compatible gateway advertises Qwen3.8 Max with a 1M context
+    # window, 131072 max output tokens and text/image/video input (GET /v1/models).
+    _PROVIDER_MODEL_OVERRIDES[(Provider.ATLASCLOUD, "qwen/qwen3.8-max")] = ModelParameters(
+        context_window=1_000_000,
+        max_output_tokens=131_072,
+        tokenizes=QWEN38_MULTIMODAL,
+        json_mode="object",
+        default_provider=Provider.ATLASCLOUD,
+    )
     _PROVIDER_WIRE_MODEL_NAMES: ClassVar[dict[tuple[Provider, str], str]] = {
         (Provider.HUGGINGFACE, "reflection/beam-1.0-501b-a23b"): "reflection/Beam-1.0-501B-A23B",
         (Provider.HUGGINGFACE, "deepseek-ai/deepseek-v4.1-flash-1017"): (

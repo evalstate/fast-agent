@@ -131,6 +131,12 @@ anthropic:
 #   image_upload_mode: inline
 #   image_upload_ttl_seconds: 86400 # 1 hour to 30 days
 
+# Atlas Cloud OpenAI-compatible Chat Completions provider:
+# atlascloud:
+#   api_key: "${ATLASCLOUD_API_KEY}"
+#   # base_url: "https://api.atlascloud.ai/v1"
+#   # default_model: "qwen/qwen3.8-max"
+
 # Programmatic tool calling: null follows the model default.
 # Catalog defaults: https://fast-agent.ai/ref/config_file/#ptc-model-defaults
 # CLI --ptc/--ptc-all/--no-ptc and model query ?ptc=on|off override this.

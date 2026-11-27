@@ -15,6 +15,7 @@ import os
 import pytest
 
 from fast_agent.config import (
+    AtlasCloudSettings,
     AzureSettings,
     DeepSeekSettings,
     HuggingFaceSettings,
@@ -27,6 +28,7 @@ from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
+from fast_agent.llm.provider.openai.llm_atlascloud import AtlasCloudLLM
 from fast_agent.llm.provider.openai.llm_azure import AzureOpenAILLM
 from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekResponsesLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
@@ -155,6 +157,26 @@ def test_openrouter_provider_base_url_prefers_config_over_env() -> None:
             os.environ.pop("OPENROUTER_BASE_URL", None)
         else:
             os.environ["OPENROUTER_BASE_URL"] = original_env
+
+
+def test_atlascloud_provider_uses_default_model_and_base_url() -> None:
+    llm = AtlasCloudLLM(context=Context(config=Settings()), model="")
+
+    assert llm.default_request_params.model == "qwen/qwen3.8-max"
+    assert llm._base_url() == "https://api.atlascloud.ai/v1"
+
+
+def test_atlascloud_provider_uses_config_overrides() -> None:
+    settings = Settings(
+        atlascloud=AtlasCloudSettings(
+            base_url="https://atlas-gateway.example/v1",
+            default_model="openai/gpt-oss-120b",
+        )
+    )
+    llm = AtlasCloudLLM(context=Context(config=settings), model="")
+
+    assert llm.default_request_params.model == "openai/gpt-oss-120b"
+    assert llm._base_url() == "https://atlas-gateway.example/v1"
 
 
 def test_huggingface_provider_default_model_used_with_provider_suffix() -> None:
