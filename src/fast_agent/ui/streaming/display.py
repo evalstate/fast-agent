@@ -231,14 +231,14 @@ class StreamContextBaseline:
 @dataclass(frozen=True)
 class _CachedStaticRenderable:
     renderable: "RenderableType"
-    _segment_cache: dict[tuple[int, int], tuple[Segment, ...]]
+    _segment_cache: dict[tuple[int, int, bool], tuple[Segment, ...]]
 
     def __rich_console__(
         self,
         console: Console,
         options: "ConsoleOptions",
     ) -> "RenderResult":
-        cache_key = (id(console), options.max_width)
+        cache_key = (id(console), options.max_width, bool(options.no_wrap))
         segments = self._segment_cache.get(cache_key)
         if segments is None:
             segments = tuple(console.render(self.renderable, options))
@@ -250,7 +250,7 @@ class _CachedStaticRenderable:
 class _CursorStyledRenderable:
     renderable: "RenderableType"
     visible: bool = True
-    _segment_cache: dict[tuple[int, int], tuple[Segment, ...]] | None = None
+    _segment_cache: dict[tuple[int, int, bool], tuple[Segment, ...]] | None = None
 
     def with_visibility(self, visible: bool) -> "_CursorStyledRenderable":
         cache = self._segment_cache if self._segment_cache is not None else {}
@@ -265,7 +265,7 @@ class _CursorStyledRenderable:
         console: Console,
         options: "ConsoleOptions",
     ) -> "RenderResult":
-        cache_key = (id(console), options.max_width)
+        cache_key = (id(console), options.max_width, bool(options.no_wrap))
         segments = self._segment_cache.get(cache_key) if self._segment_cache is not None else None
         if segments is None:
             segments = tuple(console.render(self.renderable, options))
@@ -429,7 +429,6 @@ class _DiffLive(Live):
         self._is_interactive = self.console.is_terminal
         self._console_state_active = False
         self._cursor_below_frame = False
-        self._frame_truncated = False
 
     def __enter__(self) -> "_DiffLive":
         if not self._started:
@@ -473,10 +472,8 @@ class _DiffLive(Live):
         # both old and new within bounds guarantees that cursor-up commands
         # can always reach the first stored line.
         max_visible = current_size[1]
-        self._frame_truncated = False
         if max_visible > 0:
             if len(lines) > max_visible:
-                self._frame_truncated = True
                 lines = lines[-max_visible:]
             if not width_changed and len(self._lines) > max_visible:
                 self._lines = self._lines[-max_visible:]
@@ -509,12 +506,11 @@ class _DiffLive(Live):
         finally:
             self._restore_console_state()
             self._nested = False
-            self._frame_truncated = False
             self._last_size = None
 
     def _print_current_renderable(self) -> None:
         renderable = self.get_renderable()
-        self.console.print(renderable)
+        self.console.print(renderable, soft_wrap=True)
 
     def _stop_interactive(self) -> None:
         if self._nested:
@@ -535,13 +531,10 @@ class _DiffLive(Live):
         if self.transient:
             self._clear_region()
             return
-        if self._frame_truncated:
-            self._clear_region()
-            renderable = self.get_renderable()
-            self.console.print(renderable)
+        if self._cursor_below_frame:
             return
-        if not self._cursor_below_frame:
-            self._write("\n")
+        self._clear_region()
+        self._print_current_renderable()
 
     def _restore_console_state(self) -> None:
         if not self._is_interactive or not self._console_state_active:

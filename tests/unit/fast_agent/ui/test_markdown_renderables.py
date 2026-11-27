@@ -516,3 +516,95 @@ def test_live_incomplete_fences_omit_bottom_rule_and_keep_single_clean_cursor() 
         "```python\nx = 1\n```", console, code_theme="ansi_light"
     )
     assert closed_h == open_h + 1
+
+
+def test_soft_wrap_emits_unbroken_markdown_lines_and_bypasses_streaming_cache() -> None:
+    import io
+    import re
+
+    from fast_agent.ui.streaming.display import _CachedStaticRenderable
+
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    para = (
+        "Here is a long paragraph that explains how terminal copy-paste and pane resizing "
+        "behave when soft-wrapping is delegated to the terminal."
+    )
+    bullet = (
+        "First bullet item with enough text to exceed sixty columns and stay unbroken "
+        "when printed with soft_wrap enabled."
+    )
+    quote = (
+        "Blockquote text that is deliberately long enough to exceed sixty columns and "
+        "stay unbroken when soft_wrap is enabled."
+    )
+    code_line = '    return f"hello {name}, this is a deliberately long python line exceeding sixty columns"'
+    md_text = (
+        f"{para}\n\n"
+        f"- {bullet}\n\n"
+        f"> {quote}\n\n"
+        f"```python\ndef greet(name: str) -> str:\n{code_line}\n```\n"
+    )
+
+    renderable = _CachedStaticRenderable(
+        build_markdown_renderable(md_text, code_theme="monokai", escape_xml=True),
+        _segment_cache={},
+    )
+
+    # First render at viewport width (streaming mode, soft_wrap=False) populates the cache.
+    stream_buf = io.StringIO()
+    stream_console = Console(
+        file=stream_buf, width=60, force_terminal=True, color_system="truecolor"
+    )
+    stream_console.print(renderable)
+    stream_lines = ansi_re.sub("", stream_buf.getvalue()).splitlines()
+    assert para not in stream_lines
+    assert code_line not in stream_lines
+
+    # Final print on the same Console instance with soft_wrap=True must bypass the cached
+    # hard-wrapped segments and emit unbroken logical lines without trailing padding.
+    stream_buf.truncate(0)
+    stream_buf.seek(0)
+    stream_console.print(renderable, soft_wrap=True)
+    final_lines = ansi_re.sub("", stream_buf.getvalue()).splitlines()
+
+    assert para in final_lines
+    assert f" • {bullet}" in final_lines
+    assert f"▌ {quote}" in final_lines
+    assert code_line in final_lines
+    for line in final_lines:
+        assert line == line.rstrip(" "), f"Unexpected trailing space padding: {line!r}"
+
+
+def test_diff_live_stop_reprints_soft_wrapped_and_respects_transient() -> None:
+    import io
+    import re
+
+    from fast_agent.ui.streaming.display import _DiffLive
+
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    para = (
+        "Streaming output paragraph that is definitely longer than forty columns so live "
+        "frames wrap it and final stop reprints it unbroken."
+    )
+    renderable = build_markdown_renderable(para, code_theme="ansi_light", escape_xml=True)
+
+    buf = io.StringIO()
+    console = Console(file=buf, width=40, force_terminal=True, color_system="truecolor")
+    live = _DiffLive(renderable, console=console, transient=False)
+    cleared: list[bool] = []
+    live._clear_region = lambda: cleared.append(True)  # type: ignore[method-assign]
+    live._stop_drawn_frame()
+
+    assert cleared == [True]
+    plain_lines = ansi_re.sub("", buf.getvalue()).splitlines()
+    assert para in plain_lines
+
+    buf_t = io.StringIO()
+    console_t = Console(file=buf_t, width=40, force_terminal=True, color_system="truecolor")
+    live_t = _DiffLive(renderable, console=console_t, transient=True)
+    cleared_t: list[bool] = []
+    live_t._clear_region = lambda: cleared_t.append(True)  # type: ignore[method-assign]
+    live_t._stop_drawn_frame()
+
+    assert cleared_t == [True]
+    assert buf_t.getvalue() == ""
