@@ -876,9 +876,35 @@ def test_diff_live_uses_newlines_when_last_line_wraps_and_grows() -> None:
     )
 
     rendered = output.getvalue().removeprefix("\x1b[?2026h").removesuffix("\x1b[?2026l")
-    assert rendered.startswith("\x1b[1Gefgh\x1b[1G\ni")
+    assert rendered.startswith("\x1b[1Gefgh\x1b[1G\ni\x1b[0K")
     assert "\x1b[1B" not in rendered
     assert "\x1b[1G\n" in rendered
+
+
+def test_diff_live_erases_to_eol_on_growing_short_lines() -> None:
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(file=output, force_terminal=True, color_system=None, width=20),
+        transient=True,
+    )
+
+    live.__enter__()
+    live._lines = [
+        streaming_module._RenderedLine("hi", 2),
+        streaming_module._RenderedLine("row", 3),
+    ]
+    output.truncate(0)
+    output.seek(0)
+    live._write_diff(
+        [
+            streaming_module._RenderedLine("hello", 5),
+            streaming_module._RenderedLine("row updated", 11),
+        ]
+    )
+
+    rendered = output.getvalue().removeprefix("\x1b[?2026h").removesuffix("\x1b[?2026l")
+    assert "hello\x1b[0K" in rendered
+    assert "row updated\x1b[0K" in rendered
 
 
 def test_diff_live_uses_newline_when_frame_grows_past_old_bottom() -> None:

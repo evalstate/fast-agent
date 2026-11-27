@@ -605,7 +605,7 @@ class _DiffLive(Live):
             self._write_appended_lines(lines[first_diff:])
             return
         if _should_rewrite_growing_last_line(old_lines, lines, first_diff):
-            self._rewrite_growing_last_line(old_lines[-1], lines[first_diff:])
+            self._rewrite_growing_last_line(lines[first_diff:])
             return
 
         max_height = max(len(old_lines), len(lines))
@@ -615,8 +615,7 @@ class _DiffLive(Live):
 
         for row in range(first_diff, max_height):
             new_line = lines[row] if row < len(lines) else None
-            old_line = old_lines[row] if row < len(old_lines) else None
-            self._append_diff_row(payload, new_line, old_line)
+            self._append_diff_row(payload, new_line)
 
             if row < max_height - 1:
                 self._append_diff_row_transition(payload, row, last_old_row)
@@ -632,17 +631,19 @@ class _DiffLive(Live):
             return current_row + 1
         return current_row
 
-    @staticmethod
     def _append_diff_row(
+        self,
         payload: list[str],
         new_line: _RenderedLine | None,
-        old_line: _RenderedLine | None,
     ) -> None:
         if new_line is None:
             payload.append(str(Control((ControlType.ERASE_IN_LINE, 2))))
             return
         payload.append(new_line.text)
-        if old_line is not None and old_line.cell_length > new_line.cell_length:
+        # Erase to end-of-line for any line short of the right margin:
+        # reflow-safe renderables omit right-edge space padding, and skipping
+        # EL(0) at the right margin avoids erasing the final cell in pending-wrap.
+        if new_line.cell_length < self.console.size.width:
             payload.append(str(Control((ControlType.ERASE_IN_LINE, 0))))
 
     def _append_diff_row_transition(
@@ -660,16 +661,22 @@ class _DiffLive(Live):
     def _write_appended_lines(self, lines: list[_RenderedLine]) -> None:
         if not lines:
             return
+        width = self.console.size.width
+        erase_eol = str(Control((ControlType.ERASE_IN_LINE, 0)))
         payload_parts: list[str] = []
         if self._cursor_below_frame:
             payload_parts.append(str(Control.move_to_column(0)))
             payload_parts.append(lines[0].text)
+            if lines[0].cell_length < width:
+                payload_parts.append(erase_eol)
             remaining_lines = lines[1:]
         else:
             remaining_lines = lines
         for line in remaining_lines:
             payload_parts.append(self._scroll_newline())
             payload_parts.append(line.text)
+            if line.cell_length < width:
+                payload_parts.append(erase_eol)
         payload_parts.append(str(Control.move_to_column(0)))
         payload = "".join(payload_parts)
         self._write(payload)
@@ -677,18 +684,21 @@ class _DiffLive(Live):
 
     def _rewrite_growing_last_line(
         self,
-        old_last_line: _RenderedLine,
         new_lines: list[_RenderedLine],
     ) -> None:
         if not new_lines:
             return
+        width = self.console.size.width
+        erase_eol = str(Control((ControlType.ERASE_IN_LINE, 0)))
         row_delta = -1 if self._cursor_below_frame else 0
         payload = [self._move_to_line_start(row_delta), new_lines[0].text]
-        if old_last_line.cell_length > new_lines[0].cell_length:
-            payload.append(str(Control((ControlType.ERASE_IN_LINE, 0))))
+        if new_lines[0].cell_length < width:
+            payload.append(erase_eol)
         for line in new_lines[1:]:
             payload.append(self._scroll_newline())
             payload.append(line.text)
+            if line.cell_length < width:
+                payload.append(erase_eol)
         payload.append(str(Control.move_to_column(0)))
         self._write("".join(payload))
         self._cursor_below_frame = False
