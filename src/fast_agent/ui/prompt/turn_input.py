@@ -1,4 +1,4 @@
-"""Hold terminal input that arrives while an interactive turn is running.
+"""Hold and edit terminal input that arrives while an interactive turn is running.
 
 Between prompts the terminal is otherwise left in cooked mode: typed or pasted
 text is echoed into the streaming output, and the kernel translates Enter into
@@ -8,15 +8,13 @@ unsubmitted in the next prompt.
 
 While a turn runs this reader keeps the terminal in a non-echoing, untranslated
 mode (signals stay enabled, so Ctrl+C is unchanged) and drains input as key
-presses. Plain submitted text can be consumed at tool-loop continuation boundaries.
-Commands, attachments, late messages and drafts are replayed into the next prompt
-as prompt_toolkit typeahead. Submission order is preserved across both paths.
-A lone Escape cancels the turn exactly like Ctrl+C, which is also what
-``hc interrupt`` sends.
-
-Nothing is printed while input is held: the queued count is shown in the live
-streaming header and progress overlay (transient, never scrollback) and in the
-terminal program status message.
+presses into a live ``prompt_toolkit`` ``Buffer``. The live streaming and
+progress renderers display the active draft and queued submissions in an inline
+bottom dock. Plain submitted text can be consumed at tool-loop continuation
+boundaries. Commands, attachments, late messages and drafts are replayed into
+the next prompt as prompt_toolkit typeahead. Submission order is preserved
+across both paths. A lone Escape cancels the turn exactly like Ctrl+C, which is
+also what ``hc interrupt`` sends.
 """
 
 from __future__ import annotations
@@ -27,10 +25,12 @@ import signal
 import sys
 import threading
 from collections import deque
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.core.logging.logger import get_logger
+from fast_agent.ui.prompt.turn_input_dock import DEFAULT_PROMPT_PREFIX, TurnInputSnapshot
 from fast_agent.utils.env import is_truthy_env_value
 
 if TYPE_CHECKING:
@@ -39,21 +39,65 @@ if TYPE_CHECKING:
     from prompt_toolkit.input import Input
     from prompt_toolkit.key_binding import KeyPress
 
+logger = get_logger(__name__)
+
 _DISABLE_ENV = "FAST_AGENT_DISABLE_TURN_INPUT"
 _ESCAPE_TIMEOUT_SECONDS = 0.05
 _BRACKETED_PASTE_ON = "\x1b[?2004h"
 _BRACKETED_PASTE_OFF = "\x1b[?2004l"
-_PREVIEW_CHARS = 72
 
 _active: TurnInputReader | None = None
 _queued_count = 0
 _replayed_submissions: deque[bool] = deque()
+_listeners: list[Callable[[], None]] = []
+_listeners_lock = threading.Lock()
 
 
 @dataclass(frozen=True)
 class _Submission:
-    end: int
     text: str
+    image_pastes: tuple[str, ...] = ()
+
+    @property
+    def has_pasted_image(self) -> bool:
+        return bool(self.image_pastes)
+
+
+@dataclass(frozen=True)
+class _DraftState:
+    text: str
+    cursor_position: int
+    image_pastes: tuple[str, ...] = ()
+
+
+def add_turn_input_listener(callback: Callable[[], None]) -> Callable[[], None]:
+    """Subscribe to live turn-input state changes; returns an unsubscribe callback."""
+    with _listeners_lock:
+        _listeners.append(callback)
+
+    def _unsubscribe() -> None:
+        with _listeners_lock, suppress(ValueError):
+            _listeners.remove(callback)
+
+    return _unsubscribe
+
+
+def _notify_turn_input_listeners() -> None:
+    with _listeners_lock:
+        listeners = tuple(_listeners)
+    for listener in listeners:
+        try:
+            listener()
+        except Exception:
+            logger.debug("Turn input listener failed", exc_info=True)
+
+
+def active_turn_input_snapshot() -> TurnInputSnapshot | None:
+    """Return a snapshot of the active, non-suspended turn input dock, if any."""
+    reader = _active
+    if reader is None or reader.is_suspended:
+        return None
+    return reader.snapshot()
 
 
 def acknowledge_replayed_input() -> None:
@@ -114,35 +158,95 @@ def _write_stdout(sequence: str) -> None:
         pass
 
 
+def _paste_keys_preserving_images(
+    text: str,
+    image_pastes: tuple[str, ...],
+) -> list[KeyPress]:
+    """Emit BracketedPaste key(s), keeping image-path pastes isolated for attachment parsing."""
+    from prompt_toolkit.key_binding import KeyPress
+    from prompt_toolkit.keys import Keys
+
+    if not text:
+        return []
+    if not image_pastes:
+        return [KeyPress(Keys.BracketedPaste, text)]
+
+    remaining = list(image_pastes)
+    keys: list[KeyPress] = []
+    pos = 0
+    while remaining:
+        best_idx = -1
+        best_pos = -1
+        for i, paste in enumerate(remaining):
+            found = text.find(paste, pos)
+            if found >= 0 and (best_pos < 0 or found < best_pos):
+                best_pos = found
+                best_idx = i
+        if best_idx < 0:
+            break
+        paste = remaining.pop(best_idx)
+        if best_pos > pos:
+            keys.append(KeyPress(Keys.BracketedPaste, text[pos:best_pos]))
+        keys.append(KeyPress(Keys.BracketedPaste, paste))
+        pos = best_pos + len(paste)
+    if pos < len(text):
+        keys.append(KeyPress(Keys.BracketedPaste, text[pos:]))
+    return keys or [KeyPress(Keys.BracketedPaste, text)]
+
+
+def _cursor_replay_keys(text: str, cursor_position: int) -> list[KeyPress]:
+    """Build row-aware navigation keys to restore cursor position after a BracketedPaste."""
+    from prompt_toolkit.document import Document
+    from prompt_toolkit.key_binding import KeyPress
+    from prompt_toolkit.keys import Keys
+
+    if not text or cursor_position >= len(text):
+        return []
+    doc = Document(text, cursor_position=max(0, cursor_position))
+    rows_from_end = doc.line_count - 1 - doc.cursor_position_row
+    if rows_from_end == 0:
+        trailing = len(doc.current_line) - doc.cursor_position_col
+        return [KeyPress(Keys.Left, "\x1b[D") for _ in range(trailing)]
+
+    keys: list[KeyPress] = [KeyPress(Keys.Up, "\x1b[A") for _ in range(rows_from_end)]
+    keys.append(KeyPress(Keys.ControlA, "\x01"))
+    keys.extend(KeyPress(Keys.Right, "\x1b[C") for _ in range(doc.cursor_position_col))
+    return keys
+
+
 class TurnInputReader:
-    """Drain stdin during a turn; keep submitted text as prompt typeahead."""
+    """Drain stdin during a turn into a live buffer; queue submitted messages."""
 
     def __init__(
         self,
         *,
         input: Input,
         multiline: bool = False,
+        prompt_prefix: str = DEFAULT_PROMPT_PREFIX,
         on_cancel: Callable[[], None] = _default_cancel,
         on_queued: Callable[[int], None] = _publish_queued_count,
         write: Callable[[str], None] = _write_stdout,
     ) -> None:
+        from prompt_toolkit.buffer import Buffer
         from prompt_toolkit.keys import Keys
 
         # Share the prompt's input so its incremental decoder and VT100 parser
         # keep partial characters, escape sequences and pastes across turns.
         self._input = input
+        self._multiline = multiline
+        self._prompt_prefix = prompt_prefix
         self._submit_key = Keys.ControlJ if multiline else Keys.ControlM
+        self._submit_data = "\n" if multiline else "\r"
         self._fd = input.fileno()
         self._on_cancel = on_cancel
         self._on_queued = on_queued
         self._queued = 0
         self._write = write
-        self._keys: list[KeyPress] = []
         self._submissions: list[_Submission] = []
-        self._line = ""
+        self._buffer = Buffer(multiline=True)
+        self._draft_image_pastes: list[str] = []
         # A draft set aside while an hc message pasted behind it is submitted.
-        self._draft_keys: list[KeyPress] = []
-        self._draft_line = ""
+        self._saved_draft: _DraftState | None = None
         self._escape_pending = False
         self._escape_timer: asyncio.TimerHandle | None = None
         self._saved_attrs: list[Any] | None = None
@@ -151,21 +255,80 @@ class TurnInputReader:
         self._suspended = 0
 
     @property
+    def is_suspended(self) -> bool:
+        return self._suspended > 0
+
+    @property
+    def draft_text(self) -> str:
+        return self._buffer.text
+
+    @property
+    def cursor_position(self) -> int:
+        return self._buffer.cursor_position
+
+    @property
+    def queued_messages(self) -> tuple[str, ...]:
+        return tuple(item.text for item in self._submissions if item.text.strip())
+
+    def snapshot(self) -> TurnInputSnapshot:
+        return TurnInputSnapshot(
+            prompt_prefix=self._prompt_prefix,
+            draft_text=self._buffer.text,
+            cursor_position=self._buffer.cursor_position,
+            queued_messages=self.queued_messages,
+            multiline=self._multiline,
+        )
+
+    def _state_signature(self) -> tuple[str, int, tuple[str, ...]]:
+        return (self._buffer.text, self._buffer.cursor_position, self.queued_messages)
+
+    @property
     def held_keys(self) -> list[KeyPress]:
-        return [*self._keys, *self._draft_keys]
+        from prompt_toolkit.key_binding import KeyPress
+
+        keys: list[KeyPress] = []
+        for submission in self._submissions:
+            keys.extend(_paste_keys_preserving_images(submission.text, submission.image_pastes))
+            keys.append(KeyPress(self._submit_key, self._submit_data))
+
+        # Replay a set-aside draft before an unsubmitted hc paste so the prompt's
+        # BracketedPaste handler can split them apart again.
+        if self._saved_draft is not None and self._saved_draft.text:
+            keys.extend(
+                _paste_keys_preserving_images(
+                    self._saved_draft.text, self._saved_draft.image_pastes
+                )
+            )
+
+        if self._buffer.text:
+            keys.extend(
+                _paste_keys_preserving_images(self._buffer.text, tuple(self._draft_image_pastes))
+            )
+            if self._saved_draft is None and not self._draft_image_pastes:
+                keys.extend(_cursor_replay_keys(self._buffer.text, self._buffer.cursor_position))
+
+        return keys
 
     def _set_draft_aside(self) -> None:
-        start = self._submissions[-1].end if self._submissions else 0
-        self._draft_keys = self._keys[start:]
-        self._draft_line = self._line
-        del self._keys[start:]
-        self._line = ""
+        self._saved_draft = _DraftState(
+            text=self._buffer.text,
+            cursor_position=self._buffer.cursor_position,
+            image_pastes=tuple(self._draft_image_pastes),
+        )
+        self._buffer.reset()
+        self._draft_image_pastes = []
 
     def _restore_draft(self) -> None:
-        self._keys.extend(self._draft_keys)
-        self._line += self._draft_line
-        self._draft_keys = []
-        self._draft_line = ""
+        if self._saved_draft is None:
+            return
+        from prompt_toolkit.document import Document
+
+        saved = self._saved_draft
+        self._saved_draft = None
+        self._buffer.set_document(
+            Document(saved.text, cursor_position=min(saved.cursor_position, len(saved.text)))
+        )
+        self._draft_image_pastes = list(saved.image_pastes)
 
     def take_messages(self) -> list[str]:
         """Take a FIFO prefix of plain submitted text at a tool-loop boundary.
@@ -173,10 +336,7 @@ class TurnInputReader:
         Leave commands, attachments and unfinished drafts to the prompt. Stop
         at the first deferred submission so later messages cannot overtake it.
         """
-        from prompt_toolkit.keys import Keys
-
         from fast_agent.integrations.hc_children import is_hc_message
-        from fast_agent.ui.prompt.pasted_paths import pasted_image_paths
         from fast_agent.ui.prompt.special_commands import is_bare_prompt_command
 
         if self._suspended or _replayed_submissions:
@@ -187,10 +347,9 @@ class TurnInputReader:
         # available without waiting for a message that has not arrived.
         self._readable()
         messages: list[str] = []
-        consumed_keys = 0
         consumed_submissions = 0
         for submission in self._submissions:
-            end, text = submission.end, submission.text
+            text = submission.text
             stripped = text.lstrip()
             if not is_hc_message(text) and (
                 stripped.startswith(("/", "!", "@", "#"))
@@ -198,23 +357,16 @@ class TurnInputReader:
                 or any(word.startswith("^") for word in text.split())
             ):
                 break
-            if any(
-                key.key == Keys.BracketedPaste and pasted_image_paths(key.data)
-                for key in self._keys[consumed_keys:end]
-            ):
+            if submission.has_pasted_image:
                 break
             if stripped:
                 messages.append(text)
-            consumed_keys = end
             consumed_submissions += 1
         if consumed_submissions:
-            self._keys = self._keys[consumed_keys:]
-            self._submissions = [
-                _Submission(submission.end - consumed_keys, submission.text)
-                for submission in self._submissions[consumed_submissions:]
-            ]
+            self._submissions = self._submissions[consumed_submissions:]
             self._queued -= len(messages)
             self._on_queued(self._queued)
+            _notify_turn_input_listeners()
         return messages
 
     def start(self) -> bool:
@@ -260,12 +412,14 @@ class TurnInputReader:
         self._suspended += 1
         if self._suspended == 1:
             self._call_on_loop(self._pause)
+            _notify_turn_input_listeners()
         try:
             yield
         finally:
             self._suspended -= 1
             if self._suspended == 0:
                 self._call_on_loop(self._resume)
+                _notify_turn_input_listeners()
 
     def _call_on_loop(self, action: Callable[[], object]) -> None:
         loop = self._loop
@@ -344,8 +498,11 @@ class TurnInputReader:
         except OSError:
             self._pause()
             return
+        before = self._state_signature()
         for key_press in key_presses:
             self._on_key(key_press)
+        if self._state_signature() != before:
+            _notify_turn_input_listeners()
         if self._input.closed:
             self._pause()
             return
@@ -356,11 +513,54 @@ class TurnInputReader:
 
     def flush(self) -> None:
         self._escape_timer = None
+        before = self._state_signature()
         for key_press in self._input.flush_keys():
             self._on_key(key_press)
+        if self._state_signature() != before:
+            _notify_turn_input_listeners()
         if self._escape_pending:
             self._escape_pending = False
             self._on_cancel()
+
+    def _move_cursor(self, delta: int | None) -> None:
+        if delta:
+            self._buffer.cursor_position += delta
+
+    def _move_word_left(self) -> None:
+        self._move_cursor(self._buffer.document.find_previous_word_beginning())
+
+    def _move_word_right(self) -> None:
+        self._move_cursor(self._buffer.document.find_next_word_ending())
+
+    def _delete_word_before_cursor(self) -> None:
+        pos = self._buffer.document.find_previous_word_beginning()
+        if pos:
+            self._buffer.delete_before_cursor(count=-pos)
+
+    def _pop_last_queued_submission(self) -> None:
+        for index in range(len(self._submissions) - 1, -1, -1):
+            candidate = self._submissions[index]
+            if candidate.text.strip():
+                del self._submissions[index]
+                self._queued = max(0, self._queued - 1)
+                self._on_queued(self._queued)
+                self._buffer.reset()
+                self._buffer.insert_text(candidate.text)
+                self._draft_image_pastes = list(candidate.image_pastes)
+                return
+
+    def _handle_alt_chord(self, key_press: KeyPress) -> None:
+        from prompt_toolkit.keys import Keys
+
+        key = key_press.key
+        if key in (Keys.ControlM, Keys.ControlJ):
+            self._buffer.insert_text("\n")
+        elif key == Keys.ControlH:
+            self._delete_word_before_cursor()
+        elif key == Keys.Left or key_press.data == "b":
+            self._move_word_left()
+        elif key == Keys.Right or key_press.data == "f":
+            self._move_word_right()
 
     def _on_key(self, key_press: KeyPress) -> None:
         from prompt_toolkit.keys import Keys
@@ -368,39 +568,71 @@ class TurnInputReader:
         key = key_press.key
         if self._escape_pending:
             # Escape followed by a key is an Alt chord, not a cancellation.
-            # Prompt shortcuts are not replayed across turns.
             self._escape_pending = False
+            self._handle_alt_chord(key_press)
             return
         if key == Keys.Escape:
             self._escape_pending = True
         elif key == Keys.BracketedPaste:
             from fast_agent.integrations.hc_children import is_hc_message
+            from fast_agent.ui.prompt.pasted_paths import pasted_image_paths
 
-            if self._line and not self._draft_keys and is_hc_message(key_press.data):
+            if self._buffer.text and self._saved_draft is None and is_hc_message(key_press.data):
                 # hc pastes behind whatever the person was typing. Submit its
                 # message alone; the draft stays a draft.
                 self._set_draft_aside()
-            self._keys.append(key_press)
-            self._line += key_press.data.replace("\r\n", "\n").replace("\r", "\n")
+            pasted = key_press.data.replace("\r\n", "\n").replace("\r", "\n")
+            self._buffer.insert_text(pasted)
+            if pasted_image_paths(key_press.data):
+                self._draft_image_pastes.append(pasted)
         elif key == self._submit_key:
-            self._keys.append(key_press)
-            self._submissions.append(_Submission(len(self._keys), self._line))
-            if self._line.strip():
+            text = self._buffer.text
+            active_image_pastes = tuple(p for p in self._draft_image_pastes if p in text)
+            self._submissions.append(_Submission(text=text, image_pastes=active_image_pastes))
+            if text.strip():
                 self._queued += 1
                 self._on_queued(self._queued)
-            self._line = ""
+            self._buffer.reset()
+            self._draft_image_pastes = []
             self._restore_draft()
         elif key in (Keys.ControlM, Keys.ControlJ):
-            self._keys.append(key_press)
-            self._line += "\n"
+            self._buffer.insert_text("\n")
         elif key == Keys.ControlH:
-            self._keys.append(key_press)
-            self._line = self._line[:-1]
+            self._buffer.delete_before_cursor(1)
+        elif key == Keys.Delete:
+            self._buffer.delete(1)
+        elif key == Keys.Left:
+            self._buffer.cursor_left(1)
+        elif key == Keys.Right:
+            self._buffer.cursor_right(1)
+        elif key == Keys.ControlLeft:
+            self._move_word_left()
+        elif key == Keys.ControlRight:
+            self._move_word_right()
+        elif key in (Keys.Home, Keys.ControlA):
+            self._move_cursor(self._buffer.document.get_start_of_line_position())
+        elif key in (Keys.End, Keys.ControlE):
+            self._move_cursor(self._buffer.document.get_end_of_line_position())
+        elif key == Keys.ControlW:
+            self._delete_word_before_cursor()
+        elif key == Keys.ControlU:
+            delta = self._buffer.document.get_start_of_line_position()
+            if delta < 0:
+                self._buffer.delete_before_cursor(count=-delta)
+        elif key == Keys.ControlK:
+            delta = self._buffer.document.get_end_of_line_position()
+            if delta > 0:
+                self._buffer.delete(count=delta)
+        elif key == Keys.Up:
+            if self._buffer.document.cursor_position_row > 0:
+                self._buffer.cursor_up(1)
+            elif not self._buffer.text and self._submissions:
+                self._pop_last_queued_submission()
+        elif key == Keys.Down:
+            if self._buffer.document.cursor_position_row < self._buffer.document.line_count - 1:
+                self._buffer.cursor_down(1)
         elif not isinstance(key, Keys) and key_press.data.isprintable():
-            self._keys.append(key_press)
-            self._line += key_press.data
-        # Other control and navigation keys (Ctrl+D, arrows, Tab, F-keys) are
-        # not replayed: they would act on a prompt nobody could see.
+            self._buffer.insert_text(key_press.data)
 
 
 def _store_typeahead(input: Input, key_presses: list[KeyPress]) -> None:
@@ -420,7 +652,9 @@ def keep_draft_for_next_prompt(input: Input, draft: str) -> None:
 
 
 @contextmanager
-def hold_turn_input() -> Generator[TurnInputReader | None]:
+def hold_turn_input(
+    *, prompt_prefix: str = DEFAULT_PROMPT_PREFIX
+) -> Generator[TurnInputReader | None]:
     """Queue terminal input for the next prompt while the body runs."""
     global _active
 
@@ -431,7 +665,11 @@ def hold_turn_input() -> Generator[TurnInputReader | None]:
         from fast_agent.ui.prompt.input import in_multiline_mode
 
         input = get_app_session().input
-        candidate = TurnInputReader(input=input, multiline=in_multiline_mode)
+        candidate = TurnInputReader(
+            input=input,
+            multiline=in_multiline_mode,
+            prompt_prefix=prompt_prefix,
+        )
         try:
             started = candidate.start()
         except Exception:
@@ -439,11 +677,13 @@ def hold_turn_input() -> Generator[TurnInputReader | None]:
         if started:
             reader = candidate
             _active = reader
+            _notify_turn_input_listeners()
     try:
         yield reader
     finally:
         if reader is not None:
             _active = None
+            _notify_turn_input_listeners()
             try:
                 _store_typeahead(input, reader.stop(replay=True))
             except Exception:

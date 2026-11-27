@@ -1283,7 +1283,12 @@ class InteractivePrompt:
         progress_display.resume()
         exit_code = 1
         try:
-            with hold_turn_input() as input_reader:
+            from fast_agent.ui.prompt.input_runtime import format_prompt_prefix
+
+            prompt_prefix = format_prompt_prefix(
+                agent_name, default_agent_name=progress_display.default_agent_name
+            )
+            with hold_turn_input(prompt_prefix=prompt_prefix) as input_reader:
                 # Keep terminal parsing here; the runtime only sees submitted text.
                 # Scope to the addressed instance, not any delegated tool agents.
                 def take_messages() -> list[str]:

@@ -79,9 +79,7 @@ def test_typed_text_keeps_editing_but_drops_prompt_controls(pipe: PipeInput) -> 
     pipe.send_text("hx\x7fi\x04\x1b[A\tthere")
     reader._readable()
     reader.flush()
-    assert "".join(
-        data for _key, data in keys(reader) if len(data) == 1 and data.isprintable()
-    ) == ("hxithere")
+    assert reader.draft_text == "hithere"
     assert Keys.ControlD not in [k.key for k in reader.held_keys]
     assert Keys.Up not in [k.key for k in reader.held_keys]
     assert recorder.queued == []  # no Enter yet: becomes a draft in the next prompt
@@ -260,7 +258,8 @@ def test_take_messages_waits_for_active_submit_key(pipe: PipeInput, multiline: b
     pipe.send_text(draft)
     assert reader.take_messages() == []
     assert recorder.queued == []
-    assert "".join(key.data for key in reader.held_keys) == draft
+    assert reader.draft_text == "first line\nsecond line"
+    assert "".join(key.data for key in reader.held_keys) == "first line\nsecond line"
 
     pipe.send_text(submit + "next draft")
     assert reader.take_messages() == ["first line\nsecond line"]
@@ -455,7 +454,7 @@ def test_draft_survives_an_hc_paste_that_was_never_submitted(pipe: PipeInput) ->
     reader = Recorder().reader(pipe)
     pipe.send_text(f"we \x1b[200~{HC_NOTE}\x1b[201~")
     reader._readable()
-    assert sorted(key.data for key in reader.stop()) == sorted([HC_NOTE, "w", "e", " "])
+    assert sorted(key.data for key in reader.stop()) == sorted([HC_NOTE, "we "])
 
 
 def test_hc_message_is_never_deferred_as_a_command(pipe: PipeInput) -> None:

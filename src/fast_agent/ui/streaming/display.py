@@ -31,7 +31,16 @@ from fast_agent.ui.markdown.renderables import (
 )
 from fast_agent.ui.markdown.truncation import MarkdownTruncator
 from fast_agent.ui.message_styles import build_code_rule, format_code_tool_pill_label
-from fast_agent.ui.prompt.turn_input import queued_input_count
+from fast_agent.ui.prompt.turn_input import (
+    active_turn_input_snapshot,
+    add_turn_input_listener,
+    queued_input_count,
+)
+from fast_agent.ui.prompt.turn_input_dock import (
+    RenderedTurnInputDock,
+    TurnInputSnapshot,
+    render_turn_input_dock,
+)
 from fast_agent.ui.streaming.plain_text import PlainTextTruncator
 from fast_agent.ui.streaming.segments import StreamSegmentAssembler
 from fast_agent.ui.streaming.viewport import StreamViewport
@@ -921,6 +930,8 @@ class StreamingMessageHandle:
         self._async_mode = self._loop is not None
         self._queue: asyncio.Queue[object] | None = asyncio.Queue() if self._async_mode else None
         self._stop_sentinel: object = object()
+        self._dock_refresh_pending = False
+        self._unsubscribe_turn_input: Callable[[], None] | None = None
         self._worker_task: asyncio.Task[None] | None = None
 
     def _build_live_renderer(self, *, refresh_rate: int) -> Any:
@@ -1031,11 +1042,12 @@ class StreamingMessageHandle:
             parts.append(rate)
         return " ".join(parts)
 
-    def _build_header(self) -> Text:
+    def _build_header(self, *, dock_active: bool = False) -> Text:
         width = console.console.size.width
         live = self._rendered_live = self._live_label()
-        # Like the live label, omitted from the final (possibly preserved) frame.
-        queued = queued_input_count() if self._show_stream_cursor else 0
+        # Like the live label, omitted from the final (possibly preserved) frame
+        # and hidden when the inline dock is already displaying queued messages.
+        queued = queued_input_count() if self._show_stream_cursor and not dock_active else 0
         cache_key = (width, self._scroll_indicator_visible, live, queued)
         cached = self._header_cache.get(cache_key)
         if cached is not None:
@@ -1147,6 +1159,12 @@ class StreamingMessageHandle:
         if self._live and not self._live_started:
             self._live.__enter__()
             self._live_started = True
+            if (
+                self._unsubscribe_turn_input is None
+                and self._async_mode
+                and not self._alt_screen_streaming
+            ):
+                self._unsubscribe_turn_input = add_turn_input_listener(self._on_turn_input_changed)
 
     def _set_scroll_indicator_visible(self, visible: bool) -> None:
         if self._scroll_indicator_visible == visible:
@@ -1435,6 +1453,33 @@ class StreamingMessageHandle:
             return
         await self._queue.join()
 
+    def _active_dock_snapshot(self) -> TurnInputSnapshot | None:
+        if not self._show_stream_cursor or self._alt_screen_streaming:
+            return None
+        return active_turn_input_snapshot()
+
+    def _on_turn_input_changed(self) -> None:
+        if (
+            not self._async_mode
+            or self._loop is None
+            or not self._active
+            or not self._live_started
+            or not self._show_stream_cursor
+        ):
+            return
+        if self._dock_refresh_pending:
+            return
+        self._dock_refresh_pending = True
+        try:
+            self._loop.call_soon_threadsafe(self._refresh_dock)
+        except RuntimeError:
+            self._dock_refresh_pending = False
+
+    def _refresh_dock(self) -> None:
+        self._dock_refresh_pending = False
+        if self._active and self._live_started and self._show_stream_cursor:
+            self._render_current_buffer()
+
     def _render_current_buffer(self) -> None:
         if not self._active:
             return
@@ -1450,16 +1495,26 @@ class StreamingMessageHandle:
         width_override = self._effective_stream_width()
         original_width_attr = _apply_console_width_override(console.console, width_override)
         try:
-            if self._try_render_cached_cursor_blink():
-                return
-            # Reserve lines for the header (text + spacing newline) and a
-            # safety margin that absorbs height differences introduced when
-            # consecutive markdown segments are coalesced into one Markdown
-            # renderable (Rich adds inter-paragraph spacing that the
-            # per-segment height estimates do not account for).
-            max_allowed_height = max(
-                1, console.console.size.height - _STREAM_HEADER_AND_MARGIN_LINES
+            dock_snapshot = self._active_dock_snapshot()
+            rendered_dock: RenderedTurnInputDock | None = (
+                render_turn_input_dock(
+                    dock_snapshot,
+                    width=console.console.size.width,
+                    terminal_height=console.console.size.height,
+                )
+                if dock_snapshot is not None
+                else None
             )
+            dock_height = rendered_dock.height if rendered_dock is not None else 0
+            dock_active = rendered_dock is not None
+            if self._try_render_cached_frame(rendered_dock=rendered_dock):
+                return
+            # Reserve lines for the header (text + spacing newline), the live
+            # turn-input dock (if active), and a safety margin that absorbs
+            # height differences introduced when consecutive markdown segments
+            # are coalesced into one Markdown renderable.
+            base_max_height = max(1, console.console.size.height - _STREAM_HEADER_AND_MARGIN_LINES)
+            max_allowed_height = max(1, base_max_height - dock_height)
             viewport_window = self._viewport.slice_segments_with_heights(
                 segments,
                 terminal_height=max_allowed_height,
@@ -1474,8 +1529,21 @@ class StreamingMessageHandle:
             )
             now = time.monotonic()
             self._update_scroll_status(is_truncated=is_truncated, now=now)
-            header = self._build_header()
-            self._segment_assembler.compact(window_segments)
+            header = self._build_header(dock_active=dock_active)
+            # Only compact when truncated, and anchor compaction to the full
+            # stream budget so growing the dock never discards live lines.
+            if is_truncated:
+                if dock_height == 0:
+                    self._segment_assembler.compact(window_segments)
+                else:
+                    compact_window = self._viewport.slice_segments_with_heights(
+                        segments,
+                        terminal_height=base_max_height,
+                        console=console.console,
+                        target_ratio=self._stream_target_ratio,
+                    )
+                    if compact_window.segments:
+                        self._segment_assembler.compact(compact_window.segments)
 
             content_height = sum(viewport_window.heights)
             self._update_pre_scroll_throttle(
@@ -1514,12 +1582,18 @@ class StreamingMessageHandle:
             header_with_spacing = header.copy()
             header_with_spacing.append("\n", style="default")
             self._cached_frame_state = (
-                self._current_frame_cache_key(live_label=self._rendered_live),
+                self._current_frame_cache_key(
+                    live_label=self._rendered_live,
+                    dock_height=dock_height,
+                ),
                 header_with_spacing,
                 cached_renderables,
             )
 
-            combined = Group(header_with_spacing, content)
+            if rendered_dock is not None:
+                combined = Group(header_with_spacing, content, rendered_dock.renderable)
+            else:
+                combined = Group(header_with_spacing, content)
             render_interval_ms = (
                 (now - self._last_render_time) * 1000 if self._last_render_time else None
             )
@@ -1568,10 +1642,15 @@ class StreamingMessageHandle:
             for segment_index, segment in enumerate(display_segments)
         ]
 
-    def _current_frame_cache_key(self, *, live_label: str) -> tuple[object, ...]:
+    def _current_frame_cache_key(
+        self,
+        *,
+        live_label: str,
+        dock_height: int = 0,
+    ) -> tuple[object, ...]:
         segments = self._segment_assembler.segments
         last_segment = segments[-1] if segments else None
-        queued = queued_input_count() if self._show_stream_cursor else 0
+        queued = queued_input_count() if self._show_stream_cursor and dock_height == 0 else 0
         return (
             self._content_version,
             len(segments),
@@ -1582,20 +1661,29 @@ class StreamingMessageHandle:
             self._scroll_indicator_visible,
             live_label,
             queued,
+            dock_height,
             self._header_right,
             self._show_stream_cursor,
             self._max_render_height,
             self._suppress_tail_padding_for_final_frame,
         )
 
-    def _try_render_cached_cursor_blink(self) -> bool:
+    def _try_render_cached_frame(
+        self,
+        *,
+        rendered_dock: RenderedTurnInputDock | None = None,
+    ) -> bool:
         if self._cached_frame_state is None or not self._live:
             return False
         if self._scroll_indicator_pending_since is not None:
             return False
         cached_key, cached_header_with_spacing, cached_renderables = self._cached_frame_state
         live_label = self._live_label()
-        if cached_key != self._current_frame_cache_key(live_label=live_label):
+        dock_height = rendered_dock.height if rendered_dock is not None else 0
+        if cached_key != self._current_frame_cache_key(
+            live_label=live_label,
+            dock_height=dock_height,
+        ):
             return False
         self._rendered_live = live_label
 
@@ -1611,7 +1699,10 @@ class StreamingMessageHandle:
             if len(updated_renderables) > 1
             else (updated_renderables[0] if updated_renderables else Text(""))
         )
-        combined = Group(cached_header_with_spacing, content)
+        if rendered_dock is not None:
+            combined = Group(cached_header_with_spacing, content, rendered_dock.renderable)
+        else:
+            combined = Group(cached_header_with_spacing, content)
         try:
             self._live.update(combined, refresh=True)
             self._last_render_time = time.monotonic()
@@ -2047,6 +2138,10 @@ class StreamingMessageHandle:
             self._queue.task_done()
 
     def _shutdown_live_resources(self) -> None:
+        if self._unsubscribe_turn_input is not None:
+            self._unsubscribe_turn_input()
+            self._unsubscribe_turn_input = None
+        self._dock_refresh_pending = False
         if self._live and self._live_started:
             if self._preserve_final_frame:
                 with suppress(Exception):
