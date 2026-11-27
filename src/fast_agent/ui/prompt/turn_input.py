@@ -231,6 +231,7 @@ class TurnInputReader:
         prompt_prefix: str = DEFAULT_PROMPT_PREFIX,
         completer: Completer | None = None,
         on_submit: Callable[[str], bool] | None = None,
+        on_toggle_multiline: Callable[[bool], None] | None = None,
         on_cancel: Callable[[], None] = _default_cancel,
         on_queued: Callable[[int], None] = _publish_queued_count,
         write: Callable[[str], None] = _write_stdout,
@@ -245,6 +246,7 @@ class TurnInputReader:
         self._prompt_prefix = prompt_prefix
         self._completer = completer
         self._on_submit = on_submit
+        self._on_toggle_multiline = on_toggle_multiline
         self._submit_key = Keys.ControlJ if multiline else Keys.ControlM
         self._submit_data = "\n" if multiline else "\r"
         self._fd = input.fileno()
@@ -793,6 +795,12 @@ class TurnInputReader:
             self._move_cursor(self._buffer.document.get_end_of_line_position())
             if self._completions:
                 self._maybe_refresh_completions()
+        elif key == Keys.ControlT:
+            self._multiline = not self._multiline
+            self._submit_key = Keys.ControlJ if self._multiline else Keys.ControlM
+            self._submit_data = "\n" if self._multiline else "\r"
+            if self._on_toggle_multiline is not None:
+                self._on_toggle_multiline(self._multiline)
         elif key == Keys.ControlW:
             self._delete_word_before_cursor()
             self._maybe_refresh_completions()
@@ -853,15 +861,19 @@ def hold_turn_input(
     if _active is None and turn_input_enabled():
         from prompt_toolkit.application.current import get_app_session
 
-        from fast_agent.ui.prompt.input import in_multiline_mode
+        from fast_agent.ui.prompt import input as prompt_input
+
+        def _sync_multiline(enabled: bool) -> None:
+            prompt_input.in_multiline_mode = enabled
 
         input = get_app_session().input
         candidate = TurnInputReader(
             input=input,
-            multiline=in_multiline_mode,
+            multiline=prompt_input.in_multiline_mode,
             prompt_prefix=prompt_prefix,
             completer=completer,
             on_submit=on_submit,
+            on_toggle_multiline=_sync_multiline,
         )
         try:
             started = candidate.start()
