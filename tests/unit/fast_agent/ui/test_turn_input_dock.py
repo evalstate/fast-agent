@@ -830,3 +830,30 @@ def test_turn_input_reader_ctrl_t_toggles_multiline_mid_turn(pipe: PipeInput) ->
     assert reader.take_messages() == ["single"]
     assert toggled == [True, False]
     assert reader.snapshot().multiline is False
+
+    # Alt+Enter inserts newline in normal mode, and submits in multiline mode
+    pipe.send_text("a\x1b\rb\r")
+    assert reader.take_messages() == ["a\nb"]
+    pipe.send_text("\x14c\rd\x1b\r")
+    assert reader.take_messages() == ["c\nd"]
+
+
+def test_dock_placeholder_hints_switch_for_multiline() -> None:
+    normal = TurnInputSnapshot(
+        prompt_prefix="❯",
+        draft_text="",
+        cursor_position=0,
+        queued_messages=(),
+        multiline=False,
+    )
+    multiline = TurnInputSnapshot(
+        prompt_prefix="❯",
+        draft_text="",
+        cursor_position=0,
+        queued_messages=(),
+        multiline=True,
+    )
+    normal_lines, _ = _render_dock(normal, width=140)
+    multiline_lines, _ = _render_dock(multiline, width=140)
+    assert "Esc to interrupt, Alt+Enter new line, Ctrl+T toggle multiline" in normal_lines[1]
+    assert "Esc to interrupt, Alt+Enter submit, Ctrl+T toggle multiline" in multiline_lines[1]
