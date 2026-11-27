@@ -516,3 +516,139 @@ def test_live_incomplete_fences_omit_bottom_rule_and_keep_single_clean_cursor() 
         "```python\nx = 1\n```", console, code_theme="ansi_light"
     )
     assert closed_h == open_h + 1
+
+
+def test_soft_wrap_keeps_markdown_blocks_unbroken_and_bypasses_streaming_cache() -> None:
+    import io
+    import re
+
+    from fast_agent.ui.streaming.display import _CachedStaticRenderable
+
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    heading = "A long heading that exceeds sixty columns and should stay on one unbroken line"
+    para = (
+        "This is a long prose paragraph that exceeds sixty columns and should stay on one "
+        "unbroken logical line so copying never injects unwanted newlines."
+    )
+    quote = "A long blockquote line that exceeds sixty columns and should stay unbroken on copy."
+    item = (
+        "Item one with plenty of words that wrap cleanly inside a list item without clipping "
+        "or injecting newlines."
+    )
+    code = "echo hello && curl -s https://example.com/very/long/path/that/exceeds/sixty/columns/cleanly"
+    nested_code = "export TF_VAR_proxmox_api_token='terraform@pam!homelab=<your-token-uuid>'"
+    md = (
+        f"## {heading}\n\n"
+        f"{para}\n\n"
+        f"> {quote}\n\n"
+        f"1. {item}\n\n"
+        f"   ```bash\n   {nested_code}\n   ```\n\n"
+        f"```bash\n{code}\n```\n"
+    )
+
+    renderable = build_markdown_renderable(md, code_theme="native", escape_xml=True)
+    cached = _CachedStaticRenderable(renderable=renderable, _segment_cache={})
+
+    buf = io.StringIO()
+    console = Console(file=buf, width=60, force_terminal=True, color_system="truecolor")
+
+    # Populate streaming cache first (hard-wrapped to width 60 for live cursor math).
+    console.render_lines(cached, options=console.options.update(width=60), pad=False)
+
+    # Final print with soft_wrap=True must bypass the wrapped streaming cache.
+    console.print(cached, soft_wrap=True)
+
+    plain_lines = ansi_re.sub("", buf.getvalue()).splitlines()
+    assert heading in plain_lines
+    assert para in plain_lines
+    assert f"▌ {quote}" in plain_lines
+    assert f" 1 {item}" in plain_lines
+    assert f"   {nested_code}" in plain_lines
+    assert code in plain_lines
+
+
+def test_soft_wrap_preserves_markdown_table_layout() -> None:
+    import io
+
+    md = (
+        "| Col A | Col B |\n"
+        "| --- | --- |\n"
+        "| short | a long table cell value that should stay wrapped inside its column |\n\n"
+        "A long trailing paragraph that exceeds fifty columns and should stay unbroken."
+    )
+    renderable = build_markdown_renderable(md, code_theme="native", escape_xml=True)
+    buf = io.StringIO()
+    console = Console(file=buf, width=50, force_terminal=False)
+    console.print(renderable, soft_wrap=True)
+
+    lines = buf.getvalue().splitlines()
+    assert "A long trailing paragraph that exceeds fifty columns and should stay unbroken." in lines
+    # Table rows stay within the console width rather than spilling unbroken past 50 columns.
+    table_lines = [line for line in lines if "Col A" in line or "short" in line]
+    assert table_lines
+    assert all(len(line) <= 50 for line in table_lines)
+
+
+def test_reflow_safe_syntax_omits_right_edge_padding_and_preserves_theme_and_whitespace() -> None:
+    import io
+    import re
+
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    code = "x = 1  \n\tprint('hi')"
+    renderable = build_markdown_renderable(
+        f"```python\n{code}\n```\n",
+        code_theme="native",
+        escape_xml=True,
+    )
+
+    # Streaming mode (hard-wrapped to width 60): no right-edge padding, theme bg kept on tokens,
+    # intentional trailing spaces and tab expansion preserved.
+    stream_buf = io.StringIO()
+    stream_console = Console(
+        file=stream_buf, width=60, force_terminal=True, color_system="truecolor"
+    )
+    stream_console.print(renderable)
+    stream_raw = stream_buf.getvalue()
+    assert "\x1b[" in stream_raw
+    # Theme background ANSI SGR (48;...) is preserved on code tokens, never padded to width 60.
+    assert "48;" in stream_raw
+    stream_plain = ansi_re.sub("", stream_raw).splitlines()
+    assert "x = 1  " in stream_plain
+    assert "    print('hi')" in stream_plain
+    assert all(len(line) < 60 for line in stream_plain)
+
+
+def test_diff_live_stop_clears_drawn_frame_and_reprints_soft_wrapped() -> None:
+    import io
+    import re
+
+    from fast_agent.ui.streaming.display import _DiffLive
+
+    ansi_re = re.compile(r"\x1b\[[0-9;]*m")
+    para = (
+        "Streaming output paragraph that is definitely longer than forty columns so live "
+        "frames wrap it and final stop reprints it unbroken."
+    )
+    renderable = build_markdown_renderable(para, code_theme="native", escape_xml=True)
+
+    buf = io.StringIO()
+    console = Console(file=buf, width=40, force_terminal=True, color_system="truecolor")
+    live = _DiffLive(renderable, console=console, transient=False)
+    cleared: list[bool] = []
+    live._clear_region = lambda: cleared.append(True)  # type: ignore[method-assign]
+    live._stop_drawn_frame()
+
+    assert cleared == [True]
+    plain_lines = ansi_re.sub("", buf.getvalue()).splitlines()
+    assert para in plain_lines
+
+    # Transient mode clears without reprinting.
+    buf_t = io.StringIO()
+    console_t = Console(file=buf_t, width=40, force_terminal=True, color_system="truecolor")
+    live_t = _DiffLive(renderable, console=console_t, transient=True)
+    cleared_t: list[bool] = []
+    live_t._clear_region = lambda: cleared_t.append(True)  # type: ignore[method-assign]
+    live_t._stop_drawn_frame()
+
+    assert cleared_t == [True]
+    assert buf_t.getvalue() == ""

@@ -779,7 +779,7 @@ class ConsoleDisplay:
             from fast_agent.ui.markdown.renderables import style_markdown_renderable
 
             renderable = style_markdown_renderable(renderable, markdown_styles)
-        console.console.print(renderable, markup=self._markup)
+        console.console.print(renderable, markup=self._markup, soft_wrap=True)
 
     _LEADING_XML_TAG_RE = re.compile(r"^<[A-Za-z_][A-Za-z0-9_:.-]*(?:\s[^<>]*?)?/?>")
 
