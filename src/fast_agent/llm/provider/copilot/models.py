@@ -61,10 +61,10 @@ COPILOT_PICKER_MODELS: Final = (
     _messages_model("claude-opus-5.5", False),
     _messages_model("claude-sonnet-5.5", False),
     _messages_model("claude-haiku-5.5", True),
-    # Base Responses route: WebSockets return internal_error (rechecked 2026-11-18);
-    # web search and native compaction are unverified.
+    # Base Responses route: WebSockets verified 2026-11-28;
+    # web search and native compaction remain unverified.
     *(
-        _responses_model(model_id, websocket=False, web_search=False, native_compaction=False)
+        _responses_model(model_id, web_search=False, native_compaction=False)
         for model_id in ("gpt-6.2-astra", "gpt-6.2-sol")
     ),
     _responses_model("gpt-6-astra", max_prompt_images=50),

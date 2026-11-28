@@ -89,7 +89,7 @@ def test_copilot_gpt62_alias_dispatches_to_responses(variant):
     resolved = ModelFactory.resolve_model_spec(alias)
     assert resolved.provider is Provider.COPILOT
     assert resolved.wire_model_name == f"gpt-6.2-{variant}"
-    assert resolved.model_config.transport == "sse"
+    assert resolved.model_config.transport == "websocket"
     assert get_copilot_model(resolved.wire_model_name).wire_api == "responses"
     assert ModelFactory.resolve_model_spec(variant).provider is Provider.CODEX_RESPONSES
 
