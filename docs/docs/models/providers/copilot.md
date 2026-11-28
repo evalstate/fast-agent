@@ -108,8 +108,8 @@ not canonical and has no alias; use `copilot.claude-opus-5`.
 | `copilot.gpt-5.6-luna` | Responses |
 | `copilot.gpt-5.6-terra` | Responses |
 | `copilot.gpt-5.6-sol` | Responses |
-| `copilot.gpt-6.2-astra` (`copilot.astra`) | Responses (SSE) |
-| `copilot.gpt-6.2-sol` (`copilot.sol`) | Responses (SSE) |
+| `copilot.gpt-6.2-astra` (`copilot.astra`) | Responses |
+| `copilot.gpt-6.2-sol` (`copilot.sol`) | Responses |
 | `copilot.gpt-6-astra` | Responses |
 | `copilot.gpt-6.1-sol` | Responses |
 | `copilot.gpt-6.1-terra` | Responses |
@@ -283,13 +283,13 @@ threshold compaction.
 
 ## Transport and compatibility
 
-GPT-6.2 Astra and Sol use HTTP/SSE; the gateway's WebSocket endpoint returns
-`internal_error` for them (rechecked 2026-11-18). Their history is append-only like
-OpenAI Responses: the system prompt leads the input, and effort and structured-output
-changes are sent as `configuration_update` items (see
+GPT models, including GPT-6.2 Astra and Sol, default to **WebSockets**, using
+static curated capability metadata; no remote catalog is required. GPT-6.2 Astra
+and Sol still use append-only history like OpenAI Responses: the system prompt
+leads the input, and effort and structured-output changes are sent as
+`configuration_update` items (see
 [Responses prompt caching](../../guides/responses-caching.md)).
-The other GPT models default to **WebSockets**, using static curated capability
-metadata; no remote catalog is required. Select HTTP/SSE explicitly if needed:
+Select HTTP/SSE explicitly if needed:
 
 ```bash
 fast-agent --model 'copilot.gpt-6-astra?transport=sse'
