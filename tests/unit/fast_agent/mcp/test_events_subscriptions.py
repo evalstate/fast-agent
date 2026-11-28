@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import pytest
 from mcp.shared.exceptions import MCPError
-from mcp_types import HEADER_MISMATCH
+from mcp_types import HEADER_MISMATCH, ErrorData
 
 from fast_agent.history.turns import is_mcp_events_prompt, typed_turn_starts
 from fast_agent.mcp.events_extension import (
@@ -13,6 +13,10 @@ from fast_agent.mcp.events_extension import (
     EVENTS_NOT_FOUND,
     EventDescriptor,
     EventOccurrence,
+    EventStreamActive,
+    EventStreamFrame,
+    EventStreamHeartbeat,
+    EventStreamTerminated,
     ListEventsResult,
     PollEventsResult,
 )
@@ -30,30 +34,56 @@ from fast_agent.mcp.events_subscriptions import (
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.ptc.context_blocks import user_authored_text
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Callable
+
 EVENT = "job.status_changed"
 ARGS = {"job_id": "job-1"}
 
 
-def _occurrence(stage: str) -> EventOccurrence:
+def _occurrence(stage: str, cursor: str | None = None) -> EventOccurrence:
     return EventOccurrence(
         event_id=f"job-1:{stage}",
         name=EVENT,
         timestamp="2026-11-12T10:00:00Z",
         data={"job_id": "job-1", "stage": stage},
+        cursor=cursor,
     )
 
 
+async def _stream(
+    *frames: EventStreamFrame, ends: Exception | Literal["closed"] | None = None
+) -> AsyncGenerator[EventStreamFrame]:
+    """Deliver ``frames``, then fail, close, or stay open."""
+    for frame in frames:
+        yield frame
+    if isinstance(ends, Exception):
+        raise ends
+    if ends is None:
+        await asyncio.Event().wait()
+
+
+async def _until(condition: Callable[[], bool]) -> None:
+    async with asyncio.timeout(5):
+        while not condition():
+            await asyncio.sleep(0)
+
+
 class _Poller:
-    """Answer polls from a script, then block."""
+    """Answer polls and stream opens from scripts, then block."""
 
     def __init__(
         self,
         script: list[PollEventsResult | Exception],
         *,
         delivery: list[str] | None = None,
+        streams: list[AsyncGenerator[EventStreamFrame] | Exception] | None = None,
     ) -> None:
         self.script = list(script)
         self.delivery = ["poll"] if delivery is None else delivery
+        self.streams = list(streams or [])
+        self.stream_cursors: list[str | None] = []
+        self.persistent = True
         self.cursors: list[str | None] = []
         self.max_ages: list[int | None] = []
         self.list_calls = 0
@@ -87,6 +117,27 @@ class _Poller:
             raise step
         return step
 
+    def can_hold_event_stream(self, server_name: str) -> bool:
+        del server_name
+        return self.persistent
+
+    async def open_event_stream(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        cursor: str | None = None,
+    ) -> AsyncGenerator[EventStreamFrame]:
+        del server_name, name, arguments
+        if not self.streams:
+            await asyncio.Event().wait()
+        self.stream_cursors.append(cursor)
+        stream = self.streams.pop(0)
+        if isinstance(stream, Exception):
+            raise stream
+        return stream
+
 
 class _Sleeps:
     def __init__(self) -> None:
@@ -98,7 +149,7 @@ class _Sleeps:
 
 
 def _manager(poller: _Poller, sleeps: _Sleeps, **kwargs: Any) -> EventSubscriptionManager:
-    return EventSubscriptionManager(poller, sleep=sleeps, **kwargs)
+    return EventSubscriptionManager(poller, sleep=sleeps, jitter=lambda: 0.0, **kwargs)
 
 
 @pytest.mark.asyncio
@@ -182,10 +233,13 @@ async def test_full_inbox_drops_the_oldest_items_and_reports_a_gap() -> None:
 
 
 @pytest.mark.asyncio
-async def test_subscribe_rejects_unknown_and_non_poll_event_types() -> None:
-    push_only = _manager(_Poller([], delivery=["push", "webhook"]), _Sleeps())
+async def test_subscribe_rejects_unknown_and_unoffered_event_types() -> None:
+    webhook_only = _manager(_Poller([], delivery=["webhook"]), _Sleeps())
     with pytest.raises(ValueError, match="does not support poll delivery"):
-        await push_only.subscribe("demo", EVENT)
+        await webhook_only.subscribe("demo", EVENT)
+
+    with pytest.raises(ValueError, match="does not support push delivery"):
+        await _manager(_Poller([]), _Sleeps()).subscribe("demo", EVENT, delivery="push")
 
     poller = _Poller([])
     poller.offered = False
@@ -1166,4 +1220,168 @@ async def test_cursor_replacement_drops_superseded_pending_items_for_same_key() 
     assert replaced.status == "completed"
     items = manager.take()
     assert [i.occurrence.event_id for i in items if i.occurrence is not None] == ["job-1:done"]
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_push_stream_delivers_events_and_tracks_the_cursor() -> None:
+    closed = asyncio.Event()
+
+    async def stream() -> AsyncGenerator[EventStreamFrame]:
+        try:
+            yield EventStreamActive(cursor="c0")
+            yield _occurrence("RUNNING", "c1")
+            yield EventStreamHeartbeat(cursor="c2")
+            yield _occurrence("RUNNING", "c3")
+            yield EventStreamActive(cursor="c4", truncated=True)
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    poller = _Poller([], delivery=["poll", "push"], streams=[stream()])
+    manager = _manager(poller, _Sleeps())
+
+    subscription = await manager.subscribe("demo", EVENT, ARGS)
+    await _until(lambda: subscription.cursor == "c4")
+
+    assert subscription.delivery == "push"
+    assert poller.cursors == []
+    assert [item.kind for item in manager.take()] == ["event", "gap"]
+
+    # An open stream is left alone.
+    assert manager.poll_now(subscription.key)
+    assert await manager.unsubscribe(subscription.key)
+    assert closed.is_set()
+    assert poller.stream_cursors == [None]
+
+
+@pytest.mark.asyncio
+async def test_poll_can_be_chosen_when_push_is_offered() -> None:
+    poller = _Poller([PollEventsResult(cursor="c0")], delivery=["push", "poll"])
+    manager = _manager(poller, _Sleeps())
+
+    subscription = await manager.subscribe("demo", EVENT, ARGS, delivery="poll")
+    await poller.exhausted.wait()
+
+    assert subscription.delivery == "poll"
+    assert poller.stream_cursors == []
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_push_is_not_used_on_a_connection_that_cannot_hold_a_stream() -> None:
+    poller = _Poller([PollEventsResult(cursor="c0")], delivery=["push", "poll"])
+    poller.persistent = False
+    manager = _manager(poller, _Sleeps())
+
+    with pytest.raises(ValueError, match="needs a persistent connection"):
+        await manager.subscribe("demo", EVENT, ARGS, delivery="push")
+    subscription = await manager.subscribe("demo", EVENT, ARGS)
+
+    assert subscription.delivery == "poll"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_ended_stream_is_reopened_from_its_cursor() -> None:
+    poller = _Poller(
+        [],
+        delivery=["push"],
+        streams=[
+            _stream(
+                EventStreamActive(cursor="c0"),
+                _occurrence("RUNNING", "c1"),
+                ends=ConnectionError("gone"),
+            ),
+            ConnectionError("still gone"),
+            _stream(EventStreamActive(cursor="c1"), ends="closed"),
+            _stream(EventStreamActive(cursor="c1"), _occurrence("RUNNING", "c1")),
+        ],
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    subscription = await manager.subscribe("demo", EVENT, ARGS)
+    await _until(lambda: len(poller.stream_cursors) == 4 and subscription.last_error is None)
+
+    assert poller.stream_cursors == [None, "c1", "c1", "c1"]
+    # A stream that ends is reopened after the floor. A failed open backs off as a poll does.
+    assert sleeps.delays == [1.0, 30.0, 1.0]
+    assert subscription.status == "active"
+    assert [item.kind for item in manager.take()] == ["event"]
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_quiet_stream_is_reopened() -> None:
+    poller = _Poller(
+        [],
+        delivery=["push"],
+        streams=[
+            _stream(EventStreamActive(cursor="c0", heartbeat_ms=5)),
+            _stream(EventStreamActive(cursor="c0", heartbeat_ms=30_000)),
+        ],
+    )
+    sleeps = _Sleeps()
+    manager = _manager(poller, sleeps)
+
+    await manager.subscribe("demo", EVENT, ARGS)
+    await _until(lambda: poller.stream_cursors == [None, "c0"])
+
+    assert sleeps.delays == [1.0]
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_rejected_stream_fails_subscribe_and_terminated_stream_ends() -> None:
+    rejecting = _manager(
+        _Poller([], delivery=["push"], streams=[MCPError(-32602, "InvalidParams")]), _Sleeps()
+    )
+    with pytest.raises(MCPError):
+        await rejecting.subscribe("demo", EVENT, {"job_id": 1})
+    assert rejecting.subscriptions() == []
+
+    forbidden = ErrorData(code=EVENTS_FORBIDDEN, message="Forbidden")
+    poller = _Poller(
+        [],
+        delivery=["push"],
+        streams=[_stream(EventStreamActive(cursor="c0"), EventStreamTerminated(error=forbidden))],
+    )
+    manager = _manager(poller, _Sleeps())
+
+    subscription = await manager.subscribe("demo", EVENT, ARGS)
+    await _until(lambda: subscription.status == "terminated")
+
+    assert subscription.last_error == "Forbidden"
+    assert [item.kind for item in manager.take()] == ["terminated"]
+    assert manager.subscriptions() == [subscription]
+    assert poller.stream_cursors == [None]
+
+
+@pytest.mark.asyncio
+async def test_once_push_subscription_completes_and_holds_consumed_cursor_until_take() -> None:
+    poller = _Poller(
+        [],
+        delivery=["push"],
+        streams=[
+            _stream(
+                EventStreamActive(cursor="c0"),
+                EventStreamHeartbeat(cursor="c1"),
+                _occurrence("DONE", "c2"),
+                _occurrence("AFTER", "c3"),
+            )
+        ],
+    )
+    manager = _manager(poller, _Sleeps())
+
+    subscription = await manager.subscribe("demo", EVENT, ARGS, once=True)
+    await _until(lambda: subscription.status == "completed")
+
+    assert subscription.delivered == 1
+    assert subscription.cursor == "c2"
+    assert subscription.consumed_cursor == "c1"
+    assert manager.persistable_subscriptions() == [subscription]
+    assert [item.kind for item in manager.take()] == ["event"]
+    assert subscription.consumed_cursor == "c2"
+    assert poller.stream_cursors == [None]
     await manager.aclose()

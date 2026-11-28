@@ -26,6 +26,8 @@ from fast_agent.mcp.events_extension import (
 from fast_agent.mcp.events_subscriptions import (
     EventSubscription,
     EventSubscriptionManager,
+    OpenEventStream,
+    SubscriptionDelivery,
     SubscriptionOrigin,
 )
 from fast_agent.mcp_server_registry import ServerRegistry
@@ -134,6 +136,7 @@ class _FakeEventsAgent:
         origin: SubscriptionOrigin = "user",
         cursor: str | None = None,
         max_age_ms: int | None = None,
+        delivery: SubscriptionDelivery | None = None,
     ) -> EventSubscription:
         self.call_order.append(f"restore:{server_name}/{name}")
         if name in self._fail_restore_events:
@@ -231,6 +234,7 @@ def test_capture_persists_active_event_subscriptions_with_consumed_cursor(tmp_pa
             min_poll_ms=15_000,
             origin="user",
             cursor="c1",
+            delivery="poll",
         )
     ]
 
@@ -490,6 +494,19 @@ class _CommandEventsAggregator:
             events=[EventDescriptor(name="job.status_changed", delivery=["poll"])]
         )
 
+    def can_hold_event_stream(self, server_name: str) -> bool:
+        return True
+
+    async def open_event_stream(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        cursor: str | None = None,
+    ) -> OpenEventStream:
+        raise NotImplementedError
+
     async def poll_events(
         self,
         server_name: str,
@@ -546,6 +563,7 @@ async def test_events_command_persists_session_on_subscribe_and_unsubscribe(
                 min_poll_ms=None,
                 origin="user",
                 cursor="c0",
+                delivery="poll",
             )
         ]
 
@@ -607,6 +625,7 @@ async def test_events_subscribe_creates_session_when_none_exists_and_reports_osc
                 min_poll_ms=None,
                 origin="user",
                 cursor="c0",
+                delivery="poll",
             )
         ]
         assert reported == [(manager, agent)]
@@ -660,6 +679,7 @@ def test_capture_persists_completed_once_subscription_with_pending_inbox(tmp_pat
             min_poll_ms=None,
             origin="user",
             cursor="c1",
+            delivery="poll",
         )
     ]
 
@@ -721,6 +741,7 @@ async def test_handle_resume_session_preserves_restored_subscriptions_and_replay
             origin: SubscriptionOrigin = "user",
             cursor: str | None = None,
             max_age_ms: int | None = None,
+            delivery: SubscriptionDelivery | None = None,
         ) -> EventSubscription:
             return await self.aggregator.events.subscribe(
                 server_name,
@@ -732,6 +753,7 @@ async def test_handle_resume_session_preserves_restored_subscriptions_and_replay
                 origin=origin,
                 cursor=cursor,
                 max_age_ms=max_age_ms,
+                delivery=delivery,
             )
 
     manager = SessionManager(cwd=tmp_path, home_override=tmp_path / ".fast-agent")

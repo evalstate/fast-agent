@@ -276,7 +276,11 @@ if TYPE_CHECKING:
     from fast_agent.agents.llm_decorator import LlmDecorator
     from fast_agent.context import Context
     from fast_agent.mcp.app_integrations import AppServerConfig
-    from fast_agent.mcp.events_subscriptions import EventSubscription, SubscriptionOrigin
+    from fast_agent.mcp.events_subscriptions import (
+        EventSubscription,
+        SubscriptionDelivery,
+        SubscriptionOrigin,
+    )
     from fast_agent.ptc.store import SandboxStore
     from fast_agent.tools.environment_filesystem_runtime import EnvironmentFilesystemRuntime
     from fast_agent.tools.execution_environment import (
@@ -762,6 +766,7 @@ class McpAgent(ABC, ToolAgent):
         origin: SubscriptionOrigin = "user",
         cursor: str | None = None,
         max_age_ms: int | None = None,
+        delivery: SubscriptionDelivery | None = None,
     ) -> EventSubscription:
         return await self._aggregator.restore_event_subscription(
             server_name,
@@ -773,6 +778,7 @@ class McpAgent(ABC, ToolAgent):
             origin=origin,
             cursor=cursor,
             max_age_ms=max_age_ms,
+            delivery=delivery,
         )
 
     async def list_servers(self) -> list[str]:

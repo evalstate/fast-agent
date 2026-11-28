@@ -15,6 +15,8 @@ from fast_agent.commands.handlers.events import handle_events, parse_event_argum
 from fast_agent.mcp.events_extension import (
     EventDescriptor,
     EventOccurrence,
+    EventStreamActive,
+    EventStreamFrame,
     ListEventsResult,
     PollEventsResult,
 )
@@ -22,11 +24,13 @@ from fast_agent.mcp.events_subscriptions import EventSubscriptionManager, subscr
 from fast_agent.ui.prompt.parser import parse_special_input
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
     from fast_agent.commands.results import CommandMessage, CommandOutcome
 
 
 class _Aggregator:
-    """Offer one poll event type on ``jobs`` and none on ``plain``."""
+    """Offer a poll, a push and a webhook event type on ``jobs`` and none on ``plain``."""
 
     def __init__(self) -> None:
         self.server_names = ["jobs", "plain"]
@@ -41,6 +45,9 @@ class _Aggregator:
         await asyncio.sleep(0)
 
     async def supports_events(self, server_name: str) -> bool:
+        return server_name == "jobs"
+
+    def can_hold_event_stream(self, server_name: str) -> bool:
         return server_name == "jobs"
 
     async def list_events(self, server_name: str, cursor: str | None = None) -> ListEventsResult:
@@ -59,6 +66,7 @@ class _Aggregator:
                     },
                 ),
                 EventDescriptor(name="job.log_line", delivery=["push"]),
+                EventDescriptor(name="job.archived", delivery=["webhook"]),
             ]
         )
 
@@ -81,6 +89,22 @@ class _Aggregator:
         self.polls.append((server_name, name, arguments, cursor))
         events, self.next_events = self.next_events, []
         return PollEventsResult(events=events, cursor=f"c{len(self.polls)}")
+
+    async def open_event_stream(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        cursor: str | None = None,
+    ) -> AsyncGenerator[EventStreamFrame]:
+        del server_name, name, arguments, cursor
+
+        async def stream() -> AsyncGenerator[EventStreamFrame]:
+            yield EventStreamActive(cursor="s0")
+            await asyncio.Event().wait()
+
+        return stream()
 
 
 class _Agent:
@@ -159,8 +183,8 @@ async def test_events_list_shows_offered_types_and_arguments() -> None:
     assert "plain" not in text
     assert "`job.status_changed` (poll): Fires when a job changes stage" in text
     assert "arguments: `job_id` (required), `verbose`" in text
-    assert "`job.log_line` (push)" in text
-    assert "Not subscribable here" in text
+    assert "`job.log_line` (push)\n" in text
+    assert "`job.archived` (webhook) Not subscribable here" in text
 
     outcome = await handle_events(context, agent_name="main", argument="list plain")
     assert outcome.messages[0].channel == "error"
@@ -237,10 +261,27 @@ async def test_events_subscribe_with_wake_and_poll() -> None:
     polled = _text(
         await handle_events(context, agent_name="main", argument=f"poll {subscription.key}")
     )
-    assert f"Polling `{subscription.key}` now" in polled
+    assert f"Checking `{subscription.key}` now" in polled
 
     missing = await handle_events(context, agent_name="main", argument="poll nope")
     assert missing.messages[0].channel == "error"
+    await manager.aclose()
+
+
+@pytest.mark.asyncio
+async def test_events_subscribe_by_push() -> None:
+    agent = _Agent()
+    context = _context(agent)
+    manager = agent.aggregator.events
+
+    subscribed = _text(
+        await handle_events(context, agent_name="main", argument="subscribe jobs job.log_line")
+    )
+    assert "by push" in subscribed
+    assert agent.aggregator.polls == []
+    assert "| push | yes | user | - | active |" in _text(
+        await handle_events(context, agent_name="main")
+    )
     await manager.aclose()
 
 
@@ -251,7 +292,10 @@ async def test_events_subscribe_reports_rejections_and_bad_usage() -> None:
 
     for argument, expected in [
         ("subscribe jobs job.deleted", "does not offer event"),
-        ("subscribe jobs job.log_line", "does not support poll delivery"),
+        ("subscribe jobs job.log_line --poll", "does not support poll delivery"),
+        ("subscribe jobs job.status_changed job_id=abc --push", "does not support push delivery"),
+        ("subscribe jobs job.status_changed job_id=abc --poll --push", "Use one of"),
+        ("subscribe jobs job.archived", "does not support poll delivery"),
         ("subscribe jobs job.status_changed", "job_id is required"),
         ("subscribe jobs job.status_changed job_id", "Expected key=value"),
         ("subscribe jobs", "Usage: /events"),

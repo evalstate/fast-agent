@@ -5,7 +5,7 @@ import os
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp_types import Completion as MCPCompletion
@@ -3245,13 +3245,26 @@ async def test_events_command_completions_subcommands_servers_events_args_and_id
         ListEventsResult,
         PollEventsResult,
     )
-    from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
+    from fast_agent.mcp.events_subscriptions import EventSubscriptionManager, OpenEventStream
 
     class _EventAggregator:
         def __init__(self) -> None:
             self.server_names = ["jobs", "my jobs", "plain"]
             self.list_calls = 0
             self.events = EventSubscriptionManager(self)
+
+        def can_hold_event_stream(self, server_name: str) -> bool:
+            return True
+
+        async def open_event_stream(
+            self,
+            server_name: str,
+            name: str,
+            arguments: dict[str, Any] | None = None,
+            *,
+            cursor: str | None = None,
+        ) -> OpenEventStream:
+            raise NotImplementedError
 
         def events_capable_servers(self) -> frozenset[str]:
             return frozenset({"jobs", "my jobs"})

@@ -735,10 +735,13 @@ class MCPEventSubscriptionSettings(BaseModel):
     """Whether an arrival starts a turn in an idle agent."""
 
     once: bool = False
-    """Whether to stop polling cleanly after the first event arrives."""
+    """Whether to end the subscription cleanly after the first event arrives."""
 
     every: str | int | None = None
     """Optional client-side minimum poll interval (e.g. '30s', '5m', '500ms', or ms int)."""
+
+    delivery: Literal["poll", "push"] | None = None
+    """The delivery mode. Left out, push is used when the event type offers it."""
 
     model_config = ConfigDict(extra="forbid")
 

@@ -128,6 +128,7 @@ class _EventSubscriptionRestoreCapable(Protocol):
         origin: Literal["user", "declared", "model"] = "user",
         cursor: str | None = None,
         max_age_ms: int | None = None,
+        delivery: Literal["poll", "push"] | None = None,
     ) -> object: ...
 
 
@@ -857,6 +858,7 @@ class SessionHydrator:
                     max_age_ms=(
                         DEFAULT_RESTORE_EVENT_MAX_AGE_MS if entry.cursor is not None else None
                     ),
+                    delivery=entry.delivery,
                 )
             except Exception as exc:
                 warnings.append(

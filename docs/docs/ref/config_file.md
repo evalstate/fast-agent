@@ -797,6 +797,7 @@ mcp:
         - name: "job.status_changed"
           arguments: {job_id: "abc123"}
           wake: false  # true starts a turn in an idle agent
+          delivery: push  # or poll; left out, push is used when the event type offers it
 
     # Example SSE server
     sse_server:

@@ -1,4 +1,4 @@
-"""Run an agent that is woken by MCP Events (SEP-3415, poll delivery).
+"""Run an agent that is woken by MCP Events (SEP-3415).
 
 The agent takes one opening turn, then sleeps. Each time a subscribed event
 arrives the loop starts a turn, and the events reach the model as untrusted
@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fast_agent import FastAgent
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_PROVIDER_ERROR
 from fast_agent.llm.usage_tracking import summarize_usage
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_serialization import save_messages
@@ -50,6 +50,12 @@ INSTRUCTION = (
 )
 WAKE_PROMPT = "Events arrived. Only the newest state matters. Act on it, then end your turn."
 MAX_RETRY_DELAY_SECONDS = 60.0
+# The key or account is refused. Retrying does not clear these, so the loop stops.
+REFUSED_STATUSES = {401, 402, 403}
+
+
+class ProviderRefusedError(RuntimeError):
+    pass
 
 
 def _parse_args() -> argparse.Namespace:
@@ -115,6 +121,13 @@ def _event_spec(spec: str) -> tuple[str, dict[str, str]]:
     return name, dict(pair.split("=", 1) for pair in pairs)
 
 
+def _provider_status(message: PromptMessageExtended) -> int | None:
+    for block in (message.channels or {}).get(FAST_AGENT_PROVIDER_ERROR, []):
+        status = json.loads(get_text(block) or "{}").get("status")
+        return status if isinstance(status, int) else None
+    return None
+
+
 def _log(text: str) -> None:
     print(f"[{datetime.now():%H:%M:%S}] {text}", flush=True)
 
@@ -139,6 +152,7 @@ async def main() -> None:
         manager = agent.aggregator.events
         stop_key, _, stop_value = args.stop_on.partition("=")
         stops_seen = 0
+        refused = False
         cleared: list[PromptMessageExtended] = []
         # Kept here because clearing the conversation resets the agent's own count.
         model_calls: list[TurnUsage] = []
@@ -182,6 +196,7 @@ async def main() -> None:
 
         async def turn(prompt: str, *, with_skill: bool) -> bool:
             """Run one turn. A failed model call is retried, since the events are still current."""
+            nonlocal refused
             text = f"{skill}\n\n{prompt}" if skill and with_skill else prompt
             usage = agent.usage_accumulator
             first = len(usage.turns) if usage else 0
@@ -191,7 +206,14 @@ async def main() -> None:
                     # A provider failure comes back as a reply on the error channel.
                     last = agent.message_history[-1] if agent.message_history else None
                     if last is not None and FAST_AGENT_ERROR_CHANNEL in (last.channels or {}):
+                        if _provider_status(last) in REFUSED_STATUSES:
+                            raise ProviderRefusedError(reply.strip()[:300])
                         raise RuntimeError(reply.strip()[:300])
+                except ProviderRefusedError as exc:
+                    _log(f"stopping, the provider refused the request: {exc}")
+                    refused = True
+                    record_usage(first)
+                    return False
                 except Exception as exc:
                     delay = min(args.retry_delay * 2 ** (attempt - 1), MAX_RETRY_DELAY_SECONDS)
                     _log(f"turn failed, attempt {attempt} of {args.retries}: {exc!r}")
@@ -218,8 +240,10 @@ async def main() -> None:
             raise SystemExit(1)
 
         turns = 0
-        while (not stop_key or stops_seen < args.stop_count) and (
-            args.max_turns == 0 or turns < args.max_turns
+        while (
+            not refused
+            and (not stop_key or stops_seen < args.stop_count)
+            and (args.max_turns == 0 or turns < args.max_turns)
         ):
             await manager.wait_for_wake()
             if args.fresh:
@@ -229,7 +253,7 @@ async def main() -> None:
         _log(f"stopped after {turns} wake-ups")
         await manager.aclose()
 
-        if args.finish:
+        if args.finish and not refused:
             if args.fresh:
                 clear()
             await turn(args.finish, with_skill=False)
@@ -257,6 +281,8 @@ async def main() -> None:
         command = [sys.executable, "-m", "fast_agent.cli", "export", session_id or "latest"]
         command += ["--agent", "seat", "--format", trace_format, "--output", args.export]
         subprocess.run(command, check=False)
+    if refused:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

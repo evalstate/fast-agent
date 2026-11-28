@@ -13,7 +13,7 @@ from fast_agent.mcp.events_extension import (
     ListEventsResult,
     PollEventsResult,
 )
-from fast_agent.mcp.events_subscriptions import EventSubscriptionManager
+from fast_agent.mcp.events_subscriptions import EventSubscriptionManager, OpenEventStream
 from fast_agent.ptc.vocabulary import is_builtin_tool
 from fast_agent.tools.events_tool import (
     EVENTS_TOOL_NAME,
@@ -49,6 +49,19 @@ class _FakeEventsAggregator:
 
     async def list_events(self, server_name: str, cursor: str | None = None) -> ListEventsResult:
         return ListEventsResult(events=list(self._descriptors.get(server_name, [])))
+
+    def can_hold_event_stream(self, server_name: str) -> bool:
+        return True
+
+    async def open_event_stream(
+        self,
+        server_name: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        cursor: str | None = None,
+    ) -> OpenEventStream:
+        raise NotImplementedError
 
     async def poll_events(
         self,
@@ -263,7 +276,6 @@ async def test_events_tool_validation_errors_never_raise() -> None:
             {"action": "subscribe", "server": "jobs", "name": "job.completed", "every": "soon"},
             {"action": "subscribe", "server": "jobs", "name": "job.completed", "arguments": "bad"},
             {"action": "subscribe", "server": "jobs", "name": "job.completed", "wake": "yes"},
-            {"action": "subscribe", "server": "jobs", "name": "job.push_only"},
             {"action": "unsubscribe"},
         ):
             res = await execute_events_tool(agg, bad_args)

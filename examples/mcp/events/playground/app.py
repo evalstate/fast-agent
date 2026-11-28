@@ -1,8 +1,9 @@
 """Standalone Streamable HTTP MCP Events (SEP-3415) playground server.
 
-Provides a poll-based SEP-3415 MCP server at ``/mcp`` alongside a browser
-control plane at ``/`` for triggering events, testing truncated gaps,
-subscription revocations, ``maxAgeMs``, ``maxEvents``, and ``--resume``.
+Provides a SEP-3415 MCP server with poll and push delivery at ``/mcp``
+alongside a browser control plane at ``/`` for triggering events, testing
+truncated gaps, subscription revocations, ``maxAgeMs``, ``maxEvents``, and
+``--resume``.
 
 Run locally:
     uv run examples/mcp/events/playground/app.py --port 8765
@@ -12,6 +13,7 @@ Deploy to Hugging Face Spaces (Docker Space, port 7860):
 """
 
 import argparse
+import asyncio
 import contextlib
 import os
 from dataclasses import dataclass, field
@@ -23,8 +25,11 @@ from mcp.server.extension import Extension, MethodBinding
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.shared.exceptions import MCPError
+from mcp.shared.subscriptions import SUBSCRIPTION_ID_META_KEY
 from mcp_types import (
     INVALID_PARAMS,
+    ErrorData,
+    Notification,
     PaginatedRequestParams,
     PaginatedResult,
     RequestParams,
@@ -89,6 +94,34 @@ class PollEventsResult(Result):
     result_type: Literal["complete"] = Field(default="complete", alias="resultType")
 
 
+class StreamEventsRequestParams(RequestParams):
+    name: str
+    arguments: dict[str, Any] = Field(default_factory=dict)
+    cursor: str | None = None
+    max_age_ms: int | None = Field(default=None, alias="maxAgeMs")
+    heartbeat_ms: int | None = Field(default=None, alias="heartbeatMs")
+
+
+class StreamEventsResult(Result):
+    result_type: Literal["complete"] = Field(default="complete", alias="resultType")
+
+
+class EventStreamActive(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    cursor: str | None = None
+    truncated: bool = False
+    heartbeat_ms: int = Field(alias="heartbeatMs")
+
+
+class EventStreamHeartbeat(BaseModel):
+    cursor: str | None = None
+
+
+class EventStreamTerminated(BaseModel):
+    error: ErrorData
+
+
 # ---------------------------------------------------------------------------
 # In-memory playground state
 # ---------------------------------------------------------------------------
@@ -96,6 +129,8 @@ class PollEventsResult(Result):
 MAX_STREAM_HISTORY = 500
 MAX_POLL_LOG = 200
 MAX_RECENT_EVENTS = 100
+DEFAULT_HEARTBEAT_MS = 15_000
+MAX_HEARTBEAT_MS = 30_000
 
 
 @dataclass(frozen=True)
@@ -113,6 +148,7 @@ class StoredEvent:
             name=self.name,
             timestamp=self.timestamp.isoformat(),
             data=self.data,
+            cursor=str(self.stream_seq),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -137,6 +173,14 @@ class PlaygroundState:
     poll_log: list[dict[str, Any]] = field(default_factory=list)
     recent_events: list[dict[str, Any]] = field(default_factory=list)
     event_seq: int = 0
+    open_streams: dict[int, dict[str, Any]] = field(default_factory=dict)
+    push_stream_count: int = 0
+    # Set and replaced on every change, so waiting push streams wake up.
+    changed: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def notify(self) -> None:
+        self.changed.set()
+        self.changed = asyncio.Event()
 
     def emit(self, event_name: str, filter_key: str, data: dict[str, Any]) -> StoredEvent:
         key = (event_name, filter_key)
@@ -159,6 +203,7 @@ class PlaygroundState:
         self.recent_events.append(record.to_dict())
         if len(self.recent_events) > MAX_RECENT_EVENTS:
             del self.recent_events[:-MAX_RECENT_EVENTS]
+        self.notify()
         return record
 
     def reset(self) -> None:
@@ -169,6 +214,7 @@ class PlaygroundState:
         self.forbidden_keys.clear()
         self.poll_log.clear()
         self.recent_events.clear()
+        self.notify()
 
 
 state = PlaygroundState()
@@ -199,7 +245,7 @@ async def list_events(ctx: Any, params: PaginatedRequestParams) -> ListEventsRes
                 description=(
                     "Fires when a job transitions between stages (queued, running, done, failed)."
                 ),
-                delivery=["poll"],
+                delivery=["poll", "push"],
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -219,7 +265,7 @@ async def list_events(ctx: Any, params: PaginatedRequestParams) -> ListEventsRes
             EventDescriptor(
                 name="system.heartbeat",
                 description="Server heartbeat with no required arguments.",
-                delivery=["poll"],
+                delivery=["poll", "push"],
                 input_schema={"type": "object", "properties": {}},
                 payload_schema={
                     "type": "object",
@@ -312,6 +358,97 @@ async def poll_events(ctx: Any, params: PollEventsRequestParams) -> PollEventsRe
     return result
 
 
+def _events_after(key: tuple[str, str], position: int) -> tuple[list[StoredEvent], int, bool]:
+    """Return the events after ``position``, the position they follow, and whether any were lost."""
+    history = state.streams.get(key, [])
+    total = state.stream_totals.get(key, 0)
+    evicted_through = total - len(history)
+    if position < evicted_through or position > total:
+        return list(history), evicted_through, True
+    return [ev for ev in history if ev.stream_seq > position], position, False
+
+
+async def stream_events(ctx: Any, params: StreamEventsRequestParams) -> StreamEventsResult:
+    key = _resolve_stream_key(params.name, params.arguments)
+    if key in state.forbidden_keys:
+        raise MCPError(EVENTS_FORBIDDEN, "Subscription revoked by server")
+
+    heartbeat_ms = max(1_000, min(params.heartbeat_ms or DEFAULT_HEARTBEAT_MS, MAX_HEARTBEAT_MS))
+    meta = {SUBSCRIPTION_ID_META_KEY: ctx.request_id}
+
+    async def send(kind: str, frame: BaseModel) -> None:
+        notification = Notification[dict[str, Any], str](
+            method=f"notifications/events/{kind}",
+            params=frame.model_dump(by_alias=True, exclude_none=True) | {"_meta": meta},
+        )
+        await ctx.session.send_notification(notification, related_request_id=ctx.request_id)
+
+    # Take the wake-up event before reading, so an emit during a send is not missed.
+    changed = state.changed
+    if params.cursor is None:
+        events, position, truncated = [], state.stream_totals.get(key, 0), False
+    else:
+        try:
+            cursor_seq = int(params.cursor)
+        except ValueError as exc:
+            raise MCPError(INVALID_PARAMS, f"Invalid cursor: {params.cursor!r}") from exc
+        if cursor_seq < 0:
+            raise MCPError(INVALID_PARAMS, f"Invalid cursor: {params.cursor!r}")
+        events, position, truncated = _events_after(key, cursor_seq)
+    if params.max_age_ms is not None and params.max_age_ms >= 0:
+        cutoff = datetime.now(UTC) - timedelta(milliseconds=params.max_age_ms)
+        recent = [ev for ev in events if ev.timestamp >= cutoff]
+        truncated = truncated or len(recent) < len(events)
+        events = recent
+
+    state.push_stream_count += 1
+    stream_id = state.push_stream_count
+    info = {
+        "stream": stream_id,
+        "name": params.name,
+        "arguments": dict(params.arguments),
+        "opened_at": datetime.now(UTC).isoformat(),
+        "cursor": str(position),
+        "delivered": 0,
+    }
+    state.open_streams[stream_id] = info
+    try:
+        await send(
+            "active",
+            EventStreamActive(cursor=str(position), truncated=truncated, heartbeat_ms=heartbeat_ms),
+        )
+        # The stream runs until the client closes it or the subscription is revoked.
+        while True:
+            for ev in events:
+                await send("event", ev.to_occurrence())
+                position = ev.stream_seq
+                info["delivered"] += 1
+            info["cursor"] = str(position)
+
+            try:
+                async with asyncio.timeout(heartbeat_ms / 1000):
+                    await changed.wait()
+            except TimeoutError:
+                await send("heartbeat", EventStreamHeartbeat(cursor=str(position)))
+
+            if key in state.forbidden_keys:
+                error = ErrorData(code=EVENTS_FORBIDDEN, message="Subscription revoked by server")
+                await send("terminated", EventStreamTerminated(error=error))
+                return StreamEventsResult()
+            changed = state.changed
+            events, position, truncated = _events_after(key, position)
+            if key in state.pending_gaps:
+                state.pending_gaps.discard(key)
+                truncated = True
+            if truncated:
+                active = EventStreamActive(
+                    cursor=str(position), truncated=True, heartbeat_ms=heartbeat_ms
+                )
+                await send("active", active)
+    finally:
+        state.open_streams.pop(stream_id, None)
+
+
 class PlaygroundEventsExtension(Extension):
     identifier = EVENTS_EXTENSION
 
@@ -319,6 +456,7 @@ class PlaygroundEventsExtension(Extension):
         return [
             MethodBinding("events/list", PaginatedRequestParams, list_events),
             MethodBinding("events/poll", PollEventsRequestParams, poll_events),
+            MethodBinding("events/stream", StreamEventsRequestParams, stream_events),
         ]
 
 
@@ -396,6 +534,7 @@ async def http_gap(request: Request) -> JSONResponse:
         str(body.get("filter_key") or body.get("job_id") or "*"),
     )
     state.pending_gaps.add(key)
+    state.notify()
     return JSONResponse({"gap_armed": list(key)})
 
 
@@ -406,6 +545,7 @@ async def http_terminate(request: Request) -> JSONResponse:
         str(body.get("filter_key") or body.get("job_id") or "*"),
     )
     state.forbidden_keys.add(key)
+    state.notify()
     return JSONResponse({"forbidden": list(key)})
 
 
@@ -443,6 +583,7 @@ async def http_stats(request: Request) -> JSONResponse:
             "streams": {f"{k[0]}:{k[1]}": len(v) for k, v in state.streams.items()},
             "pending_gaps": [f"{k[0]}:{k[1]}" for k in sorted(state.pending_gaps)],
             "forbidden": [f"{k[0]}:{k[1]}" for k in sorted(state.forbidden_keys)],
+            "open_streams": list(state.open_streams.values()),
             "poll_count": len(state.poll_log),
             "recent_events": state.recent_events[-15:],
             "recent_polls": state.poll_log[-15:],
@@ -575,7 +716,7 @@ DASHBOARD_HTML = """<!doctype html>
       <pre id="events">Loading...</pre>
     </div>
     <div class="card">
-      <h2>Recent Polls</h2>
+      <h2>Open Streams &amp; Recent Polls</h2>
       <pre id="polls">Loading...</pre>
     </div>
   </div>
@@ -670,6 +811,7 @@ DASHBOARD_HTML = """<!doctype html>
           recent_events: data.recent_events,
         }, null, 2);
         document.getElementById('polls').textContent = JSON.stringify({
+          open_streams: data.open_streams,
           poll_count: data.poll_count,
           recent_polls: data.recent_polls,
         }, null, 2);
