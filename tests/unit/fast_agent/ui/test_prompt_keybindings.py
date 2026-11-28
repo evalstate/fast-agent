@@ -218,6 +218,67 @@ async def test_clipboard_image_paste_error_prints_bracketed_text_literally(
     assert "Failed to paste clipboard image: [draft] image unavailable" in capsys.readouterr().out
 
 
+@pytest.mark.asyncio
+async def test_clipboard_no_image_uses_toolbar_notice_without_stdout(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from fast_agent.ui.prompt import input as prompt_input
+    from fast_agent.ui.prompt.clipboard_image import ClipboardNoImageError
+
+    invalidations: list[str] = []
+
+    class _App:
+        def invalidate(self) -> None:
+            invalidations.append("invalidate")
+
+    async def fake_to_thread(*_args: Any, **_kwargs: Any) -> None:
+        raise ClipboardNoImageError("no image on clipboard")
+
+    monkeypatch.setattr("fast_agent.ui.prompt.keybindings.run_in_thread", fake_to_thread)
+    monkeypatch.setattr(prompt_input, "_copy_notice", None)
+    monkeypatch.setattr(prompt_input, "_copy_notice_until", 0.0)
+
+    buffer = Buffer()
+    buffer.text = "describe this"
+    await paste_clipboard_image_attachment_into_buffer(buffer, app_ref=_App())
+
+    assert buffer.text == "describe this"
+    assert invalidations == ["invalidate"]
+    assert prompt_input._copy_notice == "NO IMAGE"
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.asyncio
+async def test_clipboard_paste_error_uses_run_in_terminal_when_app_is_running(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _App:
+        def invalidate(self) -> None:
+            raise AssertionError("run_in_terminal handles redraw")
+
+    app = _App()
+    ran_in_terminal: list[bool] = []
+
+    async def fake_to_thread(*_args: Any, **_kwargs: Any) -> None:
+        raise RuntimeError("clipboard backend crashed")
+
+    async def fake_run_in_terminal(func: Any) -> None:
+        ran_in_terminal.append(True)
+        func()
+
+    monkeypatch.setattr("fast_agent.ui.prompt.keybindings.run_in_thread", fake_to_thread)
+    monkeypatch.setattr("fast_agent.ui.prompt.keybindings.get_app_or_none", lambda: app)
+    monkeypatch.setattr("fast_agent.ui.prompt.keybindings.run_in_terminal", fake_run_in_terminal)
+
+    buffer = Buffer()
+    await paste_clipboard_image_attachment_into_buffer(buffer, app_ref=app)
+
+    assert ran_in_terminal == [True]
+    assert "Failed to paste clipboard image: clipboard backend crashed" in capsys.readouterr().out
+
+
 def test_clipboard_image_bindings_are_registered() -> None:
     kb = create_keybindings(enable_clipboard_image_paste=True)
 

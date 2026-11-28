@@ -23,6 +23,10 @@ class ClipboardImagePasteError(RuntimeError):
     """Raised when an image cannot be read from the clipboard."""
 
 
+class ClipboardNoImageError(ClipboardImagePasteError):
+    """Raised when the clipboard is accessible but does not contain an image."""
+
+
 @dataclass(frozen=True, slots=True)
 class PastedClipboardImage:
     path: Path
@@ -62,14 +66,14 @@ def _paste_clipboard_image_with_pillow() -> PastedClipboardImage:
     if isinstance(clipboard_data, list):
         image_path = _first_image_path(clipboard_data)
         if image_path is None:
-            raise ClipboardImagePasteError("clipboard contains files, but none are images")
+            raise ClipboardNoImageError("clipboard contains files, but none are images")
         try:
             with Image.open(image_path) as image:
                 return _save_image_as_png(image)
         except Exception as exc:
             raise ClipboardImagePasteError(f"failed to open clipboard image file: {exc}") from exc
 
-    raise ClipboardImagePasteError("no image on clipboard")
+    raise ClipboardNoImageError("no image on clipboard")
 
 
 def _save_image_as_png(image: "Image") -> PastedClipboardImage:

@@ -9,7 +9,7 @@ import sys
 import time
 from typing import TYPE_CHECKING, Any
 
-from prompt_toolkit.application import in_terminal, run_in_terminal
+from prompt_toolkit.application import get_app_or_none, in_terminal, run_in_terminal
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.keys import Keys
@@ -35,7 +35,10 @@ from fast_agent.ui.prompt.attachment_tokens import (
     build_local_attachment_token,
     strip_local_attachment_tokens,
 )
-from fast_agent.ui.prompt.clipboard_image import paste_clipboard_image_to_temp_png
+from fast_agent.ui.prompt.clipboard_image import (
+    ClipboardNoImageError,
+    paste_clipboard_image_to_temp_png,
+)
 from fast_agent.ui.prompt.editor import get_text_from_editor
 from fast_agent.ui.prompt.parser import try_parse_hash_agent_command
 from fast_agent.ui.prompt.pasted_paths import (
@@ -98,6 +101,16 @@ def _print_above_prompt(event: Any, message: str, style: str) -> None:
     run_in_terminal(lambda: _print_styled(message, style))
 
 
+async def _print_above_prompt_async(app_ref: Any | None, message: str, style: str) -> None:
+    """Print from an async key handler without drawing over the active prompt line."""
+    if app_ref is not None and get_app_or_none() is not None:
+        await run_in_terminal(lambda: _print_styled(message, style))
+        return
+    _print_styled(message, style)
+    if app_ref:
+        app_ref.invalidate()
+
+
 async def paste_clipboard_image_attachment_into_buffer(
     buffer: Buffer,
     *,
@@ -107,12 +120,20 @@ async def paste_clipboard_image_attachment_into_buffer(
     try:
         pasted = await run_in_thread(paste_clipboard_image_to_temp_png)
     except asyncio.CancelledError:
-        _print_styled("Clipboard image paste cancelled.", "yellow")
+        await _print_above_prompt_async(app_ref, "Clipboard image paste cancelled.", "yellow")
+        return
+    except ClipboardNoImageError:
+        if app_ref is not None:
+            _show_toolbar_notice_for_app(app_ref, "NO IMAGE")
+        else:
+            _print_styled("No image on clipboard.", "yellow")
         return
     except Exception as exc:
-        _print_styled(f"Failed to paste clipboard image: {exc}", "red")
-        if app_ref:
-            app_ref.invalidate()
+        await _print_above_prompt_async(
+            app_ref,
+            f"Failed to paste clipboard image: {exc}",
+            "red",
+        )
         return
 
     token = build_local_attachment_token(pasted.path)
@@ -278,20 +299,24 @@ async def _edit_current_buffer_in_editor(event: Any) -> None:
         app_ref.current_buffer.text = edited_text
         app_ref.current_buffer.cursor_position = len(edited_text)
     except asyncio.CancelledError:
-        _print_styled("Editor interaction cancelled.", "yellow")
+        await _print_above_prompt_async(app_ref, "Editor interaction cancelled.", "yellow")
     except Exception as exc:
-        _print_styled(f"Error during editor interaction: {exc}", "red")
+        await _print_above_prompt_async(app_ref, f"Error during editor interaction: {exc}", "red")
     finally:
         app_ref.renderer.clear()
         app_ref.invalidate()
 
 
-def _show_toolbar_notice(event: Any, notice: str) -> None:
+def _show_toolbar_notice_for_app(app_ref: Any | None, notice: str) -> None:
     session_state = _session_state_module()
     session_state._copy_notice = notice
     session_state._copy_notice_until = time.monotonic() + 2.0
-    if event.app:
-        event.app.invalidate()
+    if app_ref:
+        app_ref.invalidate()
+
+
+def _show_toolbar_notice(event: Any, notice: str) -> None:
+    _show_toolbar_notice_for_app(event.app, notice)
 
 
 def _show_copy_notice(event: Any) -> None:
