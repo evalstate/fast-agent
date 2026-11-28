@@ -811,6 +811,28 @@ def test_dock_highlights_prompt_arrow_red_for_shell_draft() -> None:
     assert ("!git status", "red") in spans
 
 
+@pytest.mark.parametrize("sigil", ["!", "!!", "!!!"])
+def test_dock_keeps_shell_highlighting_in_queue(sigil: str) -> None:
+    snap = TurnInputSnapshot(
+        prompt_prefix="❯",
+        draft_text="",
+        cursor_position=0,
+        queued_messages=(f"  {sigil}git status", "a normal message"),
+        multiline=False,
+    )
+    rendered = render_turn_input_dock(snap, width=80, terminal_height=24)
+    shell_row, plain_row = rendered.renderable.renderables[:2]
+    assert isinstance(shell_row, Text)
+    assert isinstance(plain_row, Text)
+    highlighted = [
+        shell_row.plain[span.start : span.end]
+        for span in shell_row.spans
+        if span.style == "bold red"
+    ]
+    assert highlighted == ["  ↳ ", sigil]
+    assert all(span.style != "bold red" for span in plain_row.spans)
+
+
 def test_turn_input_reader_ctrl_t_toggles_multiline_mid_turn(pipe: PipeInput) -> None:
     toggled: list[bool] = []
     reader = TurnInputReader(

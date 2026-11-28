@@ -1285,7 +1285,6 @@ class InteractivePrompt:
         progress_display.resume()
         exit_code = 1
         concurrent_tasks: set[asyncio.Task[None]] = set()
-        foreground_tasks: set[asyncio.Task[None]] = set()
         try:
             from fast_agent.ui.prompt.input import (
                 agent_histories,
@@ -1295,7 +1294,6 @@ class InteractivePrompt:
             from fast_agent.ui.prompt.input_runtime import format_prompt_prefix
             from fast_agent.ui.prompt.turn_input_commands import (
                 execute_concurrent_command,
-                is_foreground_shell_command,
                 parse_concurrent_command,
             )
 
@@ -1348,12 +1346,8 @@ class InteractivePrompt:
                         rich_print(f"[red]Command error: {escape_markup(str(exc))}[/red]")
 
                 task = loop.create_task(_run_command())
-                if is_foreground_shell_command(parsed):
-                    foreground_tasks.add(task)
-                    task.add_done_callback(foreground_tasks.discard)
-                else:
-                    concurrent_tasks.add(task)
-                    task.add_done_callback(concurrent_tasks.discard)
+                concurrent_tasks.add(task)
+                task.add_done_callback(concurrent_tasks.discard)
                 return True
 
             with hold_turn_input(
@@ -1378,12 +1372,7 @@ class InteractivePrompt:
                     else nullcontext()
                 )
                 with input_source:
-                    try:
-                        result = await send_func(prompt_payload, agent_name)
-                    finally:
-                        if foreground_tasks:
-                            await asyncio.gather(*list(foreground_tasks), return_exceptions=True)
-                            foreground_tasks.clear()
+                    result = await send_func(prompt_payload, agent_name)
             stop_reason = self._last_assistant_stop_reason(
                 prompt_provider=prompt_provider, agent_name=agent_name
             )

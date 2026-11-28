@@ -214,10 +214,15 @@ def _build_queued_rows(
         if suffix and available < 4:
             suffix = ""
             available = width - lead_cells
-        preview = _single_line_preview(queued[idx], max_cells=max(1, available))
+        message = queued[idx]
+        preview = _single_line_preview(message, max_cells=max(1, available))
+        is_shell = message.lstrip().startswith("!")
         line = Text(no_wrap=True, overflow="crop")
-        line.append(lead, style="yellow")
+        line.append(lead, style="bold red" if is_shell else "yellow")
         line.append(preview, style="dim")
+        sigil_length = len(preview) - len(preview.lstrip("!")) if is_shell else 0
+        if sigil_length:
+            line.stylize("bold red", len(lead), len(lead) + sigil_length)
         if suffix:
             line.append(suffix, style="dim italic")
         rows.append(line)

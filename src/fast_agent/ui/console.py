@@ -13,11 +13,10 @@ import io
 import os
 import re
 import sys
-import threading
-from contextlib import contextmanager, suppress
+from contextlib import suppress
 from importlib.resources import files
 from pathlib import Path
-from typing import IO, Generator, Literal, TextIO, cast
+from typing import IO, Literal, TextIO, cast
 
 from rich.console import Console
 from rich.theme import Theme
@@ -39,41 +38,6 @@ def _normalize_surrogate_code_points(text: str) -> str:
         return f"\\u{ord(value):04x}"
 
     return _SURROGATE_PATTERN.sub(replace, text)
-
-
-_console_buffer_lock = threading.Lock()
-_console_buffer_depth = 0
-_console_buffered_writes: list[tuple[TextIO, str]] = []
-
-
-@contextmanager
-def suspend_console_output() -> Generator[None, None, None]:
-    """Buffer shared console writes while a foreground TTY child owns the terminal.
-
-    Flushes buffered output in original order once the outermost suspension exits.
-    """
-    global _console_buffer_depth
-    with _console_buffer_lock:
-        _console_buffer_depth += 1
-    try:
-        yield
-    finally:
-        pending: list[tuple[TextIO, str]] = []
-        with _console_buffer_lock:
-            _console_buffer_depth = max(0, _console_buffer_depth - 1)
-            if _console_buffer_depth == 0 and _console_buffered_writes:
-                pending = list(_console_buffered_writes)
-                _console_buffered_writes.clear()
-        if pending:
-            touched: list[TextIO] = []
-            for stream, chunk in pending:
-                with suppress(Exception):
-                    stream.write(chunk)
-                    if stream not in touched:
-                        touched.append(stream)
-            for stream in touched:
-                with suppress(Exception):
-                    stream.flush()
 
 
 class _SurrogateSafeTextIO:
@@ -98,9 +62,6 @@ class _SurrogateSafeTextIO:
         return self._stream.fileno()
 
     def flush(self) -> None:
-        with _console_buffer_lock:
-            if _console_buffer_depth > 0:
-                return
         self._stream.flush()
 
     def isatty(self) -> bool:
@@ -110,12 +71,7 @@ class _SurrogateSafeTextIO:
         return self._stream.writable()
 
     def write(self, text: str) -> int:
-        normalized = _normalize_surrogate_code_points(text)
-        with _console_buffer_lock:
-            if _console_buffer_depth > 0:
-                _console_buffered_writes.append((self._stream, normalized))
-                return len(text)
-        self._stream.write(normalized)
+        self._stream.write(_normalize_surrogate_code_points(text))
         return len(text)
 
 

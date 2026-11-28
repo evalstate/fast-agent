@@ -371,9 +371,11 @@ This lets the agent read a worker report after `hc wait` returns, without first
 finishing its answer. Consumed messages remain part of the current conversation
 turn and are not replayed into the next prompt.
 
-Commands (`/`, `!`, `@`, `#`), resource/attachment mentions and pasted image paths
-stay on the normal prompt path after the turn ends. Later messages cannot overtake
-these deferred inputs. Text without the active submit key remains a draft. Messages
+Shell commands (`!`, `!!`, `!!!`) wait until the turn ends and then run through the
+normal shell path. The dock marks their previews in red. Read-only slash commands
+such as `/usage` can run during the turn. Other deferred commands, resource or
+attachment mentions, and pasted image paths stay on the normal prompt path.
+Later messages cannot overtake deferred input. Text without the active submit key remains a draft. Messages
 arriving after the last continuation boundary become the next turn; `hc wait` returning
 `reason: message` does not guarantee that all message bytes have arrived yet.
 

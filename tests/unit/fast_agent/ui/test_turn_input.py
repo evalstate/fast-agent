@@ -359,7 +359,16 @@ def test_suspended_reader_does_not_consume_form_input(pipe: PipeInput) -> None:
 
 
 @pytest.mark.asyncio
-async def test_replayed_count_survives_handoff_until_prompt_accepts(pipe: PipeInput) -> None:
+@pytest.mark.parametrize(
+    ("typed", "expected_inputs"),
+    [
+        ("/help\r\rlater\r", ["/help", "", "later"]),
+        ("\x14!echo first\x1b\r\n!!echo second\n", ["!echo first", "", "!!echo second"]),
+    ],
+)
+async def test_replayed_count_survives_handoff_until_prompt_accepts(
+    pipe: PipeInput, typed: str, expected_inputs: list[str]
+) -> None:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.input.typeahead import store_typeahead
     from prompt_toolkit.output import DummyOutput
@@ -368,20 +377,23 @@ async def test_replayed_count_survives_handoff_until_prompt_accepts(pipe: PipeIn
     from fast_agent.ui.prompt.keybindings import create_keybindings
 
     reader = TurnInputReader(input=pipe, write=lambda _s: None)
-    pipe.send_text("/help\r\rlater\r")
+    pipe.send_text(typed)
     assert reader.take_messages() == []
     store_typeahead(pipe, reader.stop(replay=True))
     assert turn_input.queued_input_count() == 2
     prompt = PromptSession(input=pipe, output=DummyOutput(), key_bindings=create_keybindings())
     try:
-        for expected, count in [("/help", 1), ("", 1), ("later", 0)]:
-            result = await run_prompt_once(
-                session=prompt,
-                agent_name="test",
-                default_agent_name="test",
-                default_buffer="",
-                resolve_prompt_text=lambda: "> ",
-                parse_special_input=lambda text: text,
+        for expected, count in zip(expected_inputs, (1, 1, 0), strict=True):
+            result = await asyncio.wait_for(
+                run_prompt_once(
+                    session=prompt,
+                    agent_name="test",
+                    default_agent_name="test",
+                    default_buffer="",
+                    resolve_prompt_text=lambda: "> ",
+                    parse_special_input=lambda text: text,
+                ),
+                timeout=1,
             )
             assert result == expected
             assert turn_input.queued_input_count() == count
@@ -426,8 +438,10 @@ async def test_new_turn_adopts_prompt_typeahead_before_fresh_input(
                     assert reader.take_messages() == ["older", "newer"]
                     assert turn_input.queued_input_count() == 1
                 assert turn_input.queued_input_count() == 1
+                # The TUI initializes each new prompt in single-line mode.
+                monkeypatch.setattr(prompt_input, "in_multiline_mode", False)
                 prompt = PromptSession(key_bindings=create_keybindings())
-                assert await prompt.prompt_async() == "/help"
+                assert await asyncio.wait_for(prompt.prompt_async(), timeout=1) == "/help"
                 turn_input.acknowledge_replayed_input()
                 assert turn_input.queued_input_count() == 0
     finally:

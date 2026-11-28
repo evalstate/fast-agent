@@ -1,21 +1,15 @@
-"""Mid-turn concurrent execution for read-only slash commands and non-interactive shell commands.
+"""Mid-turn concurrent execution for read-only slash commands.
 
-Mutating commands (such as ``/clear``, ``/compact``, ``/model <name>``, ``@agent``,
-``/session new``, or interactive ``!`` shells) are intentionally NOT allowed here;
-they remain queued in ``TurnInputReader`` and run in FIFO order once the active
-turn completes.
+Shell commands and other deferred input stay queued in ``TurnInputReader`` and
+follow the normal prompt path when the active turn completes.
 """
 
 from __future__ import annotations
 
-import asyncio
-import sys
 from typing import TYPE_CHECKING
 
 from rich.markup import escape as escape_markup
-from rich.text import Text
 
-from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui.command_payloads import (
     A2ACommand,
     CheckCommand,
@@ -31,7 +25,6 @@ from fast_agent.ui.command_payloads import (
     McpListCommand,
     ModelStatusCommand,
     ProcessCommand,
-    ShellCommand,
     ShowMarkdownCommand,
     ShowMcpStatusCommand,
     ShowSystemCommand,
@@ -51,9 +44,6 @@ if TYPE_CHECKING:
     from fast_agent.session.session_manager import SessionManager
     from fast_agent.ui.interactive_prompt import InteractivePrompt
 
-logger = get_logger(__name__)
-
-_SHELL_OUTPUT_MAX_CHARS = 8_000
 _CONCURRENT_SAFE_STRINGS = frozenset({"HELP", "HELP:STATUS"})
 
 
@@ -102,68 +92,17 @@ def is_concurrent_safe_command(parsed: str | CommandPayload) -> bool:
     if isinstance(parsed, SubagentsCommand):
         return parsed.action in ("", "list", "status", "help") and parsed.error is None
 
-    if isinstance(parsed, ShellCommand):
-        return not parsed.output_to_prompt and bool(parsed.command.strip())
-
     return False
 
 
 def parse_concurrent_command(text: str) -> str | CommandPayload | None:
     """Parse ``text`` and return it if it can run immediately while a turn is active."""
-    stripped = text.lstrip()
-    if not stripped or not stripped.startswith(("/", "!")):
+    if not text.lstrip().startswith("/"):
         return None
     parsed = parse_special_input(text)
     if is_concurrent_safe_command(parsed):
         return parsed
     return None
-
-
-def is_foreground_shell_command(parsed: str | CommandPayload) -> bool:
-    """Return True when ``parsed`` requires suspending live UI for foreground TTY access."""
-    return isinstance(parsed, ShellCommand) and not parsed.output_to_prompt
-
-
-async def _run_foreground_shell_command(
-    command: str,
-    *,
-    prompt_prefix: str,
-    first_line: str,
-) -> None:
-    """Suspend live UI, hand over the TTY to ``command``, and flush buffered output on exit."""
-    from fast_agent.ui.console import suspend_console_output
-    from fast_agent.ui.interactive_shell import run_interactive_shell_command
-    from fast_agent.ui.progress_display import progress_display
-    from fast_agent.ui.prompt.turn_input import suspend_turn_input
-    from fast_agent.ui.streaming.display import suspend_streaming_displays
-
-    is_tty = False
-    try:
-        is_tty = bool(sys.stdin.isatty() and sys.stdout.isatty())
-    except Exception:
-        is_tty = False
-
-    with suspend_streaming_displays(), progress_display.paused():
-        rich_print(
-            f"[bold red]{escape_markup(prompt_prefix)}[/bold red] "
-            f"[red]{escape_markup(first_line)}[/red]"
-        )
-        with suspend_turn_input(), suspend_console_output():
-            result = await asyncio.to_thread(
-                run_interactive_shell_command,
-                command,
-                show_output=is_tty,
-                echo_command=False,
-                restore_scroll_region=is_tty,
-            )
-        if not is_tty:
-            stdout_text = result.stdout.rstrip()
-            if stdout_text:
-                if len(stdout_text) > _SHELL_OUTPUT_MAX_CHARS:
-                    stdout_text = stdout_text[:_SHELL_OUTPUT_MAX_CHARS] + "\n… (output truncated)"
-                rich_print(Text(stdout_text))
-        if result.exit_code not in (0, None):
-            rich_print(f"[dim red]exit {result.exit_code}[/dim red]")
 
 
 async def execute_concurrent_command(
@@ -180,15 +119,6 @@ async def execute_concurrent_command(
 ) -> None:
     """Execute a concurrent-safe command and print its output above the live dock."""
     first_line = raw_text.lstrip().splitlines()[0]
-
-    if isinstance(parsed, ShellCommand):
-        await _run_foreground_shell_command(
-            parsed.command,
-            prompt_prefix=prompt_prefix,
-            first_line=first_line,
-        )
-        return
-
     rich_print(f"[dim]{escape_markup(prompt_prefix)} {escape_markup(first_line)}[/dim]")
 
     from fast_agent.ui.prompt.special_commands import handle_special_commands

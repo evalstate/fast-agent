@@ -248,7 +248,6 @@ class TurnInputReader:
         self._on_submit = on_submit
         self._on_toggle_multiline = on_toggle_multiline
         self._submit_key = Keys.ControlJ if multiline else Keys.ControlM
-        self._submit_data = "\n" if multiline else "\r"
         self._fd = input.fileno()
         self._on_cancel = on_cancel
         self._on_queued = on_queued
@@ -311,11 +310,13 @@ class TurnInputReader:
     @property
     def held_keys(self) -> list[KeyPress]:
         from prompt_toolkit.key_binding import KeyPress
+        from prompt_toolkit.keys import Keys
 
         keys: list[KeyPress] = []
         for submission in self._submissions:
             keys.extend(_paste_keys_preserving_images(submission.text, submission.image_pastes))
-            keys.append(KeyPress(self._submit_key, self._submit_data))
+            # The next prompt starts in single-line mode regardless of the dock's mode.
+            keys.append(KeyPress(Keys.ControlM, "\r"))
 
         # Replay a set-aside draft before an unsubmitted hc paste so the prompt's
         # BracketedPaste handler can split them apart again.
@@ -805,7 +806,6 @@ class TurnInputReader:
         elif key == Keys.ControlT:
             self._multiline = not self._multiline
             self._submit_key = Keys.ControlJ if self._multiline else Keys.ControlM
-            self._submit_data = "\n" if self._multiline else "\r"
             if self._on_toggle_multiline is not None:
                 self._on_toggle_multiline(self._multiline)
         elif key == Keys.ControlW:
