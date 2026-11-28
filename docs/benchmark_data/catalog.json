@@ -314,6 +314,11 @@
       "family": "hunyuan",
       "status": "6h timeout",
       "costFrom": "scored"
+    },
+    "luna6-high-ptc-6h": {
+      "family": "gpt-6",
+      "status": "PTC",
+      "costFrom": "scored"
     }
   },
   "claims": [

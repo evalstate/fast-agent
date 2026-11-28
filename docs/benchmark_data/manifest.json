@@ -1620,6 +1620,78 @@
         "Harbor model costs use the configured rates ($0.035 / $0.0015 / $0.1405 per million input / cached input / output tokens), not an invoice."
       ],
       "scan": true
+    },
+    {
+      "id": "luna6-high-ptc-6h",
+      "harness": "fast-agent",
+      "model": "GPT-6 Luna",
+      "effort": "high",
+      "model_string": "responses.gpt-6-luna?reasoning=high&ptc=on",
+      "date": "2026-11-27",
+      "timeout": "6h",
+      "bucket": {
+        "repo": "evalstate/published-benchmarks",
+        "path": "tb21/qemu-fixed-6h-v1/luna6-high-ptc-6h",
+        "release": "release/manifest.json",
+        "cohort": "tb21-luna-high-responses-fa068-ptc-001",
+        "source": "bench-run release tb21-luna6-high-ptc-r1 (cohort tb21-luna-high-responses-fa068-ptc-001)"
+      },
+      "expected": {
+        "passes": 340
+      },
+      "cost_lower_bound": true,
+      "published": null,
+      "review": {
+        "note": "Recorded verifier results are preserved. The published score excludes three passing trials under the TB2.1 integrity review policy (337/445).",
+        "coverage": "atif-scan 0.8.24 (e548354), image-assisted scan (--image-model codexresponses.gpt-6-luna?reasoning=medium) with the TB2.1 publish-side rules over all 445 scored trials and 10 replaced originals. With PTC every tool call is Python in the exec_sandbox code tool, which the scanner cannot fully analyse, so 331 rewarded passes keep some checks undecided (counted under Review); a keyword pass over agent-authored text in all 340 rewarded trials for benchmark sources (terminal-bench, harbor-framework, laude-institute) found nothing beyond task prompts and reasoning. Nine verifier passes had high findings: six were cleared and three disqualified.",
+        "cleared": [
+          {
+            "trial": "break-filter-js-from-html__CstfdG3",
+            "reason": "tamper.test_files false positive: symlinked its own /app/filter.py into /tests to run /app/test_outputs.py locally and removed it afterward; no verifier file was edited."
+          },
+          {
+            "trial": "break-filter-js-from-html__vFS5Prf",
+            "reason": "tamper.test_files false positive: symlinked its own /app/filter.py into /tests to run /app/test_outputs.py locally; no verifier file was edited."
+          },
+          {
+            "trial": "break-filter-js-from-html__HN3oAk5",
+            "reason": "tamper.test_files false positive: copied its own /app/filter.py into /tests to run /app/test_outputs.py locally and removed it afterward; no verifier file was edited."
+          },
+          {
+            "trial": "break-filter-js-from-html__m6dCiff",
+            "reason": "tamper.test_files false positive: copied its own /app/filter.py into /tests to run /app/test_outputs.py locally and removed it afterward; no verifier file was edited."
+          },
+          {
+            "trial": "break-filter-js-from-html__irCtRTK",
+            "reason": "tamper.test_files false positive: symlinked its own /app/filter.py into /tests to run /app/test_outputs.py locally; no verifier file was edited."
+          },
+          {
+            "trial": "mteb-leaderboard__uBVJYTP",
+            "reason": "lookup.search_surfaced_benchmark / access.benchmark_material_received: incidental harbor-framework/terminal-bench URLs appeared in Google search results while searching for Scandinavian MTEB leaderboard sources; the agent did not open or fetch any benchmark task or solution URL."
+          }
+        ],
+        "disqualified": [
+          {
+            "trial": "path-tracing-reverse__rnABjUt",
+            "reason": "Hardcoded (x, y) pixel color overrides in /app/mystery.c against /tmp/ref-run/image.ppm instead of fixing the renderer (tb21.path_tracing_reverse.pixel_special_case)."
+          },
+          {
+            "trial": "pytorch-model-cli__KFTrq4q",
+            "reason": "Delivered /app/cli_tool as a minimal ELF wrapper around an embedded Python script rather than a compiled native executable (tb21.pytorch_model_cli.script_not_binary)."
+          },
+          {
+            "trial": "pytorch-model-cli__yAmw2XX",
+            "reason": "Delivered /app/cli_tool as a #!/usr/bin/env python3 script rather than a compiled native executable (tb21.pytorch_model_cli.script_not_binary)."
+          }
+        ]
+      },
+      "notes": [
+        "Modified Terminal-Bench 2.1 fixed-QEMU snapshot (bench-run revision qemu-fixed-6h-v1), 89 tasks × 5 attempts and a six-hour agent deadline. Not an unmodified leaderboard evaluation.",
+        "HF Jobs (cpu-basic/upgrade; total concurrency 20), Harbor 69105fe5, and the published fast-agent-mcp 0.10.68 wheel (ptc extra). GPT-6 Luna (high reasoning) through the OpenAI Responses API with an API key (standard service tier) and Programmatic Tool Calling (ptc=on).",
+        "Ten designated full-trial infrastructure replacements (nine standing; one superseded): three connection errors, six nonzero agent exits during verification, and one remote protocol error. One bio_policy refusal and one mcmc-sampling-stan VerifierTimeoutError remain in the scored set. Score was 335/445 as run and 340/445 after replacements, before integrity review.",
+        "Harbor recorded cost at the configured OpenAI standard rates (card-packs pricing catalog 2026-11-18.1-bench-hftencent-20261120, rules gpt-6-luna-standard-short / -long: $0.10 / $0.01 / $0.125 / $0.50 per million input / cached / cache-write / output tokens; $0.20 / $0.02 / $0.25 / $0.75 above 272k context). Some trials had incomplete usage accounting, so the recorded cost is a lower bound."
+      ],
+      "scan": true
     }
   ]
 }
