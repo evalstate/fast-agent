@@ -21,7 +21,7 @@ from fast_agent.llm.provider.openai.llm_openai import (
     _OpenAICompletionResponse,
 )
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
-from fast_agent.llm.provider.openai.request_images import (
+from fast_agent.llm.provider.request_images import (
     ChatRequestImageFitter,
     ImageBudget,
     ImageFitReport,

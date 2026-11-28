@@ -766,7 +766,7 @@ async def test_gemini_image_cap_omits_oldest_images_above_ten_and_keeps_newest(
     from mcp.types import CallToolResult, ImageContent
     from PIL import Image
 
-    from fast_agent.llm.provider.openai.request_images import IMAGE_OMITTED_PLACEHOLDER
+    from fast_agent.llm.provider.request_images import IMAGE_OMITTED_PLACEHOLDER
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
     model = "gemini-4-carbon"

@@ -25,7 +25,7 @@ from fast_agent.llm.provider.openai.llm_openai import (
     _OpenAICompletionRequest,
     _OpenAICompletionResponse,
 )
-from fast_agent.llm.provider.openai.request_images import (
+from fast_agent.llm.provider.request_images import (
     IMAGE_OMITTED_PLACEHOLDER,
     request_bytes,
 )
@@ -259,7 +259,7 @@ async def test_custom_endpoint_requests_are_sent_unchanged(
 
 
 def test_image_count_budget_omits_oldest_images_first() -> None:
-    from fast_agent.llm.provider.openai.request_images import ChatRequestImageFitter, ImageBudget
+    from fast_agent.llm.provider.request_images import ChatRequestImageFitter, ImageBudget
 
     llm = _llm(_UNLIMITED)
     images = [_image((32, 32), noisy=False) for _ in range(4)]
@@ -281,7 +281,7 @@ def test_image_count_budget_omits_oldest_images_first() -> None:
 
 
 def test_per_image_byte_cap_shrinks_oversized_image() -> None:
-    from fast_agent.llm.provider.openai.request_images import ChatRequestImageFitter, ImageBudget
+    from fast_agent.llm.provider.request_images import ChatRequestImageFitter, ImageBudget
 
     llm = _llm(_UNLIMITED)
     big_noisy = _image((1200, 1200), noisy=True)
