@@ -35,11 +35,14 @@ from fast_agent.ui.prompt.turn_input_commands import (
         "/events",
         "/a2a status",
         "/a2a tasks",
+        "!",
+        "!   ",
+        "!!",
         "!echo hello",
         "!git status",
     ],
 )
-def test_parse_concurrent_command_allows_readonly_and_noninteractive_shell(text: str) -> None:
+def test_parse_concurrent_command_allows_readonly_and_shell(text: str) -> None:
     assert parse_concurrent_command(text) is not None
 
 
@@ -58,12 +61,10 @@ def test_parse_concurrent_command_allows_readonly_and_noninteractive_shell(text:
         "/prompt load foo",
         "@other",
         "#other ping",
-        "!",
-        "!   ",
         "!!!echo hi",
     ],
 )
-def test_parse_concurrent_command_rejects_mutating_or_interactive(text: str) -> None:
+def test_parse_concurrent_command_rejects_mutating(text: str) -> None:
     assert parse_concurrent_command(text) is None
 
 
@@ -135,3 +136,26 @@ async def test_execute_concurrent_slash_command_dispatches(
 
     assert len(dispatched) == 1
     assert any("/usage" in line for line in printed)
+
+
+def test_suspend_console_output_buffers_and_flushes_in_order() -> None:
+    from io import StringIO
+
+    from fast_agent.ui.console import SurrogateSafeConsole, suspend_console_output
+
+    buf = StringIO()
+    test_console = SurrogateSafeConsole(file=buf, force_terminal=False, color_system=None)
+
+    test_console.print("before")
+    assert "before" in buf.getvalue()
+
+    with suspend_console_output():
+        test_console.print("first-buffered")
+        test_console.print("second-buffered")
+        assert "first-buffered" not in buf.getvalue()
+        assert "second-buffered" not in buf.getvalue()
+
+    out = buf.getvalue()
+    assert "first-buffered" in out
+    assert "second-buffered" in out
+    assert out.index("before") < out.index("first-buffered") < out.index("second-buffered")

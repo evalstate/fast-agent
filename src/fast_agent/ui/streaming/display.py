@@ -5,9 +5,9 @@ import math
 import os
 import sys
 import time
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, TextIO, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Generator, Protocol, TextIO, cast, runtime_checkable
 
 from rich.console import Console, Group
 from rich.control import Control
@@ -814,6 +814,31 @@ class NullStreamingHandle:
         return
 
 
+_active_streaming_handles: set[StreamingMessageHandle] = set()
+_streaming_suspended = 0
+
+
+@contextmanager
+def suspend_streaming_displays() -> Generator[None, None, None]:
+    """Temporarily stop active streaming Live renderers while a foreground TTY child runs.
+
+    Chunks continue accumulating in memory; any handle still active on exit
+    restarts its Live surface and renders the latest state.
+    """
+    global _streaming_suspended
+    _streaming_suspended += 1
+    if _streaming_suspended == 1:
+        for handle in list(_active_streaming_handles):
+            handle._suspend_live()
+    try:
+        yield
+    finally:
+        _streaming_suspended = max(0, _streaming_suspended - 1)
+        if _streaming_suspended == 0:
+            for handle in list(_active_streaming_handles):
+                handle._resume_live()
+
+
 class StreamingMessageHandle:
     """Helper that manages live rendering for streaming assistant responses."""
 
@@ -1150,13 +1175,24 @@ class StreamingMessageHandle:
             finally:
                 self._progress_paused = False
 
+    def _suspend_live(self) -> None:
+        if self._live and self._live_started:
+            with suppress(Exception):
+                self._live.__exit__(None, None, None)
+            self._live_started = False
+
+    def _resume_live(self) -> None:
+        if self._active and not self._finalized and self._live and not self._live_started:
+            self._render_current_buffer()
+
     def _ensure_started(self) -> None:
-        if not self._live or self._live_started:
+        if _streaming_suspended > 0 or not self._live or self._live_started:
             return
 
         self._pause_progress_display()
 
         if self._live and not self._live_started:
+            _active_streaming_handles.add(self)
             self._live.__enter__()
             self._live_started = True
             if (
@@ -1432,7 +1468,7 @@ class StreamingMessageHandle:
 
         Returns True when the request can be honored for this stream.
         """
-        if not self._live:
+        if _streaming_suspended > 0 or not self._live:
             return False
         if self._alt_screen_streaming:
             return False
@@ -1481,7 +1517,7 @@ class StreamingMessageHandle:
             self._render_current_buffer()
 
     def _render_current_buffer(self) -> None:
-        if not self._active:
+        if not self._active or _streaming_suspended > 0:
             return
 
         segments = self._segment_assembler.segments
@@ -2138,6 +2174,7 @@ class StreamingMessageHandle:
             self._queue.task_done()
 
     def _shutdown_live_resources(self) -> None:
+        _active_streaming_handles.discard(self)
         if self._unsubscribe_turn_input is not None:
             self._unsubscribe_turn_input()
             self._unsubscribe_turn_input = None

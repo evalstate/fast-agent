@@ -9,6 +9,7 @@ turn completes.
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import TYPE_CHECKING
 
 from rich.markup import escape as escape_markup
@@ -53,7 +54,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _SHELL_OUTPUT_MAX_CHARS = 8_000
-_SHELL_TIMEOUT_SECONDS = 30.0
 _CONCURRENT_SAFE_STRINGS = frozenset({"HELP", "HELP:STATUS"})
 
 
@@ -103,9 +103,7 @@ def is_concurrent_safe_command(parsed: str | CommandPayload) -> bool:
         return parsed.action in ("", "list", "status", "help") and parsed.error is None
 
     if isinstance(parsed, ShellCommand):
-        return (
-            not parsed.interactive and not parsed.output_to_prompt and bool(parsed.command.strip())
-        )
+        return not parsed.output_to_prompt and bool(parsed.command.strip())
 
     return False
 
@@ -121,55 +119,51 @@ def parse_concurrent_command(text: str) -> str | CommandPayload | None:
     return None
 
 
-async def _run_concurrent_shell_command(
+def is_foreground_shell_command(parsed: str | CommandPayload) -> bool:
+    """Return True when ``parsed`` requires suspending live UI for foreground TTY access."""
+    return isinstance(parsed, ShellCommand) and not parsed.output_to_prompt
+
+
+async def _run_foreground_shell_command(
     command: str,
     *,
-    working_dir: Path | None,
+    prompt_prefix: str,
+    first_line: str,
 ) -> None:
-    """Run a non-interactive shell command with stdin closed and print output above the dock."""
-    try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(working_dir) if working_dir is not None else None,
-        )
-    except OSError as exc:
-        rich_print(f"[red]Shell command failed to start: {escape_markup(str(exc))}[/red]")
-        return
+    """Suspend live UI, hand over the TTY to ``command``, and flush buffered output on exit."""
+    from fast_agent.ui.console import suspend_console_output
+    from fast_agent.ui.interactive_shell import run_interactive_shell_command
+    from fast_agent.ui.progress_display import progress_display
+    from fast_agent.ui.prompt.turn_input import suspend_turn_input
+    from fast_agent.ui.streaming.display import suspend_streaming_displays
 
+    is_tty = False
     try:
-        stdout_bytes, stderr_bytes = await asyncio.wait_for(
-            proc.communicate(),
-            timeout=_SHELL_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
+        is_tty = bool(sys.stdin.isatty() and sys.stdout.isatty())
+    except Exception:
+        is_tty = False
+
+    with suspend_streaming_displays(), progress_display.paused():
         rich_print(
-            f"[yellow]Shell command timed out after {int(_SHELL_TIMEOUT_SECONDS)}s: "
-            f"{escape_markup(command)}[/yellow]"
+            f"[bold red]{escape_markup(prompt_prefix)}[/bold red] "
+            f"[red]{escape_markup(first_line)}[/red]"
         )
-        return
-    except asyncio.CancelledError:
-        proc.kill()
-        await proc.wait()
-        raise
-
-    stdout_text = stdout_bytes.decode("utf-8", errors="replace").rstrip()
-    stderr_text = stderr_bytes.decode("utf-8", errors="replace").rstrip()
-
-    if stdout_text:
-        if len(stdout_text) > _SHELL_OUTPUT_MAX_CHARS:
-            stdout_text = stdout_text[:_SHELL_OUTPUT_MAX_CHARS] + "\n… (output truncated)"
-        rich_print(Text(stdout_text))
-    if stderr_text:
-        if len(stderr_text) > _SHELL_OUTPUT_MAX_CHARS:
-            stderr_text = stderr_text[:_SHELL_OUTPUT_MAX_CHARS] + "\n… (stderr truncated)"
-        rich_print(Text(stderr_text, style="red"))
-    if proc.returncode not in (0, None):
-        rich_print(f"[dim red]exit {proc.returncode}[/dim red]")
+        with suspend_turn_input(), suspend_console_output():
+            result = await asyncio.to_thread(
+                run_interactive_shell_command,
+                command,
+                show_output=is_tty,
+                echo_command=False,
+                restore_scroll_region=is_tty,
+            )
+        if not is_tty:
+            stdout_text = result.stdout.rstrip()
+            if stdout_text:
+                if len(stdout_text) > _SHELL_OUTPUT_MAX_CHARS:
+                    stdout_text = stdout_text[:_SHELL_OUTPUT_MAX_CHARS] + "\n… (output truncated)"
+                rich_print(Text(stdout_text))
+        if result.exit_code not in (0, None):
+            rich_print(f"[dim red]exit {result.exit_code}[/dim red]")
 
 
 async def execute_concurrent_command(
@@ -186,11 +180,16 @@ async def execute_concurrent_command(
 ) -> None:
     """Execute a concurrent-safe command and print its output above the live dock."""
     first_line = raw_text.lstrip().splitlines()[0]
-    rich_print(f"[dim]{escape_markup(prompt_prefix)} {escape_markup(first_line)}[/dim]")
 
     if isinstance(parsed, ShellCommand):
-        await _run_concurrent_shell_command(parsed.command, working_dir=shell_working_dir)
+        await _run_foreground_shell_command(
+            parsed.command,
+            prompt_prefix=prompt_prefix,
+            first_line=first_line,
+        )
         return
+
+    rich_print(f"[dim]{escape_markup(prompt_prefix)} {escape_markup(first_line)}[/dim]")
 
     from fast_agent.ui.prompt.special_commands import handle_special_commands
 
