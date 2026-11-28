@@ -993,6 +993,7 @@ class RichProgressDisplay:
         task_id = self._progress.add_task(
             "",
             total=None,
+            visible=not self._paused,
             target=event.target or task_name,
             details=event.details or "",
             task_name=task_name,
@@ -1339,7 +1340,7 @@ class RichProgressDisplay:
         if self._is_process_poll_event(event):
             task = next((item for item in self._progress.tasks if item.id == task_id), None)
             if task is not None:
-                task.visible = task.fields.get("process_owner_row") is None
+                task.visible = not self._paused and task.fields.get("process_owner_row") is None
         if self._is_process_poll_event(event):
             snapshot_field = "process_snapshot_task_elapsed"
         elif event.elapsed_seconds is not None:

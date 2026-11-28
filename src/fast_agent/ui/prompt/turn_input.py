@@ -558,11 +558,9 @@ class TurnInputReader:
         completer = self._completer
         if completer is None:
             return
-        self._completion_seq += 1
+        # A completion's replacement offset belongs to the document it was built for.
+        self._clear_completions()
         seq = self._completion_seq
-        if self._completion_task is not None:
-            self._completion_task.cancel()
-            self._completion_task = None
         document = self._buffer.document
         loop = self._loop
         if loop is None or loop.is_closed():
@@ -589,7 +587,8 @@ class TurnInputReader:
             except Exception:
                 logger.debug("Turn input completion failed", exc_info=True)
                 items = ()
-            self._apply_completion_results(seq, items, explicit=explicit)
+            if document == self._buffer.document:
+                self._apply_completion_results(seq, items, explicit=explicit)
 
         self._completion_task = loop.create_task(_run())
 
@@ -750,6 +749,7 @@ class TurnInputReader:
             from fast_agent.integrations.hc_children import is_hc_message
             from fast_agent.ui.prompt.pasted_paths import pasted_image_paths
 
+            self._clear_completions()
             if self._buffer.text and self._saved_draft is None and is_hc_message(key_press.data):
                 # hc pastes behind whatever the person was typing. Submit its
                 # message alone; the draft stays a draft.

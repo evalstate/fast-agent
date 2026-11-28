@@ -640,6 +640,36 @@ def test_turn_input_reader_tab_completion_navigation_and_esc() -> None:
         assert reader.snapshot().completions == ()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("paste", [False, True])
+async def test_turn_input_submits_current_text_while_completions_are_pending(
+    pipe: PipeInput, paste: bool
+) -> None:
+    from prompt_toolkit.completion import WordCompleter
+
+    reader = TurnInputReader(
+        input=pipe,
+        completer=WordCompleter(["/usage"], sentence=True),
+        write=lambda _s: None,
+    )
+    reader._loop = asyncio.get_running_loop()
+    try:
+        pipe.send_text("/u")
+        reader._readable()
+        pending = reader._completion_task
+        assert pending is not None
+        await asyncio.wait_for(pending, timeout=1)
+        assert [item.display for item in reader.snapshot().completions] == ["/usage"]
+
+        # Send the edit and Enter in one batch, before the next completion can finish.
+        pipe.send_text("\x1b[200~sage\x1b[201~\r" if paste else "sage\r")
+        reader._readable()
+        assert reader.queued_messages == ("/usage",)
+        assert reader.snapshot().draft_text == ""
+    finally:
+        reader.stop()
+
+
 def test_turn_input_reader_on_submit_intercepts_concurrent_commands() -> None:
     from prompt_toolkit.input.defaults import create_pipe_input
     from prompt_toolkit.key_binding import KeyPress
@@ -705,12 +735,33 @@ def test_progress_display_paused_keep_dock_hides_tasks_and_keeps_dock_live(
                 agent_name="agent",
             )
         )
+        poll = ProgressEvent(
+            action=ProgressAction.CALLING_TOOL,
+            target="agent",
+            agent_name="agent",
+            tool_name="poll_process",
+            correlation_id="poll",
+        )
+        display.update(poll)
         assert any(task.visible for task in display._progress.tasks)
 
         with display.paused(keep_dock=True):
             assert display._paused is True
             assert display._progress.dock_active is True
             assert display._live_started() is True
+            assert all(not task.visible for task in display._progress.tasks)
+
+            with_new_tool = ProgressEvent(
+                action=ProgressAction.CALLING_TOOL,
+                target="agent",
+                agent_name="agent",
+                tool_name="shell",
+                server_name="local",
+                correlation_id="shell",
+            )
+            display.update(with_new_tool)
+            display.update(poll)
+            assert len(display._progress.tasks) == 3
             assert all(not task.visible for task in display._progress.tasks)
 
             # A nested full pause() must stop Live and hide the dock, then
