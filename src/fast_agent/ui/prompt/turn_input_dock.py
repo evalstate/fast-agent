@@ -264,6 +264,7 @@ def _chop_line_with_cursor(
     cont_prefix: str,
     content_width: int,
     highlight_shell_arrow: bool = False,
+    text_style: str = "",
 ) -> tuple[list[Text], int | None]:
     if cursor_col is None:
         chunks = chop_cells(sanitized, content_width) if sanitized else [""]
@@ -280,7 +281,7 @@ def _chop_line_with_cursor(
             else:
                 row.append(cont_prefix, style="dim")
             if chunk:
-                row.append(chunk)
+                row.append(chunk, style=text_style)
             rows.append(row)
         return rows, None
 
@@ -311,12 +312,12 @@ def _chop_line_with_cursor(
             local = cursor_idx - offset
             cursor_chunk_idx = idx
             if local > 0:
-                row.append(chunk[:local])
+                row.append(chunk[:local], style=text_style)
             row.append(chunk[local], style="reverse")
             if local + 1 < len(chunk):
-                row.append(chunk[local + 1 :])
+                row.append(chunk[local + 1 :], style=text_style)
         elif chunk:
-            row.append(chunk)
+            row.append(chunk, style=text_style)
         rows.append(row)
         offset = chunk_end
     return rows, cursor_chunk_idx
@@ -373,6 +374,7 @@ def _build_draft_physical_rows(
             cont_prefix=cont_prefix,
             content_width=content_width,
             highlight_shell_arrow=is_first_logical and is_shell_draft,
+            text_style="red" if (is_first_logical and is_shell_draft) else "",
         )
         if cursor_in_line is not None:
             cursor_physical_row = len(physical_rows) + cursor_in_line

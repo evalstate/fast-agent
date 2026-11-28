@@ -808,6 +808,7 @@ def test_dock_highlights_prompt_arrow_red_for_shell_draft() -> None:
     spans = [(input_row.plain[s.start : s.end], s.style) for s in input_row.spans]
     assert ("agent ", "bold cyan") in spans
     assert ("❯ ", "bold red") in spans
+    assert ("!git status", "red") in spans
 
 
 def test_turn_input_reader_ctrl_t_toggles_multiline_mid_turn(pipe: PipeInput) -> None:
