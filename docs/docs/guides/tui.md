@@ -371,9 +371,11 @@ This lets the agent read a worker report after `hc wait` returns, without first
 finishing its answer. Consumed messages remain part of the current conversation
 turn and are not replayed into the next prompt.
 
-Commands (`/`, `!`, `@`, `#`), resource/attachment mentions and pasted image paths
-stay on the normal prompt path after the turn ends. Later messages cannot overtake
-these deferred inputs. Text without the active submit key remains a draft. Messages
+Shell commands (`!`, `!!`, `!!!`) wait until the turn ends and then run through the
+normal shell path. The dock marks their previews in red. Read-only slash commands
+such as `/usage` can run during the turn. Other deferred commands, resource or
+attachment mentions, and pasted image paths stay on the normal prompt path.
+Later messages cannot overtake deferred input. Text without the active submit key remains a draft. Messages
 arriving after the last continuation boundary become the next turn; `hc wait` returning
 `reason: message` does not guarantee that all message bytes have arrived yet.
 
@@ -385,10 +387,13 @@ draft stays in the input line. hc messages are never held back as commands.
 multiline mode enabled, its message remains a draft. Multiline message content
 still works in normal mode through paste or Ctrl+J newlines followed by Enter.
 
-While input is held, only the count (`⧗ 1 queued`) appears in the live streaming
-header or progress display and the OSC 7501 status message. Submitted input
-remaining at turn completion keeps the status working through the prompt handoff;
-an unfinished draft does not. Consumed messages appear before the next model response.
+While a turn is running, an inline input dock stays visible at the bottom of the
+live streaming or progress display showing your active draft and queued message
+previews (while the OSC 7501 status message continues reporting the queued count).
+Standard editing keys work inside the dock, and pressing ++up++ on an empty draft
+pulls the last queued message back into the editor. Submitted input remaining at
+turn completion keeps the status working through the prompt handoff; an unfinished
+draft does not. Consumed messages appear before the next model response.
 
 Press ++escape++ (or Ctrl+C) to cancel the current turn; `hc interrupt` sends
 Escape. Messages already queued are still sent after the cancellation. Forms such as

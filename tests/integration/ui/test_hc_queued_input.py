@@ -207,12 +207,13 @@ def test_reports_are_seen_before_final_response(scenario: HerdrScenario) -> None
     assert [message["text"] for message in messages] == ["probe"]
 
 
-def test_commands_are_not_injected_or_overtaken(scenario: HerdrScenario) -> None:
+def test_queued_shell_command_is_not_injected_or_overtaken(scenario: HerdrScenario) -> None:
     agent = scenario.start()
     scenario.hc("send", agent, "scenario command")
     scenario.receive("initial")
     scenario.receive("tool_waiting")
-    scenario.hc("send", agent, "/help")
+    shell_command = "!! true"
+    scenario.hc("send", agent, shell_command)
     scenario.reports(agent, "REPORT_AFTER_COMMAND")
     scenario.receive("wait_returned")
     scenario.release()
@@ -220,7 +221,7 @@ def test_commands_are_not_injected_or_overtaken(scenario: HerdrScenario) -> None
     assert len(messages) == 1 and messages[0]["tools"] == ["wait"]
     messages = scenario.receive("next_turn")["messages"]
     assert len(messages) == 1 and "REPORT_AFTER_COMMAND" in messages[0]["text"]
-    assert "/help" not in messages[0]["text"]
+    assert shell_command not in messages[0]["text"]
 
 
 def test_late_report_becomes_next_turn_once(scenario: HerdrScenario) -> None:

@@ -149,6 +149,11 @@ class _LazyAgentCompleter(Completer):
         yield from self._get_delegate().get_completions(document, complete_event)
 
 
+def build_lazy_agent_completer(**kwargs: Any) -> Completer:
+    """Create a lazily initialized, thread-safe AgentCompleter."""
+    return _LazyAgentCompleter(**kwargs)
+
+
 def _env_float(name: str, default: float) -> float:
     raw = os.getenv(name)
     if raw is None:

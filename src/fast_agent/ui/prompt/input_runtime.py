@@ -70,7 +70,7 @@ class PromptEventWake(Exception):
     """Internal prompt-toolkit exit used when an MCP event should start a turn."""
 
 
-def _format_prompt_prefix(agent_name: str, *, default_agent_name: str | None = None) -> str:
+def format_prompt_prefix(agent_name: str, *, default_agent_name: str | None = None) -> str:
     if is_default_agent_name(agent_name, default_agent_name=default_agent_name):
         return "❯"
     return f"{agent_name} ❯"
@@ -391,7 +391,7 @@ def _echo_visible_command(
 ) -> None:
     if not stripped.startswith(("/", "!")):
         return
-    prompt_prefix = _format_prompt_prefix(agent_name, default_agent_name=default_agent_name)
+    prompt_prefix = format_prompt_prefix(agent_name, default_agent_name=default_agent_name)
     visible_line = escape_markup(stripped.splitlines()[0])
     rich_print(f"[dim]{escape_markup(prompt_prefix)} {visible_line}[/dim]")
 

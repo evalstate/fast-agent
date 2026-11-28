@@ -79,9 +79,7 @@ def test_typed_text_keeps_editing_but_drops_prompt_controls(pipe: PipeInput) -> 
     pipe.send_text("hx\x7fi\x04\x1b[A\tthere")
     reader._readable()
     reader.flush()
-    assert "".join(
-        data for _key, data in keys(reader) if len(data) == 1 and data.isprintable()
-    ) == ("hxithere")
+    assert reader.draft_text == "hithere"
     assert Keys.ControlD not in [k.key for k in reader.held_keys]
     assert Keys.Up not in [k.key for k in reader.held_keys]
     assert recorder.queued == []  # no Enter yet: becomes a draft in the next prompt
@@ -260,7 +258,8 @@ def test_take_messages_waits_for_active_submit_key(pipe: PipeInput, multiline: b
     pipe.send_text(draft)
     assert reader.take_messages() == []
     assert recorder.queued == []
-    assert "".join(key.data for key in reader.held_keys) == draft
+    assert reader.draft_text == "first line\nsecond line"
+    assert "".join(key.data for key in reader.held_keys) == "first line\nsecond line"
 
     pipe.send_text(submit + "next draft")
     assert reader.take_messages() == ["first line\nsecond line"]
@@ -360,7 +359,16 @@ def test_suspended_reader_does_not_consume_form_input(pipe: PipeInput) -> None:
 
 
 @pytest.mark.asyncio
-async def test_replayed_count_survives_handoff_until_prompt_accepts(pipe: PipeInput) -> None:
+@pytest.mark.parametrize(
+    ("typed", "expected_inputs"),
+    [
+        ("/help\r\rlater\r", ["/help", "", "later"]),
+        ("\x14!echo first\x1b\r\n!!echo second\n", ["!echo first", "", "!!echo second"]),
+    ],
+)
+async def test_replayed_count_survives_handoff_until_prompt_accepts(
+    pipe: PipeInput, typed: str, expected_inputs: list[str]
+) -> None:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.input.typeahead import store_typeahead
     from prompt_toolkit.output import DummyOutput
@@ -369,20 +377,23 @@ async def test_replayed_count_survives_handoff_until_prompt_accepts(pipe: PipeIn
     from fast_agent.ui.prompt.keybindings import create_keybindings
 
     reader = TurnInputReader(input=pipe, write=lambda _s: None)
-    pipe.send_text("/help\r\rlater\r")
+    pipe.send_text(typed)
     assert reader.take_messages() == []
     store_typeahead(pipe, reader.stop(replay=True))
     assert turn_input.queued_input_count() == 2
     prompt = PromptSession(input=pipe, output=DummyOutput(), key_bindings=create_keybindings())
     try:
-        for expected, count in [("/help", 1), ("", 1), ("later", 0)]:
-            result = await run_prompt_once(
-                session=prompt,
-                agent_name="test",
-                default_agent_name="test",
-                default_buffer="",
-                resolve_prompt_text=lambda: "> ",
-                parse_special_input=lambda text: text,
+        for expected, count in zip(expected_inputs, (1, 1, 0), strict=True):
+            result = await asyncio.wait_for(
+                run_prompt_once(
+                    session=prompt,
+                    agent_name="test",
+                    default_agent_name="test",
+                    default_buffer="",
+                    resolve_prompt_text=lambda: "> ",
+                    parse_special_input=lambda text: text,
+                ),
+                timeout=1,
             )
             assert result == expected
             assert turn_input.queued_input_count() == count
@@ -427,8 +438,10 @@ async def test_new_turn_adopts_prompt_typeahead_before_fresh_input(
                     assert reader.take_messages() == ["older", "newer"]
                     assert turn_input.queued_input_count() == 1
                 assert turn_input.queued_input_count() == 1
+                # The TUI initializes each new prompt in single-line mode.
+                monkeypatch.setattr(prompt_input, "in_multiline_mode", False)
                 prompt = PromptSession(key_bindings=create_keybindings())
-                assert await prompt.prompt_async() == "/help"
+                assert await asyncio.wait_for(prompt.prompt_async(), timeout=1) == "/help"
                 turn_input.acknowledge_replayed_input()
                 assert turn_input.queued_input_count() == 0
     finally:
@@ -455,7 +468,7 @@ def test_draft_survives_an_hc_paste_that_was_never_submitted(pipe: PipeInput) ->
     reader = Recorder().reader(pipe)
     pipe.send_text(f"we \x1b[200~{HC_NOTE}\x1b[201~")
     reader._readable()
-    assert sorted(key.data for key in reader.stop()) == sorted([HC_NOTE, "w", "e", " "])
+    assert sorted(key.data for key in reader.stop()) == sorted([HC_NOTE, "we "])
 
 
 def test_hc_message_is_never_deferred_as_a_command(pipe: PipeInput) -> None:

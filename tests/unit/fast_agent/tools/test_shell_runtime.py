@@ -445,7 +445,7 @@ class _CancellableLocalShellExecutor(LocalShellExecutor):
 
 
 @contextmanager
-def _no_progress():
+def _no_progress(*, keep_dock: bool = False):
     yield
 
 

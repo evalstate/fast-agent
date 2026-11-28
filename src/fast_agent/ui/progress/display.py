@@ -1,9 +1,10 @@
 """Rich-based progress display for MCP Agent."""
 
 import json
+import math
 import os
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextlib import contextmanager
 from itertools import groupby
 from pathlib import Path
@@ -11,6 +12,8 @@ from threading import RLock, Timer
 from typing import Any
 
 from rich.console import Console, ConsoleOptions, RenderableType, RenderResult
+from rich.control import Control
+from rich.live_render import LiveRender
 from rich.markup import escape as escape_markup
 from rich.progress import Progress, ProgressColumn, Task, TaskID, TextColumn
 from rich.segment import Segment
@@ -31,7 +34,12 @@ from fast_agent.ui.progress.process_poll import (
     render_process_monitor_stats,
 )
 from fast_agent.ui.progress.subagent_table import render_subagent_table
-from fast_agent.ui.prompt.turn_input import queued_input_count
+from fast_agent.ui.prompt.turn_input import (
+    active_turn_input_snapshot,
+    add_turn_input_listener,
+    queued_input_count,
+)
+from fast_agent.ui.prompt.turn_input_dock import render_turn_input_dock
 from fast_agent.ui.tool_call_ids import format_tool_call_id
 from fast_agent.utils.text import collapse_whitespace
 from fast_agent.utils.time import format_process_elapsed
@@ -137,6 +145,44 @@ class _TrimRightPadding:
             yield new_line
 
 
+class _ResizeAwareLiveRender(LiveRender):
+    """LiveRender that rewinds the reflowed physical height after a terminal shrink."""
+
+    def __init__(self, *args: Any, console: Console, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._console = console
+        self._line_lengths: list[int] = []
+        self._rendered_width: int | None = None
+
+    def position_cursor(self) -> Control:
+        if self._shape is not None and self._line_lengths and self._rendered_width is not None:
+            current_width = self._console.size.width
+            if 0 < current_width < self._rendered_width:
+                reflowed_height = sum(
+                    max(1, math.ceil(length / current_width)) for length in self._line_lengths
+                )
+                max_visible = self._console.size.height
+                if max_visible > 0:
+                    reflowed_height = min(reflowed_height, max_visible)
+                self._shape = (self._shape[0], max(self._shape[1], reflowed_height))
+        return super().position_cursor()
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        line_lengths: list[int] = []
+        current_length = 0
+        for segment in super().__rich_console__(console, options):
+            if isinstance(segment, Segment):
+                if segment.text == "\n" and segment.control is None:
+                    line_lengths.append(current_length)
+                    current_length = 0
+                elif segment.control is None:
+                    current_length += segment.cell_length
+            yield segment
+        line_lengths.append(current_length)
+        self._line_lengths = line_lengths
+        self._rendered_width = console.size.width
+
+
 class _MonitoringProgress(Progress):
     """Render subagents as a compact table while retaining normal progress rows."""
 
@@ -147,7 +193,13 @@ class _MonitoringProgress(Progress):
         **kwargs: Any,
     ) -> None:
         self._subagent_spinner = subagent_spinner
+        self.dock_active = False
         super().__init__(*columns, **kwargs)
+        self.live._live_render = _ResizeAwareLiveRender(
+            self.live.get_renderable(),
+            console=self.console,
+            vertical_overflow=self.live.vertical_overflow,
+        )
 
     def get_renderables(self) -> Iterable[RenderableType]:
         tasks = list(self.tasks)
@@ -181,9 +233,16 @@ class _MonitoringProgress(Progress):
                 yield _TrimRightPadding(self.make_tasks_table(tasks))
         elif not subagents:
             yield _TrimRightPadding(self.make_tasks_table(()))
-        # Only beside visible rows: pausing hides every task first, so the
-        # final (stopped) frame never leaves this line in scrollback.
-        if (subagents or generic) and (queued := queued_input_count()):
+        # Pausing clears dock_active and hides every task before stopping, so
+        # the final stopped frame never leaves transient UI in scrollback.
+        dock_snapshot = active_turn_input_snapshot() if self.dock_active else None
+        if dock_snapshot is not None:
+            yield render_turn_input_dock(
+                dock_snapshot,
+                width=self.console.width,
+                terminal_height=self.console.size.height,
+            ).renderable
+        elif (subagents or generic) and (queued := queued_input_count()):
             yield Text(f"⧗ {queued} queued", style="yellow")
 
 
@@ -476,6 +535,7 @@ class RichProgressDisplay:
         self._paused = False
         self._stopped = False
         self._deferred_resume_at: float | None = None
+        self._unsubscribe_turn_input: Callable[[], None] | None = None
         trace_path_raw = os.getenv("FAST_AGENT_PROGRESS_DEBUG_TRACE", "").strip()
         self._trace_path: Path | None = (
             Path(trace_path_raw).expanduser() if trace_path_raw else None
@@ -494,6 +554,29 @@ class RichProgressDisplay:
         """Return whether Rich's Live renderer has been started."""
         return bool(getattr(self._progress.live, "is_started", False))
 
+    def _ensure_turn_input_listener_locked(self) -> None:
+        if self._unsubscribe_turn_input is None:
+            self._unsubscribe_turn_input = add_turn_input_listener(self._refresh_for_turn_input)
+
+    def _refresh_for_turn_input(self) -> None:
+        with self._lock:
+            if (
+                not self._stopped
+                and self._paused
+                and self._deferred_resume_at is not None
+                and active_turn_input_snapshot() is not None
+            ):
+                self._flush_deferred_resume_locked(force=False)
+            if (
+                self._stopped
+                or (self._paused and not self._progress.dock_active)
+                or not self._live_started()
+            ):
+                return
+            if getattr(self._progress.live, "_nested", False):
+                return
+            self._progress.refresh()
+
     def start(self) -> None:
         """start"""
         with self._lock:
@@ -501,6 +584,8 @@ class RichProgressDisplay:
             self._stopped = False
             self._paused = False
             self._deferred_resume_at = None
+            self._ensure_turn_input_listener_locked()
+            self._progress.dock_active = True
             self._progress.start()
             self._trace("start")
 
@@ -512,6 +597,10 @@ class RichProgressDisplay:
             self._stopped = True
             self._paused = True
             self._deferred_resume_at = None
+            self._progress.dock_active = False
+            if self._unsubscribe_turn_input is not None:
+                self._unsubscribe_turn_input()
+                self._unsubscribe_turn_input = None
             # Hide all tasks before stopping (like pause does)
             for task in self._progress.tasks:
                 task.visible = False
@@ -519,10 +608,68 @@ class RichProgressDisplay:
                 self._progress.stop()
             self._trace("stop")
 
-    def pause(self, *, cancel_deferred_on_noop: bool = False) -> None:
-        """Pause the progress display."""
+    def _has_other_live_locked(self) -> bool:
+        try:
+            live_stack = getattr(self.console, "_live_stack", [])
+        except Exception:
+            live_stack = []
+        return bool(live_stack and any(live is not self._progress.live for live in live_stack))
+
+    def _enter_dock_only_pause_locked(self) -> None:
+        self._deferred_resume_at = None
+        ensure_blocking_console()
+        self._paused = True
+        for task in self._progress.tasks:
+            task.visible = False
+        self._ensure_turn_input_listener_locked()
+        self._progress.dock_active = True
+        if self._live_started():
+            self._progress.refresh()
+        else:
+            if getattr(self._progress.live, "_nested", False):
+                self._progress.live._nested = False
+            self._progress.start()
+        self._trace("pause.dock_only")
+
+    def pause(
+        self,
+        *,
+        cancel_deferred_on_noop: bool = False,
+        keep_dock: bool = False,
+    ) -> None:
+        """Pause the progress display.
+
+        When ``keep_dock`` is True and mid-turn input is active, hide progress
+        rows while keeping the live inline turn-input dock visible so console
+        output (such as live shell output) prints above the dock.
+        """
         with self._lock:
-            if self._stopped or self._paused:
+            if self._stopped:
+                if cancel_deferred_on_noop:
+                    self._deferred_resume_at = None
+                self._trace(
+                    "pause.noop",
+                    stopped=self._stopped,
+                    paused=self._paused,
+                    cancel_deferred_on_noop=cancel_deferred_on_noop,
+                )
+                return
+
+            dock_only = (
+                keep_dock
+                and active_turn_input_snapshot() is not None
+                and (
+                    not self._paused
+                    or self._deferred_resume_at is not None
+                    or self._progress.dock_active
+                )
+                and not self._has_other_live_locked()
+            )
+            if dock_only:
+                self._enter_dock_only_pause_locked()
+                return
+
+            if self._paused and not self._progress.dock_active:
                 if cancel_deferred_on_noop:
                     self._deferred_resume_at = None
                 self._trace(
@@ -536,6 +683,7 @@ class RichProgressDisplay:
             self._deferred_resume_at = None
             ensure_blocking_console()
             self._paused = True
+            self._progress.dock_active = False
             for task in self._progress.tasks:
                 task.visible = False
             if self._live_started():
@@ -548,19 +696,14 @@ class RichProgressDisplay:
         if self._stopped or not self._paused:
             self._trace("resume_locked.noop", stopped=self._stopped, paused=self._paused)
             return
-        try:
-            live_stack = getattr(self.console, "_live_stack", [])
-        except Exception:
-            live_stack = []
-
-        if live_stack and any(live is not self._progress.live for live in live_stack):
+        if self._has_other_live_locked():
             # A concurrent Rich Live (for example, a streaming renderer that is
             # still unwinding after cancellation) temporarily blocks the shared
             # progress display from resuming. Keep an immediate deferred retry
             # armed so the next update() can re-attempt resume once the other
             # Live is gone instead of silently remaining paused for the turn.
             self._deferred_resume_at = time.monotonic()
-            self._trace("resume_locked.blocked_nested_live", live_stack=len(live_stack))
+            self._trace("resume_locked.blocked_nested_live")
             return
         ensure_blocking_console()
         if getattr(self._progress.live, "_nested", False):
@@ -569,7 +712,12 @@ class RichProgressDisplay:
             task.visible = task.fields.get("process_owner_row") is None
         # Start the Live display before clearing the flag so that
         # update() never runs against an un-started Progress.
-        self._progress.start()
+        self._ensure_turn_input_listener_locked()
+        self._progress.dock_active = True
+        if self._live_started():
+            self._progress.refresh()
+        else:
+            self._progress.start()
         self._paused = False
         self._trace("resume_locked.applied")
 
@@ -674,16 +822,26 @@ class RichProgressDisplay:
             self.clear_agent_tasks(normalized_agent)
 
     @contextmanager
-    def paused(self):
+    def paused(self, *, keep_dock: bool = False):
         """Context manager for temporarily pausing the display."""
         with self._lock:
             was_paused = self._paused
-        self.pause()
+            was_dock_active = self._progress.dock_active
+            had_pending_resume = self._deferred_resume_at is not None
+        self.pause(keep_dock=keep_dock)
         try:
             yield
         finally:
-            if not was_paused:
+            if not was_paused or had_pending_resume:
                 self.resume()
+            elif was_dock_active and not keep_dock:
+                with self._lock:
+                    if (
+                        not self._stopped
+                        and active_turn_input_snapshot() is not None
+                        and not self._has_other_live_locked()
+                    ):
+                        self._enter_dock_only_pause_locked()
 
     def _get_action_style(self, action: ProgressAction) -> str:
         """Map actions to appropriate styles."""
@@ -835,6 +993,7 @@ class RichProgressDisplay:
         task_id = self._progress.add_task(
             "",
             total=None,
+            visible=not self._paused,
             target=event.target or task_name,
             details=event.details or "",
             task_name=task_name,
@@ -1181,7 +1340,7 @@ class RichProgressDisplay:
         if self._is_process_poll_event(event):
             task = next((item for item in self._progress.tasks if item.id == task_id), None)
             if task is not None:
-                task.visible = task.fields.get("process_owner_row") is None
+                task.visible = not self._paused and task.fields.get("process_owner_row") is None
         if self._is_process_poll_event(event):
             snapshot_field = "process_snapshot_task_elapsed"
         elif event.elapsed_seconds is not None:
