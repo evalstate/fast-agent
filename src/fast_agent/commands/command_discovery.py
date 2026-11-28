@@ -509,7 +509,7 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
             "summary": "Subscribe to MCP server events",
             "usage": (
                 "/events [select|list [server]|subscribe <server> <event> [key=value ...] "
-                "[--wake] [--once] [--every <duration>] [--poll|--push]|poll <id>|"
+                "[--no-wake] [--once] [--every <duration>] [--poll|--push]|poll <id>|"
                 "unsubscribe <id>|unsubscribe all]"
             ),
             "actions": [
@@ -528,7 +528,7 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
                     "summary": "subscribe to an event type, by push when the server offers it",
                     "usage": (
                         "/events subscribe <server> <event> [key=value ...] "
-                        "[--wake] [--once] [--every <duration>] [--poll|--push]"
+                        "[--no-wake] [--once] [--every <duration>] [--poll|--push]"
                     ),
                 },
                 {
@@ -547,7 +547,7 @@ def _discovery_top_level_catalog() -> tuple[CommandIndexEntry, ...]:
                 "/events select",
                 "/events list",
                 "/events subscribe jobs job.status_changed job_id=abc123",
-                "/events subscribe jobs job.status_changed job_id=abc123 --wake",
+                "/events subscribe jobs job.status_changed job_id=abc123 --no-wake",
                 "/events unsubscribe 3f9a1c2b7d10",
             ],
         },
